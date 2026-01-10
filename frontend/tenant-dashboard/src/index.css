@@ -1,0 +1,259 @@
+@import "tailwindcss";
+
+/* ==================== Tenant Theme CSS Variables ==================== */
+
+:root {
+  /* Primary Colors */
+  --color-primary: #7C3AED;
+  --color-primary-light: #8B5CF6;
+  --color-primary-dark: #6D28D9;
+
+  /* Secondary Colors */
+  --color-secondary: #64748B;
+  --color-secondary-light: #94A3B8;
+  --color-secondary-dark: #475569;
+
+  /* Accent & Status Colors */
+  --color-accent: #06B6D4;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+
+  /* Background Colors */
+  --color-background: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+
+  /* Text Colors */
+  --color-text-primary: #1E293B;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94A3B8;
+
+  /* Border Colors */
+  --color-border: #E2E8F0;
+  --color-border-light: #F1F5F9;
+
+  /* Typography */
+  --font-family-heading: 'Inter', system-ui, sans-serif;
+  --font-family-body: 'Inter', system-ui, sans-serif;
+  --font-size-base: 16px;
+
+  /* Spacing & Radius */
+  --radius-base: 0.5rem;
+  --radius-lg: 0.75rem;
+}
+
+/* Dark Mode Variables */
+[data-theme="dark"] {
+  --color-background: #0F172A;
+  --color-surface: #1E293B;
+  --color-surface-elevated: #334155;
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #CBD5E1;
+  --color-text-muted: #64748B;
+  --color-border: #334155;
+  --color-border-light: #475569;
+}
+
+/* ==================== Tailwind Theme Extension ==================== */
+
+@theme {
+  /* Map CSS variables to Tailwind colors */
+  --color-brand-primary: var(--color-primary);
+  --color-brand-primary-light: var(--color-primary-light);
+  --color-brand-primary-dark: var(--color-primary-dark);
+  --color-brand-secondary: var(--color-secondary);
+  --color-brand-accent: var(--color-accent);
+
+  /* Legacy Zorah colors (for backward compatibility) */
+  --color-zorah-purple: var(--color-primary);
+  --color-zorah-purple-light: var(--color-primary-light);
+  --color-zorah-purple-dark: var(--color-primary-dark);
+  --color-zorah-violet: #8B5CF6;
+  --color-zorah-indigo: #6366F1;
+
+  /* Primary palette mapped from CSS variables */
+  --color-primary-50: #FAF5FF;
+  --color-primary-100: #F3E8FF;
+  --color-primary-200: #E9D5FF;
+  --color-primary-300: #D8B4FE;
+  --color-primary-400: #C084FC;
+  --color-primary-500: var(--color-primary-light);
+  --color-primary-600: var(--color-primary);
+  --color-primary-700: var(--color-primary-dark);
+  --color-primary-800: #6B21A8;
+  --color-primary-900: #581C87;
+}
+
+/* ==================== Base Styles ==================== */
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family-heading);
+}
+
+/* ==================== Component Classes ==================== */
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-base);
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-primary) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-base);
+  border: 1px solid var(--color-border);
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-border-light);
+  border-color: var(--color-border);
+}
+
+.btn-accent {
+  background: linear-gradient(135deg, var(--color-accent) 0%, #0284C7 100%);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-base);
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-accent:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--color-border);
+  padding: 1.5rem;
+}
+
+.card-elevated {
+  background-color: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Gradient header for welcome cards */
+.gradient-primary {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+}
+
+/* Legacy gradient class for backward compatibility */
+.gradient-purple {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+}
+
+/* ==================== Utility Classes ==================== */
+
+/* Background utilities */
+.bg-theme-primary { background-color: var(--color-primary); }
+.bg-theme-primary-light { background-color: var(--color-primary-light); }
+.bg-theme-primary-dark { background-color: var(--color-primary-dark); }
+.bg-theme-secondary { background-color: var(--color-secondary); }
+.bg-theme-accent { background-color: var(--color-accent); }
+.bg-theme-surface { background-color: var(--color-surface); }
+.bg-theme-background { background-color: var(--color-background); }
+
+/* Text utilities */
+.text-theme-primary { color: var(--color-primary); }
+.text-theme-primary-light { color: var(--color-primary-light); }
+.text-theme-secondary { color: var(--color-text-secondary); }
+.text-theme-muted { color: var(--color-text-muted); }
+.text-theme-accent { color: var(--color-accent); }
+
+/* Border utilities */
+.border-theme { border-color: var(--color-border); }
+.border-theme-primary { border-color: var(--color-primary); }
+
+/* ==================== Legacy Tailwind Classes (Backward Compatibility) ==================== */
+
+.text-primary-100 { color: #F3E8FF; }
+.text-primary-600 { color: var(--color-primary); }
+.text-primary-700 { color: var(--color-primary-dark); }
+
+.bg-primary-50 { background-color: #FAF5FF; }
+.bg-primary-100 { background-color: #F3E8FF; }
+.bg-primary-600 { background-color: var(--color-primary); }
+.bg-primary-700 { background-color: var(--color-primary-dark); }
+
+/* Hover states with theme colors */
+.hover\:bg-theme-primary:hover { background-color: var(--color-primary); }
+.hover\:text-theme-primary:hover { color: var(--color-primary); }
+
+/* ==================== Status Colors ==================== */
+
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-error { color: var(--color-error); }
+
+.bg-success { background-color: var(--color-success); }
+.bg-warning { background-color: var(--color-warning); }
+.bg-error { background-color: var(--color-error); }
+
+/* ==================== Loading & Animation ==================== */
+
+@keyframes pulse-primary {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-primary {
+  animation: pulse-primary 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Spinner with theme color */
+.spinner-primary {
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary);
+}

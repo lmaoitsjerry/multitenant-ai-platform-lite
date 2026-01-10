@@ -1,0 +1,250 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Client Configuration Schema",
+  "type": "object",
+  "required": ["client", "infrastructure", "email"],
+  "properties": {
+    "client": {
+      "type": "object",
+      "required": ["id", "name", "short_name", "timezone"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Unique client identifier (lowercase, no spaces)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full company name"
+        },
+        "short_name": {
+          "type": "string",
+          "pattern": "^[a-z]+$",
+          "description": "Short name (lowercase, no spaces)"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone (e.g., America/New_York)"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "default": "USD",
+          "description": "ISO currency code"
+        }
+      }
+    },
+    "branding": {
+      "type": "object",
+      "properties": {
+        "company_name": {
+          "type": "string"
+        },
+        "logo_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "primary_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "secondary_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "email_signature": {
+          "type": "string"
+        }
+      }
+    },
+    "destinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "code", "enabled"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]+$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "infrastructure": {
+      "type": "object",
+      "required": ["gcp", "supabase", "openai"],
+      "properties": {
+        "gcp": {
+          "type": "object",
+          "required": ["project_id", "region", "dataset"],
+          "properties": {
+            "project_id": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "dataset": {
+              "type": "string"
+            },
+            "corpus_id": {
+              "type": "string"
+            }
+          }
+        },
+        "supabase": {
+          "type": "object",
+          "required": ["url", "anon_key"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "anon_key": {
+              "type": "string"
+            },
+            "service_key": {
+              "type": "string"
+            }
+          }
+        },
+        "vapi": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": "string"
+            },
+            "phone_number_id": {
+              "type": "string"
+            },
+            "assistant_id": {
+              "type": "string"
+            }
+          }
+        },
+        "openai": {
+          "type": "object",
+          "required": ["api_key"],
+          "properties": {
+            "api_key": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string",
+              "default": "gpt-4o-mini"
+            }
+          }
+        }
+      }
+    },
+    "email": {
+      "type": "object",
+      "required": ["primary", "smtp", "imap"],
+      "properties": {
+        "primary": {
+          "type": "string",
+          "format": "email"
+        },
+        "smtp": {
+          "type": "object",
+          "required": ["host", "port", "username"],
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            }
+          }
+        },
+        "imap": {
+          "type": "object",
+          "required": ["host", "port"],
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "consultants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "email", "active"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "properties": {
+        "inbound": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "prompt_file": {
+              "type": "string"
+            }
+          }
+        },
+        "helpdesk": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "prompt_file": {
+              "type": "string"
+            }
+          }
+        },
+        "outbound": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "prompt_file": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

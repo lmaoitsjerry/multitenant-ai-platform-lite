@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Travel Quote - {{ quote.destination }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, {
+                    {
+                    primary_color
+                }
+            }
+
+            , {
+                {
+                secondary_color
+            }
+        });
+        color: white;
+        padding: 30px;
+        margin: -20mm -20mm 20px -20mm;
+        text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .header .subtitle {
+            margin-top: 10px;
+            font-size: 18px;
+            opacity: 0.9;
+        }
+
+        .customer-info {
+            background-color: #f8f9fa;
+            padding: 20px;
+
+            border-left: 4px solid {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+            margin-bottom: 30px;
+        }
+
+        .customer-info h2 {
+            margin-top: 0;
+
+            color: {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+            font-size: 20px;
+        }
+
+        .info-row {
+            display: flex;
+            margin-bottom: 8px;
+        }
+
+        .info-label {
+            font-weight: bold;
+            width: 150px;
+        }
+
+        .hotel-option {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+            page-break-inside: avoid;
+        }
+
+        .hotel-header {
+            background-color: {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+            color: white;
+            padding: 15px;
+            margin: -20px -20px 20px -20px;
+            border-radius: 6px 6px 0 0;
+        }
+
+        .hotel-name {
+            font-size: 22px;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        .hotel-rating {
+            color: #ffd700;
+            font-size: 16px;
+        }
+
+        .hotel-details {
+            margin-top: 15px;
+        }
+
+        .detail-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .detail-label {
+            font-weight: bold;
+            width: 200px;
+            color: #666;
+        }
+
+        .detail-value {
+            flex: 1;
+        }
+
+        .price-box {
+            background-color: #f8f9fa;
+
+            border: 2px solid {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .price-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .price-amount {
+            font-size: 32px;
+            font-weight: bold;
+
+            color: {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+        }
+
+        .price-breakdown {
+            margin-top: 15px;
+            text-align: left;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .terms {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .cta-box {
+            background-color: {
+                    {
+                    primary_color
+                }
+            }
+
+            ;
+            color: white;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: center;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>{{ branding.company_name }}</h1>
+        <div class="subtitle">Your Personalized Travel Quote</div>
+    </div>
+
+    <div class="customer-info">
+        <h2>Quote Details</h2>
+        <div class="info-row">
+            <span class="info-label">Customer:</span>
+            <span>{{ quote.customer_name }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Email:</span>
+            <span>{{ quote.customer_email }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Destination:</span>
+            <span>{{ quote.destination }}</span>
+        </div>
+        {% if quote.check_in_date %}
+        <div class="info-row">
+            <span class="info-label">Travel Dates:</span>
+            <span>{{ quote.check_in_date }} to {{ quote.check_out_date }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Duration:</span>
+            <span>{{ quote.nights }} nights</span>
+        </div>
+        {% endif %}
+        <div class="info-row">
+            <span class="info-label">Travelers:</span>
+            <span>{{ quote.adults }} Adult(s){% if quote.children %}, {{ quote.children }} Child(ren){% endif %}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Quote ID:</span>
+            <span>{{ quote.quote_id }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Generated:</span>
+            <span>{{ generated_date }}</span>
+        </div>
+    </div>
+
+    <h2 style="color: {{ primary_color }};">Your Hotel Options</h2>
+    <p>We've selected the following {{ quote.hotels|length }} hotel options based on your requirements:</p>
+
+    {% for hotel in quote.hotels %}
+    <div class="hotel-option">
+        <div class="hotel-header">
+            <div class="hotel-name">{{ hotel.name }}</div>
+            <div class="hotel-rating">
+                {% for i in range(hotel.rating|int) %}★{% endfor %}
+            </div>
+        </div>
+
+        <div class="hotel-details">
+            <div class="detail-row">
+                <span class="detail-label">Room Type:</span>
+                <span class="detail-value">{{ hotel.room_type }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Meal Plan:</span>
+                <span class="detail-value">{{ hotel.meal_plan }}</span>
+            </div>
+            {% if hotel.description %}
+            <div class="detail-row">
+                <span class="detail-label">Description:</span>
+                <span class="detail-value">{{ hotel.description }}</span>
+            </div>
+            {% endif %}
+            {% if hotel.amenities %}
+            <div class="detail-row">
+                <span class="detail-label">Amenities:</span>
+                <span class="detail-value">{{ hotel.amenities|join(', ') }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="price-box">
+            <div class="price-label">Total Price for {{ quote.nights }} Nights</div>
+            <div class="price-amount">R {{ "{:,}".format(hotel.total_price) }}</div>
+
+            <div class="price-breakdown">
+                <strong>Price Breakdown:</strong><br>
+                • Per Person (Sharing): R {{ "{:,}".format(hotel.price_per_person) }}<br>
+                {% if hotel.includes_flights %}
+                • Includes: Flights, Accommodation, {{ hotel.meal_plan }}, Transfers<br>
+                {% else %}
+                • Includes: Accommodation, {{ hotel.meal_plan }}, Transfers<br>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="cta-box">
+        <h3 style="margin-top: 0;">Ready to Book Your Dream Vacation?</h3>
+        <p style="margin-bottom: 0;">Contact us to confirm availability and secure your booking!</p>
+        <p style="font-size: 16px; margin-top: 10px;"><strong>{{ email.primary }}</strong></p>
+    </div>
+
+    <div class="terms">
+        <strong>Terms & Conditions:</strong><br>
+        • Prices are subject to availability and may change without notice<br>
+        • A deposit is required to secure your booking<br>
+        • Cancellation policies vary by hotel - full terms provided upon booking<br>
+        • All prices include VAT where applicable<br>
+        • This quote is valid for 7 days from the generation date
+    </div>
+
+    <div class="footer">
+        <p><strong>{{ branding.company_name }}</strong></p>
+        <p>{{ email.primary }}</p>
+        <p style="margin-top: 10px; font-size: 10px;">&copy; {{ generated_date.split()[-1] }} {{ branding.company_name
+            }}. All rights reserved.</p>
+    </div>
+</body>
+
+</html>

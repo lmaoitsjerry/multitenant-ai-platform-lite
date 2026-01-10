@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your {{ destination }} Travel Quote</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, {{ branding.primary_color }}, {{ branding.secondary_color }});
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background: #ffffff;
+            padding: 30px;
+            border: 1px solid #e0e0e0;
+        }
+        .highlight-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid {{ branding.primary_color }};
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: {{ branding.primary_color }};
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-radius: 0 0 10px 10px;
+        }
+        .signature {
+            white-space: pre-line;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {% if branding.logo_url %}
+        <img src="{{ branding.logo_url }}" alt="{{ branding.company_name }}" style="max-height: 60px; margin-bottom: 15px;">
+        {% endif %}
+        <h1>Your {{ destination }} Travel Quote</h1>
+    </div>
+    
+    <div class="content">
+        <p>Dear {{ customer_name }},</p>
+        
+        <p>Thank you for your interest in traveling to <strong>{{ destination }}</strong>!</p>
+        
+        <p>We've carefully selected the best accommodation options based on your requirements. 
+        Please find your personalized quote attached to this email.</p>
+        
+        <div class="highlight-box">
+            <h3 style="margin-top: 0; color: {{ branding.primary_color }};">Your Quote Details</h3>
+            <p><strong>Destination:</strong> {{ destination }}</p>
+            {% if check_in_date %}
+            <p><strong>Check-in:</strong> {{ check_in_date }}</p>
+            <p><strong>Check-out:</strong> {{ check_out_date }}</p>
+            {% endif %}
+            {% if travelers %}
+            <p><strong>Travelers:</strong> {{ travelers.adults }} adult(s){% if travelers.children %}, {{ travelers.children }} child(ren){% endif %}</p>
+            {% endif %}
+        </div>
+        
+        <p>Our team has put together several fantastic options for you to choose from. 
+        Each option includes accommodation, meals, and transfers as specified in the quote.</p>
+        
+        <div style="text-align: center;">
+            <a href="mailto:{{ email.primary }}" class="cta-button">Reply to Book Now</a>
+        </div>
+        
+        <div class="highlight-box">
+            <p style="margin: 0;"><strong>What's Next?</strong></p>
+            <ul style="margin: 10px 0;">
+                <li>Review your personalized quote (attached PDF)</li>
+                <li>Reply to this email with your preferred option</li>
+                <li>Our team will confirm availability and finalize your booking</li>
+            </ul>
+        </div>
+        
+        <p>If you have any questions or would like to make changes to your requirements, 
+        please don't hesitate to reach out. We're here to help make your {{ destination }} 
+        vacation unforgettable!</p>
+        
+        <div class="signature">
+            {{ branding.email_signature }}
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>&copy; {{ "now"|date("%Y") }} {{ branding.company_name }}. All rights reserved.</p>
+        <p>{{ email.primary }}</p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,108 @@
+# Client Configuration Template
+
+# This is a template for creating new client configurations.
+# Copy this file to clients/YOUR_CLIENT_ID/client.yaml and fill in the values.
+
+# ========== Client Information ==========
+client:
+  id: "example_client"              # REQUIRED: lowercase, no spaces (e.g., "acmetravel")
+  name: "Example Travel Agency"     # REQUIRED: Full company name
+  short_name: "example"             # REQUIRED: Short name (lowercase, no spaces)
+  timezone: "America/New_York"      # REQUIRED: IANA timezone
+  currency: "USD"                   # OPTIONAL: ISO currency code (default: USD)
+
+# ========== Branding ==========
+branding:
+  company_name: "Example Travel"    # Display name in emails/PDFs
+  logo_url: "https://example.com/logo.png"  # OPTIONAL: Logo URL
+  primary_color: "#FF6B6B"          # Hex color for branding
+  secondary_color: "#4ECDC4"        # Secondary color
+  email_signature: |                # Multi-line email signature
+    Best regards,
+    The Example Travel Team
+    
+    📧 contact@example.com
+    📞 +1 (555) 123-4567
+
+# ========== Destinations ==========
+destinations:
+  - name: "Bali"
+    code: "BALI"
+    enabled: true
+  - name: "Maldives"
+    code: "MALD"
+    enabled: true
+  - name: "Thailand"
+    code: "THAI"
+    enabled: false               # Set to false to disable
+
+# ========== Infrastructure ==========
+infrastructure:
+  # Google Cloud Platform
+  gcp:
+    project_id: "your-gcp-project-123456"    # REQUIRED: GCP project ID
+    region: "us-central1"                     # REQUIRED: GCP region
+    dataset: "example_analytics"              # REQUIRED: BigQuery dataset name
+    corpus_id: ""                             # OPTIONAL: Vertex AI corpus ID (leave empty initially)
+  
+  # Supabase
+  supabase:
+    url: "https://xxxxx.supabase.co"          # REQUIRED: Supabase project URL
+    anon_key: "eyJhbGc..."                    # REQUIRED: Supabase anon key
+    service_key: "${SUPABASE_SERVICE_KEY}"    # OPTIONAL: From environment variable
+  
+ # VAPI (Phone Calling)
+  vapi:
+    api_key: "${VAPI_API_KEY}"                # From environment variable
+    phone_number_id: "your-phone-id"
+    assistant_id: "your-assistant-id"
+  
+  # OpenAI
+  openai:
+    api_key: "${OPENAI_API_KEY}"              # REQUIRED: From environment variable
+    model: "gpt-4o-mini"                      # OPTIONAL: Model name (default: gpt-4o-mini)
+
+# ========== Email Configuration ==========
+email:
+  primary: "sales@example.com"      # REQUIRED: Primary email address
+  
+  # SMTP (for sending)
+  smtp:
+    host: "smtp.example.com"        # REQUIRED: SMTP server
+    port: 465                       # REQUIRED: SMTP port (usually 465 or 587)
+    username: "sales@example.com"   # REQUIRED: SMTP username
+    password: "${SMTP_PASSWORD}"    # REQUIRED: From environment variable
+  
+  # IMAP (for monitoring inbox)
+  imap:
+    host: "imap.example.com"        # REQUIRED: IMAP server
+    port: 993                       # REQUIRED: IMAP port (usually 993)
+
+# ========== Consultants ==========
+consultants:
+  - id: "consultant_1"
+    name: "John Doe"
+    email: "john@example.com"
+    active: true
+  
+  - id: "consultant_2"
+    name: "Jane Smith"
+    email: "jane@example.com"
+    active: true
+
+# ========== AI Agents ==========
+agents:
+  # Customer-facing inbound agent
+  inbound:
+    enabled: true
+    prompt_file: "prompts/inbound.txt"      # Path relative to client directory
+  
+  # Employee helpdesk agent
+  helpdesk:
+    enabled: true
+    prompt_file: "prompts/helpdesk.txt"
+  
+  # Outbound calling agent
+  outbound:
+    enabled: true
+    prompt_file: "prompts/outbound.txt"

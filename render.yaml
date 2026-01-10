@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: multitenant-ai-platform
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: CLIENT_ID
+        value: example
+      - key: PORT
+        value: 8080
+      - key: PYTHON_VERSION
+        value: 3.11.0

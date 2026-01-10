@@ -1,0 +1,78 @@
+agents:
+  helpdesk:
+    enabled: true
+    prompt_file: prompts/helpdesk.txt
+  inbound:
+    enabled: true
+    prompt_file: prompts/inbound.txt
+  outbound:
+    enabled: true
+    prompt_file: prompts/outbound.txt
+branding:
+  company_name: Example Travel
+  email_signature: 'Best regards,
+
+    The Example Travel Team
+
+
+    📧 contact@example.com
+
+    📞 +1 (555) 123-4567
+
+    '
+  logo_url: https://example.com/logo.png
+  primary_color: '#FF6B6B'
+  secondary_color: '#4ECDC4'
+client:
+  currency: USD
+  id: example_client
+  name: Example Travel Agency
+  short_name: example
+  timezone: America/New_York
+consultants:
+- active: true
+  email: john@example.com
+  id: consultant_1
+  name: John Doe
+- active: true
+  email: jane@example.com
+  id: consultant_2
+  name: Jane Smith
+destinations:
+- code: BALI
+  enabled: true
+  name: Bali
+- code: MALD
+  enabled: true
+  name: Maldives
+- code: THAI
+  enabled: false
+  name: Thailand
+email:
+  imap:
+    host: imap.example.com
+    port: 993
+  primary: sales@example.com
+  smtp:
+    host: smtp.example.com
+    password: ${SMTP_PASSWORD}
+    port: 465
+    username: sales@example.com
+infrastructure:
+  gcp:
+    corpus_id: ''
+    dataset: example_analytics
+    project_id: your-gcp-project-123456
+    region: us-central1
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o-mini
+  supabase:
+    anon_key: eyJhbGc...
+    service_key: ${SUPABASE_SERVICE_KEY}
+    url: https://xxxxx.supabase.co
+  vapi:
+    api_key: ${EXAMPLE_VAPI_API_KEY}
+    assistant_id: 81d91adc-5e77-4fa5-b1f6-01464b02973c
+    outbound_assistant_id: 6656c534-1b4d-4157-9214-efea86bd2d42
+    phone_number_id: your-phone-id

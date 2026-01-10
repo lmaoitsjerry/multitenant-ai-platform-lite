@@ -1,0 +1,99 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Client-specific data (keep templates only)
+clients/*/client.yaml
+!clients/example/client.yaml.template
+!clients/example/client.yaml
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Cloud
+.gcloudignore
+
+# PDF output
+output/
+generated/
+
+# Test files
+test_*.py
+test_*.pdf
+
+# Development scripts
+assign_phone.py
+check_*.py
+search_mobile.py
+provision_*.py
+twilio_vapi_provisioner.py
+
+# Temporary archives
+*.zip
+
+# Node modules
+node_modules/
+
+# Claude settings
+.claude/
+
+# Project notes
+project_structure.txt
+nul
