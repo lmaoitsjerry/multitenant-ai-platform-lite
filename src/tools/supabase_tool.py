@@ -1040,18 +1040,21 @@ class SupabaseTool:
 
         Returns:
             Public URL of uploaded file or None
+
+        Raises:
+            Exception: With detailed error message if upload fails
         """
         if not self.client:
-            return None
+            raise Exception("Supabase client not initialized")
+
+        # Determine file extension
+        ext = file_name.split('.')[-1].lower() if '.' in file_name else 'png'
+
+        # Build storage path
+        storage_path = f"branding/{self.tenant_id}/{logo_type}.{ext}"
 
         try:
-            # Determine file extension
-            ext = file_name.split('.')[-1].lower() if '.' in file_name else 'png'
-
-            # Build storage path
-            storage_path = f"branding/{self.tenant_id}/{logo_type}.{ext}"
-
-            # Upload to storage bucket
+            # Get storage bucket
             bucket = self.client.storage.from_("tenant-assets")
 
             # Try to remove existing file first (ignore errors)
@@ -1074,8 +1077,17 @@ class SupabaseTool:
             return public_url
 
         except Exception as e:
-            logger.error(f"Failed to upload logo: {e}")
-            return None
+            error_msg = str(e)
+            # Check for common Supabase storage errors
+            if "bucket" in error_msg.lower() and "not found" in error_msg.lower():
+                logger.error(f"Storage bucket 'tenant-assets' does not exist. Please create it in Supabase dashboard.")
+                raise Exception("Storage bucket 'tenant-assets' not found. Please create it in Supabase Storage settings.")
+            elif "permission" in error_msg.lower() or "policy" in error_msg.lower():
+                logger.error(f"Storage permission error: {e}")
+                raise Exception("Storage permission denied. Check bucket policies in Supabase.")
+            else:
+                logger.error(f"Failed to upload logo: {e}")
+                raise Exception(f"Upload failed: {error_msg}")
 
     # ==================== Tenant Settings Methods ====================
 
@@ -1107,10 +1119,19 @@ class SupabaseTool:
 
     def update_tenant_settings(
         self,
+        # Company settings
+        company_name: Optional[str] = None,
+        support_email: Optional[str] = None,
+        support_phone: Optional[str] = None,
+        website: Optional[str] = None,
+        currency: Optional[str] = None,
+        timezone: Optional[str] = None,
+        # Email settings
         email_from_name: Optional[str] = None,
         email_from_email: Optional[str] = None,
         email_reply_to: Optional[str] = None,
         quotes_email: Optional[str] = None,
+        # Banking settings
         bank_name: Optional[str] = None,
         bank_account_name: Optional[str] = None,
         bank_account_number: Optional[str] = None,
@@ -1130,6 +1151,21 @@ class SupabaseTool:
         # Build update data
         update_data = {"tenant_id": self.tenant_id, "updated_at": "now()"}
 
+        # Company settings
+        if company_name is not None:
+            update_data["company_name"] = company_name
+        if support_email is not None:
+            update_data["support_email"] = support_email
+        if support_phone is not None:
+            update_data["support_phone"] = support_phone
+        if website is not None:
+            update_data["website"] = website
+        if currency is not None:
+            update_data["currency"] = currency
+        if timezone is not None:
+            update_data["timezone"] = timezone
+
+        # Email settings
         if email_from_name is not None:
             update_data["email_from_name"] = email_from_name
         if email_from_email is not None:

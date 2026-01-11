@@ -40,6 +40,16 @@ def get_supabase_tool(config: ClientConfig = Depends(get_client_config)) -> Supa
 
 # ==================== Pydantic Models ====================
 
+class CompanySettings(BaseModel):
+    """Company information model"""
+    company_name: Optional[str] = None
+    support_email: Optional[EmailStr] = None
+    support_phone: Optional[str] = None
+    website: Optional[str] = None
+    currency: Optional[str] = None
+    timezone: Optional[str] = None
+
+
 class EmailSettings(BaseModel):
     """Email configuration model"""
     from_name: Optional[str] = None
@@ -60,6 +70,7 @@ class BankingSettings(BaseModel):
 
 class TenantSettingsUpdate(BaseModel):
     """Combined settings update model"""
+    company: Optional[CompanySettings] = None
     email: Optional[EmailSettings] = None
     banking: Optional[BankingSettings] = None
 
@@ -69,11 +80,19 @@ class TenantSettingsUpdate(BaseModel):
 def merge_settings_with_config(db_settings: dict, config: ClientConfig) -> dict:
     """Merge database settings with config file defaults"""
     return {
+        "company": {
+            "company_name": db_settings.get("company_name") or config.company_name or "",
+            "support_email": db_settings.get("support_email") or config.primary_email or "",
+            "support_phone": db_settings.get("support_phone") or config.support_phone or "",
+            "website": db_settings.get("website") or config.website or "",
+            "currency": db_settings.get("currency") or config.currency or "USD",
+            "timezone": db_settings.get("timezone") or config.timezone or "UTC",
+        },
         "email": {
             "from_name": db_settings.get("email_from_name") or config.sendgrid_from_name or "",
             "from_email": db_settings.get("email_from_email") or config.sendgrid_from_email or "",
             "reply_to": db_settings.get("email_reply_to") or config.sendgrid_reply_to or "",
-            "quotes_email": db_settings.get("quotes_email") or config.quotes_email or "",
+            "quotes_email": db_settings.get("quotes_email") or getattr(config, 'quotes_email', '') or "",
         },
         "banking": {
             "bank_name": db_settings.get("bank_name") or config.bank_name or "",
@@ -120,6 +139,20 @@ async def update_tenant_settings(
     """
     # Build update kwargs
     update_kwargs = {}
+
+    if data.company:
+        if data.company.company_name is not None:
+            update_kwargs["company_name"] = data.company.company_name
+        if data.company.support_email is not None:
+            update_kwargs["support_email"] = str(data.company.support_email)
+        if data.company.support_phone is not None:
+            update_kwargs["support_phone"] = data.company.support_phone
+        if data.company.website is not None:
+            update_kwargs["website"] = data.company.website
+        if data.company.currency is not None:
+            update_kwargs["currency"] = data.company.currency
+        if data.company.timezone is not None:
+            update_kwargs["timezone"] = data.company.timezone
 
     if data.email:
         if data.email.from_name is not None:
@@ -240,4 +273,43 @@ async def update_banking_settings(
         "success": True,
         "data": settings["banking"],
         "message": "Banking settings updated"
+    }
+
+
+@settings_router.put("/company")
+async def update_company_settings(
+    data: CompanySettings,
+    config: ClientConfig = Depends(get_client_config),
+    db: SupabaseTool = Depends(get_supabase_tool)
+):
+    """
+    Update company settings only
+    """
+    update_kwargs = {}
+
+    if data.company_name is not None:
+        update_kwargs["company_name"] = data.company_name
+    if data.support_email is not None:
+        update_kwargs["support_email"] = str(data.support_email)
+    if data.support_phone is not None:
+        update_kwargs["support_phone"] = data.support_phone
+    if data.website is not None:
+        update_kwargs["website"] = data.website
+    if data.currency is not None:
+        update_kwargs["currency"] = data.currency
+    if data.timezone is not None:
+        update_kwargs["timezone"] = data.timezone
+
+    if not update_kwargs:
+        raise HTTPException(status_code=400, detail="No company settings to update")
+
+    result = db.update_tenant_settings(**update_kwargs)
+
+    db_settings = result or db.get_tenant_settings() or {}
+    settings = merge_settings_with_config(db_settings, config)
+
+    return {
+        "success": True,
+        "data": settings["company"],
+        "message": "Company settings updated"
     }

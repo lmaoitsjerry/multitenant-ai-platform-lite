@@ -702,8 +702,11 @@ export const tenantSettingsApi = {
   // Get all settings
   get: () => api.get('/api/v1/settings'),
 
-  // Update all settings (email and banking)
+  // Update all settings (company, email and banking)
   update: (data) => api.put('/api/v1/settings', data),
+
+  // Update company settings only
+  updateCompany: (data) => api.put('/api/v1/settings/company', data),
 
   // Update email settings only
   updateEmail: (data) => api.put('/api/v1/settings/email', data),

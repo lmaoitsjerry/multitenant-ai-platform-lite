@@ -817,9 +817,13 @@ async def get_pipeline_analytics(
 
 # ==================== Aggregated Dashboard Endpoint ====================
 
-# Cache for dashboard data (30 second TTL)
+# Cache for dashboard data (5 minute TTL for faster page loads)
 _dashboard_cache = {}
-_cache_ttl = 30  # seconds
+_cache_ttl = 300  # seconds (5 minutes)
+
+# Separate cache for BigQuery pricing stats (1 hour TTL - rarely changes)
+_pricing_stats_cache = {}
+_pricing_stats_ttl = 3600  # seconds (1 hour)
 
 
 @dashboard_router.get("/all")
@@ -911,9 +915,20 @@ async def get_dashboard_all(
                 return 0
 
         async def fetch_pricing_stats():
+            # Check pricing stats cache first (1 hour TTL)
+            pricing_cache_key = f"pricing_{config.client_id}"
+            if pricing_cache_key in _pricing_stats_cache:
+                cached = _pricing_stats_cache[pricing_cache_key]
+                if (now - cached['timestamp']).total_seconds() < _pricing_stats_ttl:
+                    logger.debug(f"Returning cached pricing stats for {config.client_id}")
+                    return cached['data']
+
             try:
                 bq = BigQueryTool(config)
                 if not bq.client:
+                    # Return cached value if available, else 0
+                    if pricing_cache_key in _pricing_stats_cache:
+                        return _pricing_stats_cache[pricing_cache_key]['data']
                     return {"hotels": 0, "destinations": 0}
 
                 def _query():
@@ -925,13 +940,32 @@ async def get_dashboard_all(
                     """
                     return bq.client.query(hotel_query).result()
 
-                result = await asyncio.to_thread(_query)
+                # Add 5 second timeout for BigQuery
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(_query),
+                    timeout=5.0
+                )
                 row = next(result, None)
                 if row:
-                    return {"hotels": row.hotel_count, "destinations": row.dest_count}
+                    stats = {"hotels": row.hotel_count, "destinations": row.dest_count}
+                    # Cache the result
+                    _pricing_stats_cache[pricing_cache_key] = {
+                        'data': stats,
+                        'timestamp': now
+                    }
+                    return stats
+                return {"hotels": 0, "destinations": 0}
+            except asyncio.TimeoutError:
+                logger.warning("BigQuery pricing stats timed out - using cached/default")
+                # Return cached value if available
+                if pricing_cache_key in _pricing_stats_cache:
+                    return _pricing_stats_cache[pricing_cache_key]['data']
                 return {"hotels": 0, "destinations": 0}
             except Exception as e:
                 logger.warning(f"Failed to fetch pricing stats: {e}")
+                # Return cached value if available
+                if pricing_cache_key in _pricing_stats_cache:
+                    return _pricing_stats_cache[pricing_cache_key]['data']
                 return {"hotels": 0, "destinations": 0}
 
         async def fetch_usage():

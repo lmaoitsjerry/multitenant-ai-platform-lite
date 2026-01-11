@@ -519,31 +519,41 @@ export default function Settings() {
     }
   };
 
-  // Save company settings (updates client info)
+  // Save company settings (persists to database)
   const handleSaveCompany = async () => {
     setSaving(true);
     try {
+      // Persist to backend
+      await tenantSettingsApi.updateCompany({
+        company_name: company.name,
+        support_email: company.email || null,
+        support_phone: company.phone || null,
+        website: company.website || null,
+        currency: company.currency,
+        timezone: company.timezone,
+      });
+
+      // Update the API cache so subsequent page loads use updated data
       const updates = {
         client_name: company.name,
         support_email: company.email,
         support_phone: company.phone,
+        website: company.website,
         currency: company.currency,
         timezone: company.timezone,
       };
-
-      // Update the API cache so subsequent page loads use updated data
       clientApi.updateInfoCache(updates);
 
       // Update React context state for immediate UI updates
       updateClientInfo(updates);
 
-      // In a full implementation, this would also persist to backend:
-      // await clientApi.updateSettings(company);
+      // Refresh client info to ensure consistency
+      await refreshClientInfo();
 
       setToast({ message: 'Company settings saved!', type: 'success' });
     } catch (err) {
       console.error('Failed to save company settings:', err);
-      setToast({ message: 'Failed to save company settings', type: 'error' });
+      setToast({ message: err.response?.data?.detail || 'Failed to save company settings', type: 'error' });
     } finally {
       setSaving(false);
       setTimeout(() => setToast(null), 3000);

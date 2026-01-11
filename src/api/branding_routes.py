@@ -406,15 +406,12 @@ async def upload_logo(
     try:
         supabase = SupabaseTool(config)
 
-        # Upload to storage
+        # Upload to storage (will raise exception with details on failure)
         public_url = supabase.upload_logo_to_storage(
             file_content=content,
             file_name=file.filename,
             logo_type=logo_type
         )
-
-        if not public_url:
-            raise HTTPException(status_code=500, detail="Failed to upload file")
 
         # Update branding with new URL
         update_field = {
@@ -439,7 +436,8 @@ async def upload_logo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to upload logo: {e}")
+        logger.error(f"Logo upload failed: {e}")
+        # Return the actual error message to the client
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -208,37 +208,51 @@ async def liveness_check():
 
 @app.get("/api/v1/client/info")
 async def get_client_info(config: ClientConfig = Depends(get_client_config)):
-    """Get current client information including banking details"""
+    """Get current client information including banking details.
+
+    Reads from database first (tenant_settings table), then falls back to config file.
+    """
+    from src.tools.supabase_tool import SupabaseTool
+
+    # Get settings from database (may override config)
+    db_settings = {}
+    try:
+        db = SupabaseTool(config)
+        db_settings = db.get_tenant_settings() or {}
+    except Exception as e:
+        logger.debug(f"Could not load tenant settings from database: {e}")
+
     return {
         "success": True,
         "data": {
             "client_id": config.client_id,
-            "client_name": config.company_name,
-            "currency": config.currency,
-            "timezone": config.timezone,
+            # Company info: DB first, then config fallback
+            "client_name": db_settings.get("company_name") or config.company_name,
+            "currency": db_settings.get("currency") or config.currency,
+            "timezone": db_settings.get("timezone") or config.timezone,
             "destinations": config.destination_names,
             "primary_color": config.primary_color,
             "secondary_color": config.secondary_color,
             "logo_url": config.logo_url,
-            # Contact Information
-            "support_email": config.primary_email,
-            "quotes_email": config.sendgrid_from_email or config.primary_email,
-            "support_phone": getattr(config, 'support_phone', None),
-            "website": getattr(config, 'website', None),
-            # Banking Details
+            # Contact Information: DB first, then config fallback
+            "support_email": db_settings.get("support_email") or config.primary_email,
+            "quotes_email": db_settings.get("quotes_email") or config.sendgrid_from_email or config.primary_email,
+            "support_phone": db_settings.get("support_phone") or getattr(config, 'support_phone', None),
+            "website": db_settings.get("website") or getattr(config, 'website', None),
+            # Banking Details: DB first, then config fallback
             "banking": {
-                "bank_name": config.bank_name,
-                "account_name": config.bank_account_name,
-                "account_number": config.bank_account_number,
-                "branch_code": config.bank_branch_code,
-                "swift_code": config.bank_swift_code,
-                "reference_prefix": config.payment_reference_prefix,
+                "bank_name": db_settings.get("bank_name") or config.bank_name,
+                "account_name": db_settings.get("bank_account_name") or config.bank_account_name,
+                "account_number": db_settings.get("bank_account_number") or config.bank_account_number,
+                "branch_code": db_settings.get("bank_branch_code") or config.bank_branch_code,
+                "swift_code": db_settings.get("bank_swift_code") or config.bank_swift_code,
+                "reference_prefix": db_settings.get("payment_reference_prefix") or config.payment_reference_prefix,
             },
-            # SendGrid Details
+            # Email Settings: DB first, then config fallback
             "email_settings": {
-                "from_name": config.sendgrid_from_name,
-                "from_email": config.sendgrid_from_email,
-                "reply_to": config.sendgrid_reply_to,
+                "from_name": db_settings.get("email_from_name") or config.sendgrid_from_name,
+                "from_email": db_settings.get("email_from_email") or config.sendgrid_from_email,
+                "reply_to": db_settings.get("email_reply_to") or config.sendgrid_reply_to,
             },
         }
     }

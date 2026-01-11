@@ -36,6 +36,7 @@ PUBLIC_PATHS = {
     "/api/v1/auth/invite/accept",
     # Webhooks (use their own auth)
     "/api/v1/webhooks/",
+    "/webhooks/",
     "/api/v1/inbound/",
     # Customer-facing endpoints
     "/api/v1/quotes/chat",
@@ -48,6 +49,7 @@ PUBLIC_PATHS = {
 # Prefixes that don't require authentication
 PUBLIC_PREFIXES = [
     "/api/v1/webhooks/",
+    "/webhooks/",
     "/api/v1/inbound/",
     "/api/v1/admin/",  # Admin routes use X-Admin-Token auth
     "/api/v1/admin/onboarding/",  # Onboarding routes (admin token auth)
