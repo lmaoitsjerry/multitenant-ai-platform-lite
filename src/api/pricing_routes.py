@@ -11,6 +11,7 @@ Endpoints:
 - /api/v1/pricing/import - Bulk import
 """
 
+import asyncio
 import logging
 import uuid
 import csv
@@ -131,13 +132,68 @@ def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> C
     return _client_configs[client_id]
 
 
-def get_bigquery_client(config: ClientConfig):
-    """Get BigQuery client"""
+_bigquery_clients = {}
+_bigquery_available = None  # None = unknown, True = available, False = unavailable
+
+
+async def check_bigquery_available() -> bool:
+    """Check if BigQuery credentials are available"""
+    global _bigquery_available
+    if _bigquery_available is not None:
+        return _bigquery_available
+
+    # Try to check for default credentials (gcloud auth or service account)
     try:
-        return bigquery.Client(project=config.gcp_project_id)
+        def _check_creds():
+            from google.auth import default
+            credentials, project = default()
+            return credentials is not None
+
+        result = await asyncio.to_thread(_check_creds)
+        _bigquery_available = result
+        if result:
+            logger.info("BigQuery credentials found")
+        return result
+    except Exception as e:
+        logger.warning(f"BigQuery credentials not available: {e}")
+        _bigquery_available = False
+        return False
+
+
+async def get_bigquery_client_async(config: ClientConfig):
+    """Get BigQuery client - cached per project, async-safe"""
+    # Check if BigQuery is available first
+    if not await check_bigquery_available():
+        return None
+
+    project_id = config.gcp_project_id
+
+    if project_id in _bigquery_clients:
+        return _bigquery_clients[project_id]
+
+    try:
+        logger.info(f"Creating BigQuery client for project: {project_id}")
+
+        def _create_client():
+            return bigquery.Client(project=project_id)
+
+        # Use timeout to prevent hanging - 15s for cold start
+        client = await asyncio.wait_for(
+            asyncio.to_thread(_create_client),
+            timeout=15.0
+        )
+        _bigquery_clients[project_id] = client
+        logger.info(f"BigQuery client created successfully for {project_id}")
+        return client
+    except asyncio.TimeoutError:
+        logger.error("BigQuery client creation timed out - credentials may be missing")
+        global _bigquery_available
+        _bigquery_available = False
+        return None
     except Exception as e:
         logger.error(f"Failed to create BigQuery client: {e}")
-        raise HTTPException(status_code=500, detail="Database connection failed")
+        _bigquery_available = False
+        return None
 
 
 # ==================== Rate Endpoints ====================
@@ -156,7 +212,20 @@ async def list_rates(
 ):
     """List rates with optional filters"""
     try:
-        client = get_bigquery_client(config)
+        logger.info(f"[PRICING] list_rates called - getting BigQuery client")
+        client = await get_bigquery_client_async(config)
+
+        # Return empty data if BigQuery is not available
+        if client is None:
+            logger.info("[PRICING] BigQuery not available - returning empty rates")
+            return {
+                "success": True,
+                "data": [],
+                "count": 0,
+                "message": "Pricing data unavailable - BigQuery not configured"
+            }
+
+        logger.info(f"[PRICING] BigQuery client obtained")
         
         # Build query - only select columns that exist in the table
         query = f"""
@@ -205,10 +274,21 @@ async def list_rates(
             params.append(bigquery.ScalarQueryParameter("check_in_before", "DATE", check_in_before))
         
         query += f" ORDER BY hotel_name, check_in_date LIMIT {limit} OFFSET {offset}"
-        
+
         job_config = bigquery.QueryJobConfig(query_parameters=params)
-        results = client.query(query, job_config=job_config).result()
-        
+
+        logger.info(f"[PRICING] Executing BigQuery query...")
+
+        # Run BigQuery in thread pool to avoid blocking
+        def _execute_query():
+            logger.info(f"[PRICING] In thread - starting query")
+            result = list(client.query(query, job_config=job_config).result())
+            logger.info(f"[PRICING] In thread - query complete, {len(result)} rows")
+            return result
+
+        results = await asyncio.to_thread(_execute_query)
+        logger.info(f"[PRICING] Query returned {len(results)} results")
+
         rates = []
         for row in results:
             rate = dict(row)
@@ -222,7 +302,7 @@ async def list_rates(
             if rate.get('updated_at'):
                 rate['updated_at'] = rate['updated_at'].isoformat()
             rates.append(rate)
-        
+
         return {
             "success": True,
             "data": rates,
@@ -241,7 +321,7 @@ async def create_rate(
 ):
     """Create a new rate"""
     try:
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         table_id = f"{config.gcp_project_id}.{config.dataset_name}.hotel_rates"
         
         rate_id = f"RATE-{uuid.uuid4().hex[:8].upper()}"
@@ -293,7 +373,7 @@ async def get_rate(
 ):
     """Get rate by ID"""
     try:
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         
         query = f"""
         SELECT * FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
@@ -339,7 +419,7 @@ async def update_rate(
 ):
     """Update a rate"""
     try:
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         
         # Build UPDATE query dynamically
         updates = []
@@ -395,7 +475,7 @@ async def delete_rate(
 ):
     """Delete a rate (soft delete by default)"""
     try:
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         
         if hard_delete:
             query = f"""
@@ -448,7 +528,7 @@ async def import_rates(
         text = content.decode('utf-8-sig')  # Handle BOM
         reader = csv.DictReader(io.StringIO(text))
         
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         table_id = f"{config.gcp_project_id}.{config.dataset_name}.hotel_rates"
         
         rows = []
@@ -525,7 +605,7 @@ async def export_rates(
 ):
     """Export rates to CSV format"""
     try:
-        client = get_bigquery_client(config)
+        client = await get_bigquery_client_async(config)
         
         query = f"""
         SELECT 
@@ -588,8 +668,11 @@ async def list_hotels(
 ):
     """List unique hotels from rates"""
     try:
-        client = get_bigquery_client(config)
-        
+        client = await get_bigquery_client_async(config)
+
+        if client is None:
+            return {"success": True, "data": [], "count": 0}
+
         query = f"""
         SELECT DISTINCT
             hotel_name,
@@ -607,18 +690,23 @@ async def list_hotels(
             params.append(bigquery.ScalarQueryParameter("destination", "STRING", destination))
         
         query += " GROUP BY hotel_name, destination, hotel_rating ORDER BY destination, hotel_name"
-        
+
         job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
-        results = client.query(query, job_config=job_config).result()
-        
+
+        # Run BigQuery in thread pool to avoid blocking
+        def _execute_query():
+            return list(client.query(query, job_config=job_config).result())
+
+        results = await asyncio.to_thread(_execute_query)
+
         hotels = [dict(row) for row in results]
-        
+
         return {
             "success": True,
             "data": hotels,
             "count": len(hotels)
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to list hotels: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -631,8 +719,11 @@ async def get_hotel_rates(
 ):
     """Get all rates for a specific hotel"""
     try:
-        client = get_bigquery_client(config)
-        
+        client = await get_bigquery_client_async(config)
+
+        if client is None:
+            return {"success": True, "hotel_name": hotel_name, "data": [], "count": 0}
+
         query = f"""
         SELECT *
         FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
@@ -646,9 +737,13 @@ async def get_hotel_rates(
                 bigquery.ScalarQueryParameter("hotel_name", "STRING", hotel_name)
             ]
         )
-        
-        results = client.query(query, job_config=job_config).result()
-        
+
+        # Run BigQuery in thread pool to avoid blocking
+        def _execute_query():
+            return list(client.query(query, job_config=job_config).result())
+
+        results = await asyncio.to_thread(_execute_query)
+
         rates = []
         for row in results:
             rate = dict(row)
@@ -657,14 +752,14 @@ async def get_hotel_rates(
             if rate.get('check_out_date'):
                 rate['check_out_date'] = str(rate['check_out_date'])
             rates.append(rate)
-        
+
         return {
             "success": True,
             "hotel_name": hotel_name,
             "data": rates,
             "count": len(rates)
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get hotel rates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -678,10 +773,13 @@ async def list_destinations(
 ):
     """List all destinations with hotel counts"""
     try:
-        client = get_bigquery_client(config)
-        
+        client = await get_bigquery_client_async(config)
+
+        if client is None:
+            return {"success": True, "data": [], "count": 0}
+
         query = f"""
-        SELECT 
+        SELECT
             destination,
             COUNT(DISTINCT hotel_name) as hotel_count,
             COUNT(*) as rate_count,
@@ -692,17 +790,21 @@ async def list_destinations(
         GROUP BY destination
         ORDER BY destination
         """
-        
-        results = client.query(query).result()
-        
+
+        # Run BigQuery in thread pool to avoid blocking
+        def _execute_query():
+            return list(client.query(query).result())
+
+        results = await asyncio.to_thread(_execute_query)
+
         destinations = [dict(row) for row in results]
-        
+
         return {
             "success": True,
             "data": destinations,
             "count": len(destinations)
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to list destinations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -714,10 +816,13 @@ async def get_pricing_stats(
 ):
     """Get pricing statistics"""
     try:
-        client = get_bigquery_client(config)
-        
+        client = await get_bigquery_client_async(config)
+
+        if client is None:
+            return {"success": True, "data": {"total_rates": 0, "total_hotels": 0, "total_destinations": 0}}
+
         query = f"""
-        SELECT 
+        SELECT
             COUNT(*) as total_rates,
             COUNT(DISTINCT hotel_name) as total_hotels,
             COUNT(DISTINCT destination) as total_destinations,
@@ -727,15 +832,19 @@ async def get_pricing_stats(
             MAX(total_7nights_pps) as max_price
         FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
         """
-        
-        results = client.query(query).result()
+
+        # Run BigQuery in thread pool to avoid blocking
+        def _execute_query():
+            return list(client.query(query).result())
+
+        results = await asyncio.to_thread(_execute_query)
         stats = next((dict(row) for row in results), {})
-        
+
         return {
             "success": True,
             "data": stats
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get pricing stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))

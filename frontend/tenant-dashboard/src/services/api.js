@@ -6,10 +6,11 @@ const REFRESH_TOKEN_KEY = 'refresh_token';
 
 // Create axios instance with default config
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 second timeout - prevents infinite hangs
 });
 
 // Add client ID and auth headers to all requests
@@ -84,7 +85,10 @@ api.interceptors.response.use(
         const response = await axios.post(
           `${api.defaults.baseURL}/api/v1/auth/refresh`,
           { refresh_token: refreshToken },
-          { headers: { 'X-Client-ID': import.meta.env.VITE_CLIENT_ID || 'africastay' } }
+          {
+            headers: { 'X-Client-ID': import.meta.env.VITE_CLIENT_ID || 'africastay' },
+            timeout: 10000, // 10 second timeout
+          }
         );
 
         if (response.data.success) {
@@ -378,9 +382,13 @@ export const pricingApi = {
     const cacheKey = `rates-${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return { data: cached };
-    
-    const response = await api.get('/api/v1/pricing/rates', { params });
-    setCached(cacheKey, response.data, CACHE_TTL);
+
+    // BigQuery can be slow on cold start - use 30s timeout
+    const response = await api.get('/api/v1/pricing/rates', { params, timeout: 30000 });
+    // Only cache successful responses with data
+    if (response.data?.success && response.data?.data?.length > 0) {
+      setCached(cacheKey, response.data, CACHE_TTL);
+    }
     return response;
   },
   
@@ -393,9 +401,13 @@ export const pricingApi = {
     const cacheKey = `hotels-${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return { data: cached };
-    
-    const response = await api.get('/api/v1/pricing/hotels', { params });
-    setCached(cacheKey, response.data, CACHE_TTL);
+
+    // BigQuery can be slow on cold start - use 30s timeout
+    const response = await api.get('/api/v1/pricing/hotels', { params, timeout: 30000 });
+    // Only cache successful responses with data
+    if (response.data?.success && response.data?.data?.length > 0) {
+      setCached(cacheKey, response.data, CACHE_TTL);
+    }
     return response;
   },
 
@@ -423,19 +435,25 @@ export const pricingApi = {
     const cacheKey = 'destinations';
     const cached = getCached(cacheKey);
     if (cached) return { data: cached };
-    
-    const response = await api.get('/api/v1/pricing/destinations');
-    setCached(cacheKey, response.data, CACHE_TTL);
+
+    // BigQuery can be slow on cold start - use 30s timeout
+    const response = await api.get('/api/v1/pricing/destinations', { timeout: 30000 });
+    if (response.data?.success && response.data?.data?.length > 0) {
+      setCached(cacheKey, response.data, CACHE_TTL);
+    }
     return response;
   },
-  
+
   getStats: async () => {
     const cacheKey = 'pricing-stats';
     const cached = getCached(cacheKey);
     if (cached) return { data: cached };
-    
-    const response = await api.get('/api/v1/pricing/stats');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
+
+    // BigQuery can be slow on cold start - use 30s timeout
+    const response = await api.get('/api/v1/pricing/stats', { timeout: 30000 });
+    if (response.data?.success) {
+      setCached(cacheKey, response.data, STATS_CACHE_TTL);
+    }
     return response;
   },
 };

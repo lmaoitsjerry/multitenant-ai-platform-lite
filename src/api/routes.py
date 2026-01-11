@@ -535,6 +535,25 @@ async def log_activity(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@crm_router.get("/pipeline")
+async def get_pipeline(
+    config: ClientConfig = Depends(get_client_config)
+):
+    """Get pipeline data - alias for /pipeline/summary for frontend compatibility"""
+    try:
+        crm = get_crm_service(config)
+        summary = crm.get_pipeline_summary()
+
+        return {
+            "success": True,
+            "data": summary
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get pipeline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @crm_router.get("/pipeline/summary")
 async def get_pipeline_summary(
     config: ClientConfig = Depends(get_client_config)
@@ -1137,10 +1156,6 @@ def include_routers(app):
     from src.api.users_routes import users_router
     app.include_router(users_router)
 
-    # Leaderboard & Performance
-    from src.api.leaderboard_routes import leaderboard_router
-    app.include_router(leaderboard_router)
-
     # Tenant Onboarding
     from src.api.onboarding_routes import onboarding_router
     app.include_router(onboarding_router)
@@ -1148,6 +1163,10 @@ def include_routers(app):
     # Inbound Tickets
     from src.api.inbound_routes import inbound_router
     app.include_router(inbound_router)
+
+    # Helpdesk
+    from src.api.helpdesk_routes import helpdesk_router
+    app.include_router(helpdesk_router)
 
     # Notifications
     from src.api.notifications_routes import notifications_router

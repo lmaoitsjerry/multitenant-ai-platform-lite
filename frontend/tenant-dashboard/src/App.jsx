@@ -145,8 +145,10 @@ function CacheWarmer() {
 
   useEffect(() => {
     if (user) {
-      // Warm cache in background
-      warmCache();
+      // DISABLED: warmCache fires too many concurrent requests
+      // The backend can't handle them all at once (sync Supabase calls block)
+      // TODO: Re-enable when backend uses async Supabase client
+      // warmCache();
     }
   }, [user]);
 
@@ -158,8 +160,9 @@ function RoutePrefetcher() {
   const location = useLocation();
 
   useEffect(() => {
-    // Prefetch data for the current route
-    prefetchForRoute(location.pathname);
+    // DISABLED: prefetching adds load to backend
+    // TODO: Re-enable when backend uses async Supabase client
+    // prefetchForRoute(location.pathname);
   }, [location.pathname]);
 
   return null;

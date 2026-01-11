@@ -10,6 +10,12 @@ Lite version features:
 - Knowledge Base (Documents + Search)
 - Email Auto-Quote (SendGrid inbound parse)
 """
+# Force unbuffered output for Windows compatibility
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
 import os
 from dotenv import load_dotenv
 
@@ -52,39 +58,57 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration - allow frontend access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:5174",  # Vite dev server (alternate port)
-        "http://localhost:3000",  # Alternative dev port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "https://*.zorahai.com",  # Production domains
-        "https://*.holidaytoday.co.za",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ==================== Middleware Setup ====================
+# NOTE: FastAPI middleware runs in REVERSE order of addition.
+# Last added = first to process requests. Order matters!
 
-# Performance timing middleware - logs request durations (add first to wrap all)
-from src.middleware.timing_middleware import TimingMiddleware
-app.add_middleware(TimingMiddleware)
-
-# Rate limiting middleware - protects against abuse
-from src.middleware.rate_limiter import RateLimitMiddleware
-app.add_middleware(RateLimitMiddleware)
-
-# Auth middleware - validates JWT tokens for protected routes
-from src.middleware.auth_middleware import AuthMiddleware
-app.add_middleware(AuthMiddleware)
-
-# PII Audit middleware - logs access to personal data for GDPR/POPIA compliance
+# 1. PII Audit middleware - logs access to personal data for GDPR/POPIA compliance
 from src.middleware.pii_audit_middleware import setup_pii_audit_middleware
 pii_audit_enabled = os.getenv("PII_AUDIT_ENABLED", "true").lower() == "true"
 setup_pii_audit_middleware(app, enabled=pii_audit_enabled)
+
+# 2. Auth middleware - validates JWT tokens for protected routes
+from src.middleware.auth_middleware import AuthMiddleware
+app.add_middleware(AuthMiddleware)
+
+# 3. Rate limiting middleware - protects against abuse
+from src.middleware.rate_limiter import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
+# 4. Performance timing middleware - logs request durations
+from src.middleware.timing_middleware import TimingMiddleware
+app.add_middleware(TimingMiddleware)
+
+# 5. CORS middleware - MUST be added LAST so it runs FIRST
+# This ensures CORS headers are added to ALL responses including errors
+def get_cors_origins() -> list:
+    """Get allowed CORS origins from environment or use defaults."""
+    env_origins = os.getenv("CORS_ORIGINS", "")
+    if env_origins:
+        return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+
+    # Default origins for development and production
+    return [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://127.0.0.1:3000",
+        "https://*.zorahai.com",
+        "https://*.holidaytoday.co.za",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+)
 
 
 # ==================== Dependency ====================
@@ -242,9 +266,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
+
+    port = int(os.getenv("PORT", 8080))
+    host = os.getenv("HOST", "127.0.0.1")
+    reload = os.getenv("RELOAD", "false").lower() == "true"
+
+    logger.info(f"Starting server on {host}:{port} (reload={reload})")
+
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8080)),
-        reload=True
+        app,
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info"
     )

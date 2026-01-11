@@ -39,6 +39,10 @@ PUBLIC_PATHS = {
     "/api/v1/inbound/",
     # Customer-facing endpoints
     "/api/v1/quotes/chat",
+    # Branding endpoints (needed for login page theming)
+    "/api/v1/branding",
+    "/api/v1/branding/presets",
+    "/api/v1/branding/fonts",
 }
 
 # Prefixes that don't require authentication

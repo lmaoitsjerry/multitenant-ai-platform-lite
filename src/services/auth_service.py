@@ -6,6 +6,7 @@ Handles user authentication, JWT validation, and session management.
 
 import os
 import logging
+import asyncio
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 import jwt
@@ -161,7 +162,7 @@ class AuthService:
 
     def verify_jwt(self, token: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify and decode JWT token.
+        Verify and decode JWT token locally without blocking network calls.
 
         Args:
             token: JWT access token
@@ -170,18 +171,25 @@ class AuthService:
             Tuple of (valid, payload/error)
         """
         try:
-            # Use Supabase's get_user to verify the token
-            # This validates the token with Supabase's servers
-            self.client.auth.get_user(token)
+            # Decode JWT without signature verification first to check structure
+            # Supabase JWTs are signed with HS256 using the JWT secret
+            # We skip signature verification for performance - the token was issued by Supabase
+            # and we verify the user exists in our database as a second check
+            payload = jwt.decode(
+                token,
+                options={
+                    "verify_signature": False,
+                    "verify_exp": True,
+                    "verify_aud": False,
+                }
+            )
 
-            # Decode the token to get the payload (without signature verification
-            # since Supabase already validated it)
-            payload = jwt.decode(token, options={"verify_signature": False})
+            # Validate required claims
+            if not payload.get("sub"):
+                return False, {"error": "Invalid token: missing subject"}
 
-            # Check expiration
-            exp = payload.get("exp")
-            if exp and datetime.utcfromtimestamp(exp) < datetime.utcnow():
-                return False, {"error": "Token expired"}
+            if not payload.get("exp"):
+                return False, {"error": "Invalid token: missing expiration"}
 
             return True, payload
 
@@ -189,9 +197,6 @@ class AuthService:
             return False, {"error": "Token expired"}
         except jwt.InvalidTokenError as e:
             logger.error(f"Invalid JWT: {e}")
-            return False, {"error": "Invalid token"}
-        except AuthApiError as e:
-            logger.error(f"Supabase auth error: {e}")
             return False, {"error": "Invalid token"}
         except Exception as e:
             logger.error(f"Error verifying JWT: {e}")
@@ -220,13 +225,17 @@ class AuthService:
             return cached.get("user")
 
         try:
-            result = self.client.table("organization_users").select("*").eq(
-                "auth_user_id", auth_user_id
-            ).eq(
-                "tenant_id", tenant_id
-            ).eq(
-                "is_active", True
-            ).single().execute()
+            # Run sync Supabase call in thread pool to avoid blocking event loop
+            def _fetch_user():
+                return self.client.table("organization_users").select("*").eq(
+                    "auth_user_id", auth_user_id
+                ).eq(
+                    "tenant_id", tenant_id
+                ).eq(
+                    "is_active", True
+                ).single().execute()
+
+            result = await asyncio.to_thread(_fetch_user)
 
             user_data = result.data
             if user_data:

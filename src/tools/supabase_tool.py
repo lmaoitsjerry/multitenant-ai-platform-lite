@@ -23,11 +23,34 @@ Usage:
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+import asyncio
+from typing import Dict, Any, List, Optional, Callable, TypeVar
 from datetime import datetime, timedelta
 import uuid
+from functools import wraps
 
 from config.loader import ClientConfig
+
+T = TypeVar('T')
+
+
+def run_sync(func: Callable[..., T]) -> Callable[..., T]:
+    """
+    Decorator that runs a synchronous function in a thread pool.
+    Use this for all Supabase operations to avoid blocking the event loop.
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
+    return wrapper
+
+
+async def execute_async(operation: Callable[[], T]) -> T:
+    """
+    Execute a synchronous Supabase operation in a thread pool.
+    Usage: result = await execute_async(lambda: client.table('x').select('*').execute())
+    """
+    return await asyncio.to_thread(operation)
 
 logger = logging.getLogger(__name__)
 

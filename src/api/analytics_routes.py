@@ -861,8 +861,6 @@ async def get_dashboard_all(
             "total_destinations": 0,
         },
         "recent_quotes": [],
-        "leaderboard": [],
-        "my_performance": None,
         "usage": {},
         "generated_at": now.isoformat()
     }
@@ -870,15 +868,17 @@ async def get_dashboard_all(
     try:
         supabase = SupabaseTool(config)
 
-        # Fetch all data in parallel using asyncio
+        # Fetch all data in parallel using asyncio.to_thread to avoid blocking
         async def fetch_quotes():
             try:
-                quotes_result = supabase.client.table('quotes')\
-                    .select("quote_id, customer_name, customer_email, destination, total_price, status, created_at")\
-                    .eq('tenant_id', config.client_id)\
-                    .order('created_at', desc=True)\
-                    .limit(5)\
-                    .execute()
+                def _query():
+                    return supabase.client.table('quotes')\
+                        .select("quote_id, customer_name, customer_email, destination, total_price, status, created_at")\
+                        .eq('tenant_id', config.client_id)\
+                        .order('created_at', desc=True)\
+                        .limit(5)\
+                        .execute()
+                quotes_result = await asyncio.to_thread(_query)
                 return quotes_result.data or []
             except Exception as e:
                 logger.warning(f"Failed to fetch quotes: {e}")
@@ -886,10 +886,12 @@ async def get_dashboard_all(
 
         async def fetch_quote_count():
             try:
-                count_result = supabase.client.table('quotes')\
-                    .select("id", count="exact")\
-                    .eq('tenant_id', config.client_id)\
-                    .execute()
+                def _query():
+                    return supabase.client.table('quotes')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .execute()
+                count_result = await asyncio.to_thread(_query)
                 return count_result.count or 0
             except Exception as e:
                 logger.warning(f"Failed to fetch quote count: {e}")
@@ -897,10 +899,12 @@ async def get_dashboard_all(
 
         async def fetch_client_count():
             try:
-                count_result = supabase.client.table('clients')\
-                    .select("id", count="exact")\
-                    .eq('tenant_id', config.client_id)\
-                    .execute()
+                def _query():
+                    return supabase.client.table('clients')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .execute()
+                count_result = await asyncio.to_thread(_query)
                 return count_result.count or 0
             except Exception as e:
                 logger.warning(f"Failed to fetch client count: {e}")
@@ -912,14 +916,16 @@ async def get_dashboard_all(
                 if not bq.client:
                     return {"hotels": 0, "destinations": 0}
 
-                # Get hotel count
-                hotel_query = f"""
-                SELECT COUNT(DISTINCT hotel_name) as hotel_count,
-                       COUNT(DISTINCT destination) as dest_count
-                FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
-                WHERE is_active = TRUE
-                """
-                result = bq.client.query(hotel_query).result()
+                def _query():
+                    hotel_query = f"""
+                    SELECT COUNT(DISTINCT hotel_name) as hotel_count,
+                           COUNT(DISTINCT destination) as dest_count
+                    FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+                    WHERE is_active = TRUE
+                    """
+                    return bq.client.query(hotel_query).result()
+
+                result = await asyncio.to_thread(_query)
                 row = next(result, None)
                 if row:
                     return {"hotels": row.hotel_count, "destinations": row.dest_count}
@@ -928,61 +934,17 @@ async def get_dashboard_all(
                 logger.warning(f"Failed to fetch pricing stats: {e}")
                 return {"hotels": 0, "destinations": 0}
 
-        async def fetch_leaderboard():
-            try:
-                # Get top 5 performers this month
-                start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-                users_result = supabase.client.table('organization_users')\
-                    .select("id, name, email")\
-                    .eq('tenant_id', config.client_id)\
-                    .eq('is_active', True)\
-                    .execute()
-
-                users = users_result.data or []
-                rankings = []
-
-                for user in users:
-                    # Count conversions (paid invoices where quote departed)
-                    try:
-                        invoices_result = supabase.client.table('invoices')\
-                            .select("id, total_amount")\
-                            .eq('tenant_id', config.client_id)\
-                            .eq('consultant_id', user['id'])\
-                            .eq('status', 'paid')\
-                            .gte('created_at', start_of_month.isoformat())\
-                            .execute()
-
-                        invoices = invoices_result.data or []
-                        conversions = len(invoices)
-                        revenue = sum(inv.get('total_amount', 0) or 0 for inv in invoices)
-
-                        if conversions > 0 or True:  # Include all users
-                            rankings.append({
-                                "consultant_id": user['id'],
-                                "name": user['name'],
-                                "conversions": conversions,
-                                "revenue": revenue
-                            })
-                    except:
-                        pass
-
-                # Sort by conversions, then revenue
-                rankings.sort(key=lambda x: (-x['conversions'], -x['revenue']))
-                return rankings[:5]
-            except Exception as e:
-                logger.warning(f"Failed to fetch leaderboard: {e}")
-                return []
-
         async def fetch_usage():
             try:
                 # Simplified usage stats
                 today = now.date().isoformat()
-                quotes_today = supabase.client.table('quotes')\
-                    .select("id", count="exact")\
-                    .eq('tenant_id', config.client_id)\
-                    .gte('created_at', today)\
-                    .execute()
+                def _query():
+                    return supabase.client.table('quotes')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .gte('created_at', today)\
+                        .execute()
+                quotes_today = await asyncio.to_thread(_query)
 
                 return {
                     "quotes": {"current": quotes_today.count or 0, "limit": 100},
@@ -993,12 +955,11 @@ async def get_dashboard_all(
                 return {}
 
         # Execute all fetches in parallel
-        quotes, quote_count, client_count, pricing_stats, leaderboard, usage = await asyncio.gather(
+        quotes, quote_count, client_count, pricing_stats, usage = await asyncio.gather(
             fetch_quotes(),
             fetch_quote_count(),
             fetch_client_count(),
             fetch_pricing_stats(),
-            fetch_leaderboard(),
             fetch_usage(),
             return_exceptions=True
         )
@@ -1012,8 +973,6 @@ async def get_dashboard_all(
             client_count = 0
         if isinstance(pricing_stats, Exception):
             pricing_stats = {"hotels": 0, "destinations": 0}
-        if isinstance(leaderboard, Exception):
-            leaderboard = []
         if isinstance(usage, Exception):
             usage = {}
 
@@ -1023,7 +982,6 @@ async def get_dashboard_all(
         result["stats"]["total_hotels"] = pricing_stats.get("hotels", 0)
         result["stats"]["total_destinations"] = pricing_stats.get("destinations", 0)
         result["recent_quotes"] = quotes
-        result["leaderboard"] = leaderboard
         result["usage"] = usage
 
         # Cache the result

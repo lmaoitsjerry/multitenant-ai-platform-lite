@@ -29,7 +29,7 @@ function InvoiceSuccessModal({ invoice, isOpen, onClose, onSendEmail, onDownload
 
   const handleCopyLink = async () => {
     // Use public PDF endpoint for direct, shareable PDF link
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     const clientId = localStorage.getItem('clientId') || 'africastay';
     const link = `${apiBase}/api/v1/public/invoices/${invoice.invoice_id}/pdf`;
     try {

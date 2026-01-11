@@ -19,12 +19,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const initializeAuth = async () => {
+    console.log('[Auth] Initializing auth...');
     try {
       const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
       const storedUser = localStorage.getItem(USER_KEY);
 
       if (accessToken && storedUser) {
+        // Set user from cache immediately for faster UI
         setUser(JSON.parse(storedUser));
+        console.log('[Auth] Found stored user, verifying token...');
 
         // Verify token is still valid by fetching current user
         try {
@@ -32,16 +35,21 @@ export function AuthProvider({ children }) {
           if (response.data.success) {
             setUser(response.data.user);
             localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+            console.log('[Auth] Token verified successfully');
           }
         } catch (err) {
+          console.warn('[Auth] Token verification failed, trying refresh:', err.message);
           // Token might be expired, try to refresh
           await tryRefreshToken();
         }
+      } else {
+        console.log('[Auth] No stored credentials found');
       }
     } catch (err) {
-      console.error('Auth initialization error:', err);
+      console.error('[Auth] Initialization error:', err);
       clearAuth();
     } finally {
+      console.log('[Auth] Initialization complete, setting loading=false');
       setLoading(false);
     }
   };
@@ -49,26 +57,30 @@ export function AuthProvider({ children }) {
   const tryRefreshToken = async () => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
+      console.log('[Auth] No refresh token available');
       clearAuth();
       return false;
     }
 
+    console.log('[Auth] Attempting token refresh...');
     try {
       const response = await authApi.refresh(refreshToken);
       if (response.data.success) {
         localStorage.setItem(ACCESS_TOKEN_KEY, response.data.access_token);
         localStorage.setItem(REFRESH_TOKEN_KEY, response.data.refresh_token);
+        console.log('[Auth] Token refreshed successfully');
 
         // Re-fetch user info
         const userResponse = await authApi.me();
         if (userResponse.data.success) {
           setUser(userResponse.data.user);
           localStorage.setItem(USER_KEY, JSON.stringify(userResponse.data.user));
+          console.log('[Auth] User info refreshed');
         }
         return true;
       }
     } catch (err) {
-      console.error('Token refresh failed:', err);
+      console.error('[Auth] Token refresh failed:', err.message);
     }
 
     clearAuth();

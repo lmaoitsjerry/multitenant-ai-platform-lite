@@ -9,20 +9,40 @@ Implements data subject rights:
 - Audit log access
 """
 
+import os
 import json
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Header
 from pydantic import BaseModel, EmailStr
 
-from config.loader import ClientConfig
+from config.loader import ClientConfig, get_config
 from src.middleware.auth_middleware import get_current_user, require_admin
 from src.tools.supabase_tool import SupabaseTool
 
 logger = logging.getLogger(__name__)
 
 privacy_router = APIRouter(prefix="/privacy", tags=["Privacy & Compliance"])
+
+
+# ==================== Dependency ====================
+
+_client_configs = {}
+
+
+def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
+    """Get client configuration from header"""
+    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
+
+    if client_id not in _client_configs:
+        try:
+            _client_configs[client_id] = get_config(client_id)
+        except Exception as e:
+            logger.error(f"Failed to load config for {client_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to load tenant configuration")
+
+    return _client_configs[client_id]
 
 
 # ============================================================
@@ -76,7 +96,7 @@ class BreachReport(BaseModel):
 @privacy_router.get("/consent")
 async def get_my_consents(
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)  # Will be injected by middleware
+    config: ClientConfig = Depends(get_client_config)  # Will be injected by middleware
 ):
     """Get current user's consent status for all consent types"""
     try:
@@ -126,7 +146,7 @@ async def update_consent(
     consent: ConsentUpdate,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Update a single consent preference"""
     try:
@@ -203,7 +223,7 @@ async def update_consents_bulk(
     bulk: ConsentBulkUpdate,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Update multiple consent preferences at once"""
     results = []
@@ -231,7 +251,7 @@ async def submit_dsar(
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Submit a Data Subject Access Request"""
     try:
@@ -301,7 +321,7 @@ async def submit_dsar(
 @privacy_router.get("/dsar")
 async def get_my_dsars(
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Get current user's DSAR history"""
     try:
@@ -325,7 +345,7 @@ async def get_my_dsars(
 async def get_dsar_status(
     request_id: str,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Get status of a specific DSAR"""
     try:
@@ -362,7 +382,7 @@ async def request_data_export(
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Request a data export (data portability)"""
     try:
@@ -418,7 +438,7 @@ async def request_data_erasure(
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Request data erasure (right to be forgotten)"""
     try:
@@ -483,7 +503,7 @@ async def list_all_dsars(
     limit: int = 50,
     offset: int = 0,
     current_user: dict = Depends(require_admin),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """List all DSARs for the tenant (admin only)"""
     try:
@@ -516,7 +536,7 @@ async def update_dsar_status(
     request_id: str,
     update: DSARStatusUpdate,
     current_user: dict = Depends(require_admin),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Update DSAR status (admin only)"""
     try:
@@ -555,7 +575,7 @@ async def get_audit_log(
     limit: int = 100,
     offset: int = 0,
     current_user: dict = Depends(require_admin),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """View PII access audit log (admin only)"""
     try:
@@ -596,7 +616,7 @@ async def report_breach(
     breach: BreachReport,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_admin),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """Report a data breach (admin only)"""
     try:
@@ -639,7 +659,7 @@ async def report_breach(
 async def list_breaches(
     status: Optional[str] = None,
     current_user: dict = Depends(require_admin),
-    config: ClientConfig = Depends(lambda: None)
+    config: ClientConfig = Depends(get_client_config)
 ):
     """List all data breaches (admin only)"""
     try:
