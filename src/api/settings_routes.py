@@ -191,15 +191,12 @@ async def update_tenant_settings(
             "message": "Settings updated successfully"
         }
 
-    # If database update failed, return current settings anyway
-    db_settings = db.get_tenant_settings() or {}
-    settings = merge_settings_with_config(db_settings, config)
-
-    return {
-        "success": True,
-        "data": settings,
-        "message": "Settings saved (local only - database table may not exist)"
-    }
+    # Database update failed - return error so frontend knows save didn't work
+    logger.error(f"Failed to persist tenant settings to database for {config.client_id}")
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to save settings to database. Please try again or contact support."
+    )
 
 
 @settings_router.put("/email")
@@ -227,8 +224,14 @@ async def update_email_settings(
 
     result = db.update_tenant_settings(**update_kwargs)
 
-    db_settings = result or db.get_tenant_settings() or {}
-    settings = merge_settings_with_config(db_settings, config)
+    if not result:
+        logger.error(f"Failed to persist email settings to database for {config.client_id}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save email settings to database. Please try again or contact support."
+        )
+
+    settings = merge_settings_with_config(result, config)
 
     return {
         "success": True,
@@ -266,8 +269,14 @@ async def update_banking_settings(
 
     result = db.update_tenant_settings(**update_kwargs)
 
-    db_settings = result or db.get_tenant_settings() or {}
-    settings = merge_settings_with_config(db_settings, config)
+    if not result:
+        logger.error(f"Failed to persist banking settings to database for {config.client_id}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save banking settings to database. Please try again or contact support."
+        )
+
+    settings = merge_settings_with_config(result, config)
 
     return {
         "success": True,
@@ -305,8 +314,14 @@ async def update_company_settings(
 
     result = db.update_tenant_settings(**update_kwargs)
 
-    db_settings = result or db.get_tenant_settings() or {}
-    settings = merge_settings_with_config(db_settings, config)
+    if not result:
+        logger.error(f"Failed to persist company settings to database for {config.client_id}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save company settings to database. Please try again or contact support."
+        )
+
+    settings = merge_settings_with_config(result, config)
 
     return {
         "success": True,

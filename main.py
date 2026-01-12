@@ -219,8 +219,9 @@ async def get_client_info(config: ClientConfig = Depends(get_client_config)):
     try:
         db = SupabaseTool(config)
         db_settings = db.get_tenant_settings() or {}
+        logger.info(f"Loaded tenant settings for {config.client_id}: company_name={db_settings.get('company_name')}")
     except Exception as e:
-        logger.debug(f"Could not load tenant settings from database: {e}")
+        logger.warning(f"Could not load tenant settings from database: {e}")
 
     return {
         "success": True,

@@ -38,17 +38,16 @@ export function AppProvider({ children }) {
         setLoading(true);
         setError(null);
         const response = await clientApi.getInfo();
-        setClientInfo(response.data);
+        // Extract actual data from response wrapper { success: true, data: {...} }
+        const actualData = response.data?.data || response.data;
+        setClientInfo(actualData);
         setLoading(false);
         return; // Success, exit
       } catch (err) {
-        console.error(`Failed to load client info (attempt ${attempt}/${retries}):`, err);
         if (attempt === retries) {
-          // Only show error on final attempt
           setError('Failed to connect to server');
           setLoading(false);
         } else {
-          // Wait before retrying
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }

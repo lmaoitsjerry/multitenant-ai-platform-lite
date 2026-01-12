@@ -819,11 +819,147 @@ async def get_pipeline_analytics(
 
 # Cache for dashboard data (5 minute TTL for faster page loads)
 _dashboard_cache = {}
-_cache_ttl = 300  # seconds (5 minutes)
+_cache_ttl = 300  # seconds (5 minutes) - fresh data
+_stale_ttl = 1800  # seconds (30 minutes) - stale but usable, refresh in background
 
-# Separate cache for BigQuery pricing stats (1 hour TTL - rarely changes)
+# Separate cache for BigQuery pricing stats (4 hour TTL - rarely changes)
 _pricing_stats_cache = {}
-_pricing_stats_ttl = 3600  # seconds (1 hour)
+_pricing_stats_ttl = 14400  # seconds (4 hours) - pricing data doesn't change often
+
+# BigQuery client cache (same pattern as pricing_routes.py)
+_bigquery_clients = {}
+_bigquery_available = None
+
+
+async def get_bigquery_client_async(config: ClientConfig):
+    """Get BigQuery client - cached per project, async-safe (same as pricing_routes.py)"""
+    import asyncio
+    from google.cloud import bigquery
+
+    global _bigquery_available
+
+    # If we already know BigQuery is unavailable, skip
+    if _bigquery_available is False:
+        return None
+
+    project_id = config.gcp_project_id
+
+    # Return cached client if available
+    if project_id in _bigquery_clients:
+        return _bigquery_clients[project_id]
+
+    try:
+        logger.info(f"[Dashboard] Creating BigQuery client for project: {project_id}")
+
+        def _create_client():
+            return bigquery.Client(project=project_id)
+
+        # Use 15s timeout for cold start (same as pricing_routes.py)
+        client = await asyncio.wait_for(
+            asyncio.to_thread(_create_client),
+            timeout=15.0
+        )
+        _bigquery_clients[project_id] = client
+        _bigquery_available = True
+        logger.info(f"[Dashboard] BigQuery client created successfully for {project_id}")
+        return client
+    except asyncio.TimeoutError:
+        logger.error("[Dashboard] BigQuery client creation timed out - credentials may be missing")
+        _bigquery_available = False
+        return None
+    except Exception as e:
+        logger.error(f"[Dashboard] Failed to create BigQuery client: {e}")
+        _bigquery_available = False
+        return None
+
+
+async def _refresh_dashboard_cache(config: ClientConfig, cache_key: str):
+    """Background task to refresh dashboard cache without blocking the response"""
+    import asyncio
+    from datetime import datetime
+    from src.tools.supabase_tool import SupabaseTool
+
+    try:
+        now = datetime.utcnow()
+        supabase = SupabaseTool(config)
+
+        result = {
+            "stats": {
+                "total_quotes": 0,
+                "active_clients": 0,
+                "total_hotels": 0,
+                "total_destinations": 0,
+            },
+            "recent_quotes": [],
+            "usage": {},
+            "generated_at": now.isoformat()
+        }
+
+        # Simplified parallel fetch for background refresh
+        async def fetch_counts():
+            try:
+                quotes = await asyncio.to_thread(
+                    lambda: supabase.client.table('quotes')
+                        .select("id", count="exact")
+                        .eq('tenant_id', config.client_id)
+                        .execute()
+                )
+                clients = await asyncio.to_thread(
+                    lambda: supabase.client.table('clients')
+                        .select("id", count="exact")
+                        .eq('tenant_id', config.client_id)
+                        .execute()
+                )
+                return quotes.count or 0, clients.count or 0
+            except:
+                return 0, 0
+
+        async def fetch_pricing_stats():
+            pricing_cache_key = f"pricing_{config.client_id}"
+            if pricing_cache_key in _pricing_stats_cache:
+                cached = _pricing_stats_cache[pricing_cache_key]
+                if (now - cached['timestamp']).total_seconds() < _pricing_stats_ttl:
+                    return cached['data']
+
+            try:
+                client = await get_bigquery_client_async(config)
+                if not client:
+                    return {"hotels": 0, "destinations": 0}
+
+                def _query():
+                    hotel_query = f"""
+                    SELECT COUNT(DISTINCT hotel_name) as hotel_count,
+                           COUNT(DISTINCT destination) as dest_count
+                    FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+                    WHERE is_active = TRUE
+                    """
+                    return list(client.query(hotel_query).result())
+
+                result = await asyncio.to_thread(_query)
+                row = result[0] if result else None
+                if row:
+                    stats = {"hotels": row.hotel_count, "destinations": row.dest_count}
+                    _pricing_stats_cache[pricing_cache_key] = {'data': stats, 'timestamp': now}
+                    return stats
+                return {"hotels": 0, "destinations": 0}
+            except Exception as e:
+                logger.warning(f"Background refresh - pricing stats failed: {e}")
+                return {"hotels": 0, "destinations": 0}
+
+        quote_count, client_count = await fetch_counts()
+        pricing_stats = await fetch_pricing_stats()
+
+        result["stats"]["total_quotes"] = quote_count
+        result["stats"]["active_clients"] = client_count
+        result["stats"]["total_hotels"] = pricing_stats.get("hotels", 0)
+        result["stats"]["total_destinations"] = pricing_stats.get("destinations", 0)
+
+        # Update cache
+        _dashboard_cache[cache_key] = {"data": result, "timestamp": now}
+        logger.info(f"Background refresh completed for {config.client_id}")
+
+    except Exception as e:
+        logger.warning(f"Background cache refresh failed: {e}")
 
 
 @dashboard_router.get("/all")
@@ -839,7 +975,7 @@ async def get_dashboard_all(
     - Top performers / leaderboard (top 5)
     - Usage limits
 
-    Uses caching (30s TTL) and parallel fetching for optimal performance.
+    Uses caching (5min TTL) with stale-while-revalidate (30min) for optimal performance.
     """
     import asyncio
     from datetime import datetime, timedelta
@@ -847,15 +983,24 @@ async def get_dashboard_all(
     cache_key = f"dashboard_{config.client_id}"
     now = datetime.utcnow()
 
-    # Check cache
+    # Check cache - implement stale-while-revalidate pattern
     if cache_key in _dashboard_cache:
         cached = _dashboard_cache[cache_key]
-        if (now - cached['timestamp']).total_seconds() < _cache_ttl:
-            logger.debug(f"Returning cached dashboard for {config.client_id}")
+        cache_age = (now - cached['timestamp']).total_seconds()
+
+        if cache_age < _cache_ttl:
+            # Fresh cache - return immediately
+            logger.debug(f"Returning fresh cached dashboard for {config.client_id}")
             return {"success": True, "data": cached['data'], "cached": True}
 
+        if cache_age < _stale_ttl:
+            # Stale cache - return immediately, but trigger background refresh
+            logger.debug(f"Returning stale cached dashboard for {config.client_id}, triggering background refresh")
+            # Fire and forget background refresh
+            asyncio.create_task(_refresh_dashboard_cache(config, cache_key))
+            return {"success": True, "data": cached['data'], "cached": True, "stale": True}
+
     from src.tools.supabase_tool import SupabaseTool
-    from src.tools.bigquery_tool import BigQueryTool
 
     result = {
         "stats": {
@@ -924,8 +1069,9 @@ async def get_dashboard_all(
                     return cached['data']
 
             try:
-                bq = BigQueryTool(config)
-                if not bq.client:
+                # Use cached BigQuery client (same pattern as working pricing_routes.py)
+                client = await get_bigquery_client_async(config)
+                if not client:
                     # Return cached value if available, else 0
                     if pricing_cache_key in _pricing_stats_cache:
                         return _pricing_stats_cache[pricing_cache_key]['data']
@@ -938,14 +1084,12 @@ async def get_dashboard_all(
                     FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
                     WHERE is_active = TRUE
                     """
-                    return bq.client.query(hotel_query).result()
+                    return list(client.query(hotel_query).result())
 
-                # Add 5 second timeout for BigQuery
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(_query),
-                    timeout=5.0
-                )
-                row = next(result, None)
+                # No timeout needed - client init already handles cold start
+                # BigQuery queries are typically fast once client is ready
+                result = await asyncio.to_thread(_query)
+                row = result[0] if result else None
                 if row:
                     stats = {"hotels": row.hotel_count, "destinations": row.dest_count}
                     # Cache the result
@@ -954,12 +1098,6 @@ async def get_dashboard_all(
                         'timestamp': now
                     }
                     return stats
-                return {"hotels": 0, "destinations": 0}
-            except asyncio.TimeoutError:
-                logger.warning("BigQuery pricing stats timed out - using cached/default")
-                # Return cached value if available
-                if pricing_cache_key in _pricing_stats_cache:
-                    return _pricing_stats_cache[pricing_cache_key]['data']
                 return {"hotels": 0, "destinations": 0}
             except Exception as e:
                 logger.warning(f"Failed to fetch pricing stats: {e}")

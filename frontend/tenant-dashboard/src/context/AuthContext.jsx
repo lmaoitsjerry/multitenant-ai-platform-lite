@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi } from '../services/api';
+import { authApi, dashboardApi, clientApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -101,6 +101,16 @@ export function AuthProvider({ children }) {
         localStorage.setItem(USER_KEY, JSON.stringify(userData));
 
         setUser(userData);
+
+        // Prefetch dashboard data in background (non-blocking)
+        // This triggers BigQuery cold start while user is navigating
+        Promise.all([
+          dashboardApi.getAll().catch(() => null),
+          clientApi.getInfo().catch(() => null)
+        ]).then(() => {
+          console.log('[Auth] Dashboard data prefetched');
+        });
+
         return { success: true };
       } else {
         setError(response.data.error || 'Login failed');

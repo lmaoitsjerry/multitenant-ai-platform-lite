@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useTheme } from '../../context/ThemeContext';
 import { quotesApi, invoicesApi, crmApi, pricingApi, dashboardApi, analyticsApi, brandingApi } from '../../services/api';
 import {
   HomeIcon,
@@ -96,8 +97,8 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
           onMouseEnter={handleMouseEnter}
           className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
             isActive
-              ? 'bg-primary-100 text-primary-700'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              ? 'bg-sidebar-active text-sidebar-active'
+              : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar'
           }`}
         >
           <item.icon className="w-5 h-5 flex-shrink-0" />
@@ -117,8 +118,8 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
           className={({ isActive }) =>
             `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
               isActive
-                ? 'bg-primary-100 text-primary-700'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                ? 'bg-sidebar-active text-sidebar-active'
+                : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar'
             }`
           }
         >
@@ -139,8 +140,8 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
                 className={({ isActive }) =>
                   `block px-3 py-1.5 rounded-lg text-sm transition-colors ${
                     isActive
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                      ? 'bg-sidebar-active text-sidebar-active'
+                      : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar'
                   }`
                 }
               >
@@ -156,7 +157,14 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
 
 export default function Sidebar() {
   const { clientInfo, sidebarOpen, setSidebarOpen } = useApp();
+  const { branding, darkMode } = useTheme();
   const location = useLocation();
+
+  // Get the appropriate logo based on dark mode
+  // Priority: branding logo (uploaded) > clientInfo logo (config file)
+  const logoUrl = darkMode
+    ? (branding?.logos?.dark || branding?.logos?.primary || clientInfo?.logo_url)
+    : (branding?.logos?.primary || clientInfo?.logo_url);
 
   // Track which dropdowns are expanded - auto-expand if child is active
   const [expandedItems, setExpandedItems] = useState(() => {
@@ -181,27 +189,37 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-full bg-white border-r border-gray-200 transition-all duration-300 z-40 ${
+      className={`fixed left-0 top-0 h-full bg-sidebar border-r border-theme transition-all duration-300 z-40 ${
         sidebarOpen ? 'w-64' : 'w-16'
       }`}
     >
       {/* Logo / Company Name */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200">
+      <div className="h-16 flex items-center justify-between px-4 border-b border-theme">
         {sidebarOpen && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">
-                {clientInfo?.client_name?.charAt(0) || 'T'}
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={clientInfo?.client_name || 'Logo'}
+                className="h-8 w-auto object-contain max-w-[120px]"
+              />
+            ) : (
+              <div className="w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">
+                  {clientInfo?.client_name?.charAt(0) || 'T'}
+                </span>
+              </div>
+            )}
+            {!logoUrl && (
+              <span className="font-semibold text-sidebar truncate">
+                {clientInfo?.client_name || 'Travel Platform'}
               </span>
-            </div>
-            <span className="font-semibold text-gray-900 truncate">
-              {clientInfo?.client_name || 'Travel Platform'}
-            </span>
+            )}
           </div>
         )}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+          className="p-1.5 rounded-lg hover:bg-sidebar-hover text-sidebar-muted"
         >
           {sidebarOpen ? (
             <ChevronLeftIcon className="w-5 h-5" />

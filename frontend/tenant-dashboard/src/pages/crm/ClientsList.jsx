@@ -10,6 +10,9 @@ import {
   EnvelopeIcon,
   PhoneIcon,
   MapPinIcon,
+  XMarkIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 
 const stageColors = {
@@ -28,10 +31,19 @@ export default function ClientsList() {
   const [stageFilter, setStageFilter] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     loadClients();
   }, [stageFilter]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
@@ -39,17 +51,24 @@ export default function ClientsList() {
 
     setCreating(true);
     try {
-      await crmApi.createClient({
+      const response = await crmApi.createClient({
         name: formData.get('name'),
         email: formData.get('email'),
         phone: formData.get('phone') || null,
         source: formData.get('source')
       });
-      setShowAddModal(false);
-      loadClients(); // Refresh the list
+
+      if (response.data?.success) {
+        setShowAddModal(false);
+        setToast({ type: 'success', message: 'Client created successfully!' });
+        loadClients(); // Refresh the list
+      } else {
+        setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
+      }
     } catch (error) {
       console.error('Failed to create client:', error);
-      alert('Failed to create client. Please try again.');
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to create client';
+      setToast({ type: 'error', message: errorMsg });
     } finally {
       setCreating(false);
     }
@@ -242,22 +261,41 @@ export default function ClientsList() {
 
       {/* Add Client Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Client</h3>
-            <form onSubmit={handleCreateClient} className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center animate-backdrop">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowAddModal(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-theme-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-theme">
+              <h3 className="text-lg font-semibold text-theme">Add New Client</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="p-1.5 rounded-lg hover:bg-theme-border-light text-theme-muted hover:text-theme transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreateClient} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">Name *</label>
                 <input
                   type="text"
                   name="name"
                   required
                   className="input"
                   placeholder="Client name"
+                  autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">Email *</label>
                 <input
                   type="email"
                   name="email"
@@ -267,7 +305,7 @@ export default function ClientsList() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">Phone</label>
                 <input
                   type="tel"
                   name="phone"
@@ -276,7 +314,7 @@ export default function ClientsList() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">Source</label>
                 <select name="source" className="input">
                   <option value="manual">Manual Entry</option>
                   <option value="referral">Referral</option>
@@ -295,12 +333,48 @@ export default function ClientsList() {
                 <button
                   type="submit"
                   disabled={creating}
-                  className="btn-primary flex-1"
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  {creating ? 'Creating...' : 'Add Client'}
+                  {creating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon className="w-5 h-5" />
+                      Add Client
+                    </>
+                  )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-toast">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : 'bg-red-600 text-white'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircleIcon className="w-5 h-5" />
+            ) : (
+              <ExclamationCircleIcon className="w-5 h-5" />
+            )}
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="p-1 hover:bg-white/20 rounded transition-colors"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

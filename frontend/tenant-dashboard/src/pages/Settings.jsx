@@ -6,6 +6,8 @@ import { usersApi, clientApi, templatesApi, authApi, tenantSettingsApi } from '.
 import TeamSettings from './settings/TeamSettings';
 import TemplateBuilder from './settings/TemplateBuilder';
 import PrivacySettings from './settings/PrivacySettings';
+import LogoCropModal from '../components/ui/LogoCropModal';
+import Toggle from '../components/ui/Toggle';
 import {
   UserIcon,
   BuildingOfficeIcon,
@@ -202,46 +204,73 @@ function FontSelector({ value, onChange, fonts, label }) {
   );
 }
 
-// Logo upload component
-function LogoUpload({ label, currentUrl, onUpload, description, accept = "image/*" }) {
+// Logo upload component with crop modal
+function LogoUpload({ label, currentUrl, onUpload, description, accept = "image/*", cropShape = "round" }) {
   const inputRef = useRef(null);
   const [preview, setPreview] = useState(currentUrl);
   const [uploading, setUploading] = useState(false);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
 
   useEffect(() => {
     setPreview(currentUrl);
   }, [currentUrl]);
 
-  const handleFileChange = async (e) => {
+  const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Show preview
+    // Read file and open crop modal
     const reader = new FileReader();
-    reader.onload = (e) => setPreview(e.target.result);
+    reader.onload = (e) => {
+      setSelectedImage(e.target.result);
+      setShowCropModal(true);
+    };
     reader.readAsDataURL(file);
+
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedBlob) => {
+    // Create a File object from the blob for upload
+    const file = new File([croppedBlob], 'logo.png', { type: 'image/png' });
+
+    // Show preview immediately
+    const previewUrl = URL.createObjectURL(croppedBlob);
+    setPreview(previewUrl);
 
     // Upload
     setUploading(true);
     await onUpload(file);
     setUploading(false);
+
+    // Cleanup
+    setSelectedImage(null);
+  };
+
+  const handleRemove = () => {
+    setPreview(null);
+    onUpload(null);
   };
 
   return (
-    <div className="p-4 border border-gray-200 rounded-lg">
+    <div className="p-4 border border-theme rounded-lg bg-theme-surface">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="font-medium text-gray-900">{label}</p>
-          {description && <p className="text-sm text-gray-500">{description}</p>}
+          <p className="font-medium text-theme">{label}</p>
+          {description && <p className="text-sm text-theme-muted">{description}</p>}
         </div>
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50 overflow-hidden">
+        <div className={`w-24 h-24 border-2 border-dashed border-theme flex items-center justify-center bg-theme-surface-elevated overflow-hidden ${
+          cropShape === 'round' ? 'rounded-full' : 'rounded-lg'
+        }`}>
           {preview ? (
-            <img src={preview} alt={label} className="max-w-full max-h-full object-contain" />
+            <img src={preview} alt={label} className="w-full h-full object-cover" />
           ) : (
-            <PhotoIcon className="w-8 h-8 text-gray-400" />
+            <PhotoIcon className="w-8 h-8 text-theme-muted" />
           )}
         </div>
 
@@ -256,10 +285,7 @@ function LogoUpload({ label, currentUrl, onUpload, description, accept = "image/
           </button>
           {preview && (
             <button
-              onClick={() => {
-                setPreview(null);
-                onUpload(null);
-              }}
+              onClick={handleRemove}
               className="text-sm text-red-600 hover:text-red-700"
             >
               Remove
@@ -272,8 +298,22 @@ function LogoUpload({ label, currentUrl, onUpload, description, accept = "image/
         ref={inputRef}
         type="file"
         accept={accept}
-        onChange={handleFileChange}
+        onChange={handleFileSelect}
         className="hidden"
+      />
+
+      {/* Crop Modal */}
+      <LogoCropModal
+        isOpen={showCropModal}
+        onClose={() => {
+          setShowCropModal(false);
+          setSelectedImage(null);
+        }}
+        imageSrc={selectedImage}
+        onCropComplete={handleCropComplete}
+        cropShape={cropShape}
+        aspectRatio={1}
+        title={`Crop ${label}`}
       />
     </div>
   );
@@ -312,6 +352,29 @@ export default function Settings() {
   const [pendingFonts, setPendingFonts] = useState({});
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+
+  // Track dirty state for unified save button
+  const [dirtyFields, setDirtyFields] = useState({
+    company: false,
+    email: false,
+    banking: false,
+  });
+
+  // Wrapper functions that mark fields as dirty when changed
+  const updateCompany = (updates) => {
+    setCompany(prev => ({ ...prev, ...updates }));
+    setDirtyFields(prev => ({ ...prev, company: true }));
+  };
+
+  const updateEmailSettings = (updates) => {
+    setEmailSettings(prev => ({ ...prev, ...updates }));
+    setDirtyFields(prev => ({ ...prev, email: true }));
+  };
+
+  const updateBanking = (updates) => {
+    setBanking(prev => ({ ...prev, ...updates }));
+    setDirtyFields(prev => ({ ...prev, banking: true }));
+  };
 
   // Template settings state
   const [templateSettings, setTemplateSettings] = useState({
@@ -552,7 +615,6 @@ export default function Settings() {
 
       setToast({ message: 'Company settings saved!', type: 'success' });
     } catch (err) {
-      console.error('Failed to save company settings:', err);
       setToast({ message: err.response?.data?.detail || 'Failed to save company settings', type: 'error' });
     } finally {
       setSaving(false);
@@ -565,14 +627,13 @@ export default function Settings() {
     setSaving(true);
     try {
       await tenantSettingsApi.updateEmail({
-        from_name: emailSettings.from_name,
-        from_email: emailSettings.from_email,
-        reply_to: emailSettings.reply_to,
-        quotes_email: emailSettings.quotes_email,
+        from_name: emailSettings.from_name || null,
+        from_email: emailSettings.from_email || null,
+        reply_to: emailSettings.reply_to || null,
+        quotes_email: emailSettings.quotes_email || null,
       });
       setToast({ message: 'Email settings saved!', type: 'success' });
     } catch (err) {
-      console.error('Failed to save email settings:', err);
       setToast({ message: err.response?.data?.detail || 'Failed to save email settings', type: 'error' });
     } finally {
       setSaving(false);
@@ -585,16 +646,15 @@ export default function Settings() {
     setSaving(true);
     try {
       await tenantSettingsApi.updateBanking({
-        bank_name: banking.bank_name,
-        account_name: banking.account_name,
-        account_number: banking.account_number,
-        branch_code: banking.branch_code,
-        swift_code: banking.swift_code,
-        reference_prefix: banking.reference_prefix,
+        bank_name: banking.bank_name || null,
+        account_name: banking.account_name || null,
+        account_number: banking.account_number || null,
+        branch_code: banking.branch_code || null,
+        swift_code: banking.swift_code || null,
+        reference_prefix: banking.reference_prefix || null,
       });
       setToast({ message: 'Banking details saved!', type: 'success' });
     } catch (err) {
-      console.error('Failed to save banking settings:', err);
       setToast({ message: err.response?.data?.detail || 'Failed to save banking details', type: 'error' });
     } finally {
       setSaving(false);
@@ -610,6 +670,81 @@ export default function Settings() {
     setToast({ message: 'Settings saved successfully!', type: 'success' });
     setTimeout(() => setToast(null), 3000);
   };
+
+  // Unified save handler for all dirty fields
+  const handleSaveAll = async () => {
+    setSaving(true);
+    const errors = [];
+
+    try {
+      // Save company settings if dirty
+      if (dirtyFields.company) {
+        try {
+          await tenantSettingsApi.updateCompany({
+            company_name: company.name,
+            support_email: company.email || null,
+            support_phone: company.phone || null,
+            website: company.website || null,
+            currency: company.currency,
+            timezone: company.timezone,
+          });
+          setDirtyFields(prev => ({ ...prev, company: false }));
+        } catch (err) {
+          errors.push('Company settings');
+        }
+      }
+
+      // Save email settings if dirty
+      if (dirtyFields.email) {
+        try {
+          await tenantSettingsApi.updateEmail({
+            from_name: emailSettings.from_name || null,
+            from_email: emailSettings.from_email || null,
+            reply_to: emailSettings.reply_to || null,
+            quotes_email: emailSettings.quotes_email || null,
+          });
+          setDirtyFields(prev => ({ ...prev, email: false }));
+        } catch (err) {
+          errors.push('Email settings');
+        }
+      }
+
+      // Save banking settings if dirty
+      if (dirtyFields.banking) {
+        try {
+          await tenantSettingsApi.updateBanking({
+            bank_name: banking.bank_name || null,
+            account_name: banking.account_name || null,
+            account_number: banking.account_number || null,
+            branch_code: banking.branch_code || null,
+            swift_code: banking.swift_code || null,
+            reference_prefix: banking.reference_prefix || null,
+          });
+          setDirtyFields(prev => ({ ...prev, banking: false }));
+        } catch (err) {
+          errors.push('Banking details');
+        }
+      }
+
+      // Clear cache and refresh after saves
+      clientApi.clearInfoCache();
+      await refreshClientInfo();
+
+      if (errors.length > 0) {
+        setToast({ message: `Failed to save: ${errors.join(', ')}`, type: 'error' });
+      } else {
+        setToast({ message: 'All settings saved successfully!', type: 'success' });
+      }
+    } catch (err) {
+      setToast({ message: 'Failed to save settings', type: 'error' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // Check if any fields are dirty
+  const hasUnsavedChanges = Object.values(dirtyFields).some(Boolean);
 
   // Branding handlers
   const handleApplyPreset = async (presetId) => {
@@ -708,11 +843,11 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-500 mt-1">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold text-theme">Settings</h1>
+        <p className="text-theme-muted mt-1">Manage your account and preferences</p>
       </div>
 
       <div className="flex gap-6">
@@ -801,7 +936,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={company.name}
-                      onChange={(e) => setCompany({ ...company, name: e.target.value })}
+                      onChange={(e) => updateCompany({ name: e.target.value })}
                       className="input"
                     />
                   </div>
@@ -810,7 +945,7 @@ export default function Settings() {
                     <input
                       type="email"
                       value={company.email}
-                      onChange={(e) => setCompany({ ...company, email: e.target.value })}
+                      onChange={(e) => updateCompany({ email: e.target.value })}
                       className="input"
                     />
                   </div>
@@ -819,7 +954,7 @@ export default function Settings() {
                     <input
                       type="tel"
                       value={company.phone}
-                      onChange={(e) => setCompany({ ...company, phone: e.target.value })}
+                      onChange={(e) => updateCompany({ phone: e.target.value })}
                       className="input"
                     />
                   </div>
@@ -828,7 +963,7 @@ export default function Settings() {
                     <input
                       type="url"
                       value={company.website}
-                      onChange={(e) => setCompany({ ...company, website: e.target.value })}
+                      onChange={(e) => updateCompany({ website: e.target.value })}
                       className="input"
                       placeholder="https://example.com"
                     />
@@ -838,7 +973,7 @@ export default function Settings() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
                       <select
                         value={company.currency}
-                        onChange={(e) => setCompany({ ...company, currency: e.target.value })}
+                        onChange={(e) => updateCompany({ currency: e.target.value })}
                         className="input"
                       >
                         <option value="ZAR">ZAR (R)</option>
@@ -851,7 +986,7 @@ export default function Settings() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
                       <select
                         value={company.timezone}
-                        onChange={(e) => setCompany({ ...company, timezone: e.target.value })}
+                        onChange={(e) => updateCompany({ timezone: e.target.value })}
                         className="input"
                       >
                         <option value="Africa/Johannesburg">Africa/Johannesburg</option>
@@ -860,9 +995,6 @@ export default function Settings() {
                       </select>
                     </div>
                   </div>
-                  <button onClick={handleSaveCompany} disabled={saving} className="btn-primary">
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
                 </div>
               </div>
 
@@ -881,7 +1013,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={emailSettings.from_name}
-                      onChange={(e) => setEmailSettings({ ...emailSettings, from_name: e.target.value })}
+                      onChange={(e) => updateEmailSettings({ from_name: e.target.value })}
                       className="input"
                       placeholder="Company Name"
                     />
@@ -891,7 +1023,7 @@ export default function Settings() {
                     <input
                       type="email"
                       value={emailSettings.from_email}
-                      onChange={(e) => setEmailSettings({ ...emailSettings, from_email: e.target.value })}
+                      onChange={(e) => updateEmailSettings({ from_email: e.target.value })}
                       className="input"
                       placeholder="info@company.com"
                     />
@@ -901,7 +1033,7 @@ export default function Settings() {
                     <input
                       type="email"
                       value={emailSettings.quotes_email}
-                      onChange={(e) => setEmailSettings({ ...emailSettings, quotes_email: e.target.value })}
+                      onChange={(e) => updateEmailSettings({ quotes_email: e.target.value })}
                       className="input"
                       placeholder="quotes@company.com"
                     />
@@ -911,15 +1043,12 @@ export default function Settings() {
                     <input
                       type="email"
                       value={emailSettings.reply_to}
-                      onChange={(e) => setEmailSettings({ ...emailSettings, reply_to: e.target.value })}
+                      onChange={(e) => updateEmailSettings({ reply_to: e.target.value })}
                       className="input"
                       placeholder="reply@company.com"
                     />
                   </div>
                 </div>
-                <button onClick={handleSaveEmailSettings} disabled={saving} className="btn-primary mt-4">
-                  {saving ? 'Saving...' : 'Save Email Settings'}
-                </button>
               </div>
 
               {/* Banking Details */}
@@ -937,7 +1066,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.bank_name}
-                      onChange={(e) => setBanking({ ...banking, bank_name: e.target.value })}
+                      onChange={(e) => updateBanking({ bank_name: e.target.value })}
                       className="input"
                       placeholder="First National Bank"
                     />
@@ -947,7 +1076,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.account_name}
-                      onChange={(e) => setBanking({ ...banking, account_name: e.target.value })}
+                      onChange={(e) => updateBanking({ account_name: e.target.value })}
                       className="input"
                       placeholder="Company Name (Pty) Ltd"
                     />
@@ -957,7 +1086,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.account_number}
-                      onChange={(e) => setBanking({ ...banking, account_number: e.target.value })}
+                      onChange={(e) => updateBanking({ account_number: e.target.value })}
                       className="input"
                       placeholder="1234567890"
                     />
@@ -967,7 +1096,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.branch_code}
-                      onChange={(e) => setBanking({ ...banking, branch_code: e.target.value })}
+                      onChange={(e) => updateBanking({ branch_code: e.target.value })}
                       className="input"
                       placeholder="250655"
                     />
@@ -977,7 +1106,7 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.swift_code}
-                      onChange={(e) => setBanking({ ...banking, swift_code: e.target.value })}
+                      onChange={(e) => updateBanking({ swift_code: e.target.value })}
                       className="input"
                       placeholder="FIRNZAJJ"
                     />
@@ -987,15 +1116,12 @@ export default function Settings() {
                     <input
                       type="text"
                       value={banking.reference_prefix}
-                      onChange={(e) => setBanking({ ...banking, reference_prefix: e.target.value })}
+                      onChange={(e) => updateBanking({ reference_prefix: e.target.value })}
                       className="input"
                       placeholder="INV-"
                     />
                   </div>
                 </div>
-                <button onClick={handleSaveBankingSettings} disabled={saving} className="btn-primary mt-4">
-                  {saving ? 'Saving...' : 'Save Banking Details'}
-                </button>
               </div>
             </div>
           )}
@@ -1016,17 +1142,19 @@ export default function Settings() {
                 </div>
                 <div className="flex items-center gap-3">
                   {/* Dark Mode Toggle */}
-                  <button
-                    onClick={toggleDarkMode}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50"
-                  >
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-theme bg-theme-surface">
                     {darkMode ? (
                       <MoonIcon className="w-5 h-5 text-indigo-600" />
                     ) : (
                       <SunIcon className="w-5 h-5 text-amber-500" />
                     )}
-                    <span className="text-sm">{darkMode ? 'Dark' : 'Light'}</span>
-                  </button>
+                    <span className="text-sm text-theme-secondary">{darkMode ? 'Dark' : 'Light'}</span>
+                    <Toggle
+                      checked={darkMode}
+                      onChange={toggleDarkMode}
+                      size="sm"
+                    />
+                  </div>
 
                   {/* Reset Button */}
                   <button
@@ -1248,12 +1376,14 @@ export default function Settings() {
                       description="Used in header and light backgrounds"
                       currentUrl={branding?.logos?.primary}
                       onUpload={(file) => handleLogoUpload(file, 'primary')}
+                      cropShape="round"
                     />
                     <LogoUpload
                       label="Dark Mode Logo"
                       description="Used on dark backgrounds (optional)"
                       currentUrl={branding?.logos?.dark}
                       onUpload={(file) => handleLogoUpload(file, 'dark')}
+                      cropShape="round"
                     />
                     <LogoUpload
                       label="Favicon"
@@ -1261,12 +1391,14 @@ export default function Settings() {
                       currentUrl={branding?.logos?.favicon}
                       onUpload={(file) => handleLogoUpload(file, 'favicon')}
                       accept="image/png,image/x-icon,image/svg+xml"
+                      cropShape="rect"
                     />
                     <LogoUpload
                       label="Email Logo"
                       description="Used in email templates"
                       currentUrl={branding?.logos?.email}
                       onUpload={(file) => handleLogoUpload(file, 'email')}
+                      cropShape="rect"
                     />
                   </div>
                 </div>
@@ -1698,6 +1830,22 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Floating Save Button */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <button
+          type="button"
+          onClick={handleSaveAll}
+          disabled={saving || !hasUnsavedChanges}
+          className={`btn-primary px-6 py-3 text-base font-medium shadow-lg transition-all ${
+            !hasUnsavedChanges
+              ? 'opacity-50 cursor-not-allowed'
+              : 'hover:shadow-xl hover:-translate-y-0.5'
+          }`}
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+
       {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
@@ -1709,7 +1857,7 @@ export default function Settings() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg z-50 ${
+        <div className={`fixed bottom-20 right-6 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg z-50 ${
           toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
         }`}>
           <CheckCircleIcon className="w-5 h-5" />

@@ -852,6 +852,7 @@ class SupabaseTool:
         logo_url: Optional[str] = None,
         logo_dark_url: Optional[str] = None,
         favicon_url: Optional[str] = None,
+        logo_email_url: Optional[str] = None,
         dark_mode_enabled: bool = False,
         custom_css: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
@@ -882,6 +883,7 @@ class SupabaseTool:
                 'logo_url': logo_url,
                 'logo_dark_url': logo_dark_url,
                 'favicon_url': favicon_url,
+                'logo_email_url': logo_email_url,
                 'custom_css': custom_css,
                 'created_at': datetime.utcnow().isoformat(),
                 'updated_at': datetime.utcnow().isoformat()
@@ -919,8 +921,11 @@ class SupabaseTool:
         logo_url: Optional[str] = None,
         logo_dark_url: Optional[str] = None,
         favicon_url: Optional[str] = None,
+        logo_email_url: Optional[str] = None,
         dark_mode_enabled: Optional[bool] = None,
-        custom_css: Optional[str] = None
+        custom_css: Optional[str] = None,
+        login_background_url: Optional[str] = None,
+        login_background_gradient: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Update tenant branding configuration
@@ -934,6 +939,8 @@ class SupabaseTool:
             favicon_url: Favicon URL
             dark_mode_enabled: Enable dark mode
             custom_css: Custom CSS overrides
+            login_background_url: Login page background image URL
+            login_background_gradient: Login page background gradient CSS
 
         Returns:
             Updated branding record or None
@@ -971,8 +978,14 @@ class SupabaseTool:
                 update_data['logo_dark_url'] = logo_dark_url
             if favicon_url is not None:
                 update_data['favicon_url'] = favicon_url
+            if logo_email_url is not None:
+                update_data['logo_email_url'] = logo_email_url
             if custom_css is not None:
                 update_data['custom_css'] = custom_css
+            if login_background_url is not None:
+                update_data['login_background_url'] = login_background_url
+            if login_background_gradient is not None:
+                update_data['login_background_gradient'] = login_background_gradient
 
             # Add color fields if provided
             if colors:
@@ -1077,17 +1090,33 @@ class SupabaseTool:
             return public_url
 
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e).lower()
+            logger.error(f"Storage upload error: {e}")
+
             # Check for common Supabase storage errors
-            if "bucket" in error_msg.lower() and "not found" in error_msg.lower():
-                logger.error(f"Storage bucket 'tenant-assets' does not exist. Please create it in Supabase dashboard.")
-                raise Exception("Storage bucket 'tenant-assets' not found. Please create it in Supabase Storage settings.")
-            elif "permission" in error_msg.lower() or "policy" in error_msg.lower():
-                logger.error(f"Storage permission error: {e}")
-                raise Exception("Storage permission denied. Check bucket policies in Supabase.")
+            if "bucket" in error_msg and ("not found" in error_msg or "does not exist" in error_msg):
+                raise Exception(
+                    "Storage bucket 'tenant-assets' not found. "
+                    "Run the migration: database/migrations/005_tenant_assets_storage.sql"
+                )
+            elif "404" in error_msg or "not found" in error_msg:
+                raise Exception(
+                    "Storage bucket 'tenant-assets' does not exist. "
+                    "Create it in Supabase Dashboard > Storage, or run migration 005_tenant_assets_storage.sql"
+                )
+            elif "permission" in error_msg or "policy" in error_msg or "403" in error_msg:
+                raise Exception(
+                    "Storage permission denied. Check RLS policies in Supabase for the 'tenant-assets' bucket."
+                )
+            elif "duplicate" in error_msg or "already exists" in error_msg:
+                # File exists and couldn't be overwritten - try to get URL anyway
+                try:
+                    bucket = self.client.storage.from_("tenant-assets")
+                    return bucket.get_public_url(storage_path)
+                except:
+                    raise Exception("File already exists and could not be replaced.")
             else:
-                logger.error(f"Failed to upload logo: {e}")
-                raise Exception(f"Upload failed: {error_msg}")
+                raise Exception(f"Logo upload failed: {str(e)}")
 
     # ==================== Tenant Settings Methods ====================
 

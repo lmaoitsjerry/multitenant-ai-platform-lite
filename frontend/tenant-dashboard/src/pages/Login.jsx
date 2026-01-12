@@ -44,14 +44,31 @@ export default function Login() {
     }
   };
 
-  // Get branding colors
+  // Get branding colors and background
   const primaryColor = branding?.colors?.primary || '#3B82F6';
   const companyName = branding?.company_name || 'Travel Platform';
   const logoUrl = branding?.logos?.primary;
+  const loginBgImage = branding?.login_background_url;
+  const loginBgGradient = branding?.login_background_gradient;
+
+  // Background style - supports image, gradient, or default
+  const backgroundStyle = loginBgImage
+    ? { backgroundImage: `url(${loginBgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : loginBgGradient
+    ? { background: loginBgGradient }
+    : {};
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full">
+    <div
+      className="min-h-screen flex items-center justify-center bg-theme-background py-12 px-4 sm:px-6 lg:px-8"
+      style={backgroundStyle}
+    >
+      {/* Overlay for background images */}
+      {loginBgImage && (
+        <div className="absolute inset-0 bg-black/40" />
+      )}
+
+      <div className="max-w-md w-full relative z-10">
         {/* Logo/Company Name */}
         <div className="text-center mb-8">
           {logoUrl ? (
@@ -62,29 +79,28 @@ export default function Login() {
             />
           ) : (
             <div
-              className="w-16 h-16 rounded-xl mx-auto mb-4 flex items-center justify-center text-white text-2xl font-bold"
-              style={{ backgroundColor: primaryColor }}
+              className="w-16 h-16 rounded-xl mx-auto mb-4 flex items-center justify-center text-white text-2xl font-bold bg-theme-primary"
             >
               {companyName.charAt(0)}
             </div>
           )}
-          <h2 className="text-2xl font-bold text-gray-900">{companyName}</h2>
-          <p className="mt-2 text-gray-600">Sign in to your account</p>
+          <h2 className={`text-2xl font-bold ${loginBgImage ? 'text-white' : 'text-theme'}`}>{companyName}</h2>
+          <p className={`mt-2 ${loginBgImage ? 'text-white/80' : 'text-theme-secondary'}`}>Sign in to your account</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-theme-surface rounded-2xl shadow-xl p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              <div className="bg-red-50 border border-red-200 text-error px-4 py-3 rounded-lg text-sm">
                 {error}
               </div>
             )}
 
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-medium text-theme-secondary mb-1">
                 Email address
               </label>
               <input
@@ -95,14 +111,14 @@ export default function Login() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none"
+                className="input"
                 placeholder="you@company.com"
               />
             </div>
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-theme-secondary mb-1">
                 Password
               </label>
               <div className="relative">
@@ -114,13 +130,13 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none pr-12"
+                  className="input pr-12"
                   placeholder="Enter your password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-secondary"
                 >
                   {showPassword ? (
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -140,8 +156,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={submitting || !email || !password}
-              className="w-full py-3 px-4 rounded-lg text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              style={{ backgroundColor: primaryColor }}
+              className="btn-primary w-full py-3"
             >
               {submitting ? (
                 <span className="flex items-center justify-center">
@@ -160,8 +175,7 @@ export default function Login() {
             <div className="text-center">
               <Link
                 to="/forgot-password"
-                className="text-sm hover:underline"
-                style={{ color: primaryColor }}
+                className="text-sm text-theme-primary hover:underline"
               >
                 Forgot your password?
               </Link>
@@ -170,7 +184,7 @@ export default function Login() {
         </div>
 
         {/* Footer */}
-        <p className="mt-8 text-center text-sm text-gray-500">
+        <p className={`mt-8 text-center text-sm ${loginBgImage ? 'text-white/70' : 'text-theme-muted'}`}>
           Need help? Contact your administrator.
         </p>
       </div>

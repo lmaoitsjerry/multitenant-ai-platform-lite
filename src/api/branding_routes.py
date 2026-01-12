@@ -76,6 +76,13 @@ class BrandingColors(BaseModel):
     text_muted: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
     border: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
     border_light: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    # Sidebar colors - whitelabel customization
+    sidebar_bg: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    sidebar_text: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    sidebar_text_muted: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    sidebar_hover: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    sidebar_active_bg: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    sidebar_active_text: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
 
 
 class BrandingFonts(BaseModel):
@@ -94,6 +101,9 @@ class BrandingUpdate(BaseModel):
     colors: Optional[BrandingColors] = None
     fonts: Optional[BrandingFonts] = None
     custom_css: Optional[str] = None
+    # Login page customization
+    login_background_url: Optional[str] = None
+    login_background_gradient: Optional[str] = None
 
 
 class PresetInfo(BaseModel):
@@ -140,7 +150,9 @@ def db_to_branding_response(db_record: Dict[str, Any], config: ClientConfig) -> 
                 "secondary": config.secondary_color or preset["colors"]["secondary"]
             },
             "fonts": preset["fonts"],
-            "custom_css": None
+            "custom_css": None,
+            "login_background_url": None,
+            "login_background_gradient": None
         }
 
     # Build colors from db fields
@@ -157,7 +169,10 @@ def db_to_branding_response(db_record: Dict[str, Any], config: ClientConfig) -> 
         "accent", "success", "warning", "error",
         "background", "surface", "surface_elevated",
         "text_primary", "text_secondary", "text_muted",
-        "border", "border_light"
+        "border", "border_light",
+        # Sidebar colors
+        "sidebar_bg", "sidebar_text", "sidebar_text_muted",
+        "sidebar_hover", "sidebar_active_bg", "sidebar_active_text"
     ]
 
     for field in color_fields:
@@ -187,7 +202,10 @@ def db_to_branding_response(db_record: Dict[str, Any], config: ClientConfig) -> 
         },
         "colors": colors,
         "fonts": fonts,
-        "custom_css": db_record.get("custom_css")
+        "custom_css": db_record.get("custom_css"),
+        # Login page customization
+        "login_background_url": db_record.get("login_background_url"),
+        "login_background_gradient": db_record.get("login_background_gradient")
     }
 
 
@@ -247,7 +265,9 @@ async def update_branding(
             logo_dark_url=data.logo_dark_url,
             favicon_url=data.favicon_url,
             dark_mode_enabled=data.dark_mode_enabled,
-            custom_css=data.custom_css
+            custom_css=data.custom_css,
+            login_background_url=data.login_background_url,
+            login_background_gradient=data.login_background_gradient
         )
     except Exception as e:
         logger.warning(f"Database branding update failed: {e}")
@@ -382,7 +402,7 @@ async def upload_logo(
         logo_type: Type of logo (primary, dark, favicon)
     """
     # Validate logo type
-    valid_types = ["primary", "dark", "favicon"]
+    valid_types = ["primary", "dark", "favicon", "email"]
     if logo_type not in valid_types:
         raise HTTPException(
             status_code=400,
@@ -417,7 +437,8 @@ async def upload_logo(
         update_field = {
             "primary": "logo_url",
             "dark": "logo_dark_url",
-            "favicon": "favicon_url"
+            "favicon": "favicon_url",
+            "email": "logo_email_url"
         }[logo_type]
 
         result = supabase.update_branding(**{update_field: public_url})
@@ -438,6 +459,74 @@ async def upload_logo(
     except Exception as e:
         logger.error(f"Logo upload failed: {e}")
         # Return the actual error message to the client
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@branding_router.post("/upload/background")
+async def upload_login_background(
+    file: UploadFile = File(...),
+    config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Upload login page background image
+
+    Args:
+        file: Image file (PNG, JPG, JPEG, WEBP)
+    """
+    # Validate file type
+    allowed_extensions = ["png", "jpg", "jpeg", "webp"]
+    ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
+        )
+
+    # Validate file size (max 10MB for backgrounds)
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Max 10MB.")
+
+    try:
+        supabase = SupabaseTool(config)
+
+        # Upload to storage with login-background path
+        storage_path = f"branding/{config.client_id}/login-background.{ext}"
+        bucket = supabase.client.storage.from_("tenant-assets")
+
+        # Try to remove existing file first
+        try:
+            bucket.remove([storage_path])
+        except Exception:
+            pass
+
+        # Upload new file
+        bucket.upload(
+            path=storage_path,
+            file=content,
+            file_options={"content-type": f"image/{ext}"}
+        )
+
+        # Get public URL
+        public_url = bucket.get_public_url(storage_path)
+
+        # Update branding with new URL
+        result = supabase.update_branding(login_background_url=public_url)
+
+        return {
+            "success": True,
+            "data": {
+                "url": public_url,
+                "filename": file.filename,
+                "size": len(content)
+            },
+            "message": "Login background uploaded successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Background upload failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -5,11 +5,9 @@ const ACCESS_TOKEN_KEY = 'access_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 
 // Create axios instance with default config
+// NOTE: Do NOT set default Content-Type here - let axios auto-detect for FormData uploads
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-  headers: {
-    'Content-Type': 'application/json',
-  },
   timeout: 10000, // 10 second timeout - prevents infinite hangs
 });
 
@@ -23,6 +21,12 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Set Content-Type to JSON only for non-FormData requests
+  // FormData needs axios to auto-set Content-Type with multipart boundary
+  if (!(config.data instanceof FormData)) {
+    config.headers['Content-Type'] = 'application/json';
   }
 
   return config;
@@ -569,9 +573,8 @@ export const invoicesApi = {
 export const knowledgeApi = {
   listDocuments: (params = {}) => api.get('/api/v1/knowledge/documents', { params }),
   getDocument: (id) => api.get(`/api/v1/knowledge/documents/${id}`),
-  uploadDocument: (formData) => api.post('/api/v1/knowledge/documents', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  // Let axios auto-set Content-Type with proper multipart boundary
+  uploadDocument: (formData) => api.post('/api/v1/knowledge/documents', formData),
   deleteDocument: (id) => api.delete(`/api/v1/knowledge/documents/${id}`),
   updateVisibility: (id, visibility) => api.patch(`/api/v1/knowledge/documents/${id}`, { visibility }),
   search: (query, params = {}) => api.post('/api/v1/knowledge/search', { query, ...params }),
@@ -607,9 +610,10 @@ export const usageApi = {
 export const dashboardApi = {
   // Aggregated endpoint - returns everything in ONE call (optimized)
   // Uses stale-while-revalidate for instant page loads
+  // Extended timeout for BigQuery cold start (matches backend 15s + buffer)
   getAll: () => fetchWithSWR(
     'dashboard-all',
-    () => api.get('/api/v1/dashboard/all'),
+    () => api.get('/api/v1/dashboard/all', { timeout: 30000 }),
     STATS_CACHE_TTL
   ),
 
@@ -674,10 +678,14 @@ export const clientApi = {
   getInfo: async () => {
     const cacheKey = 'client-info';
     const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
+    if (cached) return { data: { success: true, data: cached } };
 
     const response = await api.get('/api/v1/client/info');
-    setCached(cacheKey, response.data, CACHE_TTL * 5); // Cache for 5 minutes
+    // Cache the actual data object, not the wrapper
+    const actualData = response.data?.data;
+    if (actualData) {
+      setCached(cacheKey, actualData, STATIC_CACHE_TTL);
+    }
     return response;
   },
   // Update local cache with new client info (for immediate UI updates)
@@ -686,10 +694,10 @@ export const clientApi = {
     const cached = getCached(cacheKey);
     if (cached) {
       const updated = { ...cached, ...updates };
-      setCached(cacheKey, updated, CACHE_TTL * 5);
-      return { data: updated };
+      setCached(cacheKey, updated, STATIC_CACHE_TTL);
+      return { data: { success: true, data: updated } };
     }
-    return { data: updates };
+    return { data: { success: true, data: updates } };
   },
   // Clear client info cache (force refresh on next read)
   clearInfoCache: () => {
@@ -740,10 +748,11 @@ export const brandingApi = {
   // Apply a preset
   applyPreset: (presetName) => api.post(`/api/v1/branding/apply-preset/${presetName}`),
 
-  // Upload logo
-  uploadLogo: (formData) => api.post('/api/v1/branding/upload/logo', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  // Upload logo - let axios auto-set Content-Type with proper multipart boundary
+  uploadLogo: (formData) => api.post('/api/v1/branding/upload/logo', formData),
+
+  // Upload login background image
+  uploadBackground: (formData) => api.post('/api/v1/branding/upload/background', formData),
 
   // Reset to defaults
   reset: () => api.post('/api/v1/branding/reset'),

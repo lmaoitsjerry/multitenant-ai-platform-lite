@@ -7,6 +7,7 @@
   --color-primary: #7C3AED;
   --color-primary-light: #8B5CF6;
   --color-primary-dark: #6D28D9;
+  --color-primary-rgb: 124, 58, 237;
 
   /* Secondary Colors */
   --color-secondary: #64748B;
@@ -18,6 +19,9 @@
   --color-success: #22C55E;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
+  --color-success-rgb: 34, 197, 94;
+  --color-warning-rgb: 245, 158, 11;
+  --color-error-rgb: 239, 68, 68;
 
   /* Background Colors */
   --color-background: #F8FAFC;
@@ -33,6 +37,14 @@
   --color-border: #E2E8F0;
   --color-border-light: #F1F5F9;
 
+  /* Sidebar Colors - Customizable per tenant */
+  --color-sidebar-bg: #FFFFFF;
+  --color-sidebar-text: var(--color-text-primary);
+  --color-sidebar-text-muted: var(--color-text-muted);
+  --color-sidebar-hover: var(--color-border-light);
+  --color-sidebar-active-bg: #F3E8FF;
+  --color-sidebar-active-text: var(--color-primary-dark);
+
   /* Typography */
   --font-family-heading: 'Inter', system-ui, sans-serif;
   --font-family-body: 'Inter', system-ui, sans-serif;
@@ -43,16 +55,35 @@
   --radius-lg: 0.75rem;
 }
 
-/* Dark Mode Variables */
+/* Dark Mode Variables - Inspired by GitHub/VS Code dark themes */
 [data-theme="dark"] {
-  --color-background: #0F172A;
-  --color-surface: #1E293B;
-  --color-surface-elevated: #334155;
-  --color-text-primary: #F8FAFC;
-  --color-text-secondary: #CBD5E1;
-  --color-text-muted: #64748B;
-  --color-border: #334155;
-  --color-border-light: #475569;
+  /* Background hierarchy - neutral grays with slight warmth */
+  --color-background: #0d1117;
+  --color-surface: #161b22;
+  --color-surface-elevated: #21262d;
+
+  /* Text hierarchy - high contrast for readability */
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #b1bac4;
+  --color-text-muted: #7d8590;
+
+  /* Borders - visible but subtle */
+  --color-border: #30363d;
+  --color-border-light: #21262d;
+
+  /* Slightly desaturated primary for dark mode */
+  --color-primary: #8b5cf6;
+  --color-primary-light: #a78bfa;
+  --color-primary-dark: #7c3aed;
+  --color-primary-rgb: 139, 92, 246;
+
+  /* Sidebar Colors - Dark mode defaults */
+  --color-sidebar-bg: #161b22;
+  --color-sidebar-text: #e6edf3;
+  --color-sidebar-text-muted: #7d8590;
+  --color-sidebar-hover: #21262d;
+  --color-sidebar-active-bg: #30363d;
+  --color-sidebar-active-text: #a78bfa;
 }
 
 /* ==================== Tailwind Theme Extension ==================== */
@@ -86,6 +117,21 @@
 }
 
 /* ==================== Base Styles ==================== */
+
+/* Smooth theme transitions for all elements */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 0.15s;
+  transition-timing-function: ease-out;
+}
+
+/* Disable transitions for transform and other properties that shouldn't animate on theme change */
+.no-theme-transition,
+.no-theme-transition * {
+  transition-property: none !important;
+}
 
 body {
   background-color: var(--color-background);
@@ -196,25 +242,44 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ==================== Utility Classes ==================== */
 
-/* Background utilities */
+/* Background utilities - auto dark mode via CSS variables */
 .bg-theme-primary { background-color: var(--color-primary); }
 .bg-theme-primary-light { background-color: var(--color-primary-light); }
 .bg-theme-primary-dark { background-color: var(--color-primary-dark); }
 .bg-theme-secondary { background-color: var(--color-secondary); }
 .bg-theme-accent { background-color: var(--color-accent); }
 .bg-theme-surface { background-color: var(--color-surface); }
+.bg-theme-surface-elevated { background-color: var(--color-surface-elevated); }
 .bg-theme-background { background-color: var(--color-background); }
+.bg-theme-border { background-color: var(--color-border); }
+.bg-theme-border-light { background-color: var(--color-border-light); }
 
-/* Text utilities */
+/* Text utilities - auto dark mode via CSS variables */
+.text-theme { color: var(--color-text-primary); }
 .text-theme-primary { color: var(--color-primary); }
 .text-theme-primary-light { color: var(--color-primary-light); }
+.text-theme-primary-dark { color: var(--color-primary-dark); }
 .text-theme-secondary { color: var(--color-text-secondary); }
 .text-theme-muted { color: var(--color-text-muted); }
 .text-theme-accent { color: var(--color-accent); }
 
-/* Border utilities */
+/* Border utilities - auto dark mode via CSS variables */
 .border-theme { border-color: var(--color-border); }
+.border-theme-light { border-color: var(--color-border-light); }
 .border-theme-primary { border-color: var(--color-primary); }
+
+/* Hover states with theme colors */
+.hover\:bg-theme-surface:hover { background-color: var(--color-surface); }
+.hover\:bg-theme-surface-elevated:hover { background-color: var(--color-surface-elevated); }
+.hover\:bg-theme-border-light:hover { background-color: var(--color-border-light); }
+
+/* Sidebar utilities - auto dark mode via CSS variables */
+.bg-sidebar { background-color: var(--color-sidebar-bg); }
+.text-sidebar { color: var(--color-sidebar-text); }
+.text-sidebar-muted { color: var(--color-sidebar-text-muted); }
+.hover\:bg-sidebar-hover:hover { background-color: var(--color-sidebar-hover); }
+.bg-sidebar-active { background-color: var(--color-sidebar-active-bg); }
+.text-sidebar-active { color: var(--color-sidebar-active-text); }
 
 /* ==================== Legacy Tailwind Classes (Backward Compatibility) ==================== */
 
@@ -241,6 +306,59 @@ h1, h2, h3, h4, h5, h6 {
 .bg-warning { background-color: var(--color-warning); }
 .bg-error { background-color: var(--color-error); }
 
+/* ==================== Dark Mode Overrides for Tailwind Classes ==================== */
+/* These ensure components using Tailwind gray classes work properly in dark mode */
+
+[data-theme="dark"] {
+  /* Background overrides */
+  .bg-white { background-color: var(--color-surface); }
+  .bg-gray-50 { background-color: var(--color-surface); }
+  .bg-gray-100 { background-color: var(--color-surface-elevated); }
+  .bg-gray-200 { background-color: var(--color-border); }
+
+  /* Text overrides */
+  .text-gray-900 { color: var(--color-text-primary); }
+  .text-gray-800 { color: var(--color-text-primary); }
+  .text-gray-700 { color: var(--color-text-secondary); }
+  .text-gray-600 { color: var(--color-text-secondary); }
+  .text-gray-500 { color: var(--color-text-muted); }
+  .text-gray-400 { color: var(--color-text-muted); }
+
+  /* Border overrides */
+  .border-gray-200 { border-color: var(--color-border); }
+  .border-gray-300 { border-color: var(--color-border); }
+  .border-gray-100 { border-color: var(--color-border-light); }
+
+  /* Hover states */
+  .hover\:bg-gray-50:hover { background-color: var(--color-surface-elevated); }
+  .hover\:bg-gray-100:hover { background-color: var(--color-border-light); }
+
+  /* Divide colors */
+  .divide-gray-200 > * + * { border-color: var(--color-border); }
+
+  /* Ring colors */
+  .ring-gray-200 { --tw-ring-color: var(--color-border); }
+  .focus\:ring-gray-200:focus { --tw-ring-color: var(--color-border); }
+
+  /* Card shadow adjustment for dark mode */
+  .card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--color-border);
+  }
+
+  .card-elevated {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--color-border);
+  }
+
+  /* Input styling in dark mode */
+  .input {
+    background-color: var(--color-background);
+  }
+
+  .input:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  }
+}
+
 /* ==================== Loading & Animation ==================== */
 
 @keyframes pulse-primary {
@@ -256,4 +374,413 @@ h1, h2, h3, h4, h5, h6 {
 .spinner-primary {
   border-color: var(--color-border);
   border-top-color: var(--color-primary);
+}
+
+/* ==================== Micro-interactions & Polish ==================== */
+
+/* Button press effect */
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-accent:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Card hover lift effect */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .card-hover:hover {
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.4), 0 4px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Interactive list item */
+.list-item-interactive {
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.list-item-interactive:hover {
+  background-color: var(--color-border-light);
+}
+
+.list-item-interactive:active {
+  transform: scale(0.995);
+}
+
+/* Focus ring utility */
+.focus-ring {
+  outline: none;
+  transition: box-shadow 0.15s ease;
+}
+
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+/* Icon button */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--color-text-muted);
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  background-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* Smooth fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+/* Modal backdrop animation */
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-backdrop {
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+/* Dropdown menu animation */
+@keyframes dropdownOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-dropdown {
+  animation: dropdownOpen 0.15s ease-out;
+  transform-origin: top center;
+}
+
+/* Toast notification slide in */
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-toast {
+  animation: toastSlideIn 0.3s ease-out;
+}
+
+/* Skeleton shimmer effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-border-light) 25%,
+    var(--color-surface-elevated) 50%,
+    var(--color-border-light) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ==================== Enhanced Form Inputs ==================== */
+
+.input-enhanced {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.input-enhanced:hover:not(:focus):not(:disabled) {
+  border-color: var(--color-secondary-light);
+}
+
+.input-enhanced:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.input-enhanced:disabled {
+  background-color: var(--color-border-light);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.input-enhanced::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Input with icon */
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon .input-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.input-with-icon input {
+  padding-left: 2.5rem;
+}
+
+/* ==================== Badge Styles ==================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.badge-primary {
+  background-color: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  color: var(--color-primary-dark);
+}
+
+.badge-success {
+  background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: #166534;
+}
+
+.badge-warning {
+  background-color: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: #92400e;
+}
+
+.badge-error {
+  background-color: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: #991b1b;
+}
+
+.badge-neutral {
+  background-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .badge-success { color: #86efac; }
+[data-theme="dark"] .badge-warning { color: #fcd34d; }
+[data-theme="dark"] .badge-error { color: #fca5a5; }
+[data-theme="dark"] .badge-primary { color: var(--color-primary-light); }
+
+/* ==================== Tab Styles ==================== */
+
+.tab-group {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab-item {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  margin-bottom: -1px;
+}
+
+.tab-item:hover:not(.tab-active) {
+  color: var(--color-text-secondary);
+}
+
+.tab-item.tab-active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* ==================== Progress Bar ==================== */
+
+.progress-bar {
+  width: 100%;
+  height: 0.5rem;
+  background-color: var(--color-border-light);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: var(--color-primary);
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar-fill.success { background-color: var(--color-success); }
+.progress-bar-fill.warning { background-color: var(--color-warning); }
+.progress-bar-fill.error { background-color: var(--color-error); }
+
+/* ==================== Tooltip Styles ==================== */
+
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 0.375rem 0.625rem;
+  background-color: var(--color-text-primary);
+  color: var(--color-background);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+/* ==================== Scrollbar Styles ==================== */
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-secondary-light);
+}
+
+/* ==================== Empty State ==================== */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+.empty-state-icon {
+  width: 4rem;
+  height: 4rem;
+  margin-bottom: 1rem;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.empty-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.empty-state-description {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  max-width: 24rem;
 }

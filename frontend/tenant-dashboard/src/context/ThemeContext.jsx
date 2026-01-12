@@ -23,6 +23,13 @@ const CSS_VAR_MAP = {
   text_muted: '--color-text-muted',
   border: '--color-border',
   border_light: '--color-border-light',
+  // Sidebar colors - customizable per tenant
+  sidebar_bg: '--color-sidebar-bg',
+  sidebar_text: '--color-sidebar-text',
+  sidebar_text_muted: '--color-sidebar-text-muted',
+  sidebar_hover: '--color-sidebar-hover',
+  sidebar_active_bg: '--color-sidebar-active-bg',
+  sidebar_active_text: '--color-sidebar-active-text',
 };
 
 const FONT_VAR_MAP = {
@@ -173,6 +180,24 @@ export function ThemeProvider({ children }) {
     }
   };
 
+  // Helper to convert hex to RGB
+  const hexToRgb = (hex) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (result) {
+      return `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`;
+    }
+    return null;
+  };
+
+  // Helper to generate a lighter tint of a color for backgrounds
+  const generateTint = (hex, opacity = 0.15) => {
+    const rgb = hexToRgb(hex);
+    if (rgb) {
+      return `rgba(${rgb}, ${opacity})`;
+    }
+    return hex;
+  };
+
   const applyCSSVariables = useCallback((theme) => {
     const root = document.documentElement;
 
@@ -184,6 +209,22 @@ export function ThemeProvider({ children }) {
           root.style.setProperty(cssVar, value);
         }
       });
+
+      // Auto-generate RGB version of primary for rgba() support
+      if (theme.colors.primary) {
+        const primaryRgb = hexToRgb(theme.colors.primary);
+        if (primaryRgb) {
+          root.style.setProperty('--color-primary-rgb', primaryRgb);
+        }
+      }
+
+      // Auto-generate sidebar active colors based on primary if not explicitly set
+      if (theme.colors.primary && !theme.colors.sidebar_active_bg) {
+        root.style.setProperty('--color-sidebar-active-bg', generateTint(theme.colors.primary, 0.15));
+      }
+      if (theme.colors.primary && !theme.colors.sidebar_active_text) {
+        root.style.setProperty('--color-sidebar-active-text', theme.colors.primary);
+      }
     }
 
     // Apply fonts
