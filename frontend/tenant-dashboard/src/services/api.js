@@ -467,10 +467,14 @@ export const pricingApi = {
 // ==================== CRM API ====================
 export const crmApi = {
   // Clients
-  listClients: async (params = {}) => {
+  listClients: async (params = {}, forceRefresh = false) => {
     const cacheKey = `crm-clients-${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
+
+    // Skip cache if force refresh
+    if (!forceRefresh) {
+      const cached = getCached(cacheKey);
+      if (cached) return { data: cached };
+    }
 
     const response = await api.get('/api/v1/crm/clients', { params });
     setCached(cacheKey, response.data, LIST_CACHE_TTL);

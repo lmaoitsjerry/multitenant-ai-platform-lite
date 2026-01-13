@@ -364,11 +364,17 @@ async def create_client(
             consultant_id=client.consultant_id
         )
 
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to create client - database operation returned no data")
+
         return {
             "success": True,
-            "data": result
+            "data": result,
+            "created": result.get('created', True)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create client: {e}")
         raise HTTPException(status_code=500, detail=str(e))

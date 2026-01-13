@@ -210,11 +210,11 @@ export default function Pipeline() {
   const [toast, setToast] = useState(null);
 
   // Memoized loadData to prevent recreation
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
       const [clientsRes, statsRes] = await Promise.all([
-        crmApi.listClients({ limit: 100 }),
+        crmApi.listClients({ limit: 100 }, forceRefresh),
         crmApi.getPipeline().catch(() => null),
       ]);
 
@@ -263,7 +263,7 @@ export default function Pipeline() {
       if (response.data?.success) {
         setShowAddModal(false);
         setToast({ type: 'success', message: 'Client created successfully!' });
-        loadData(); // Refresh the list
+        loadData(true); // Force refresh the list (bypass cache)
       } else {
         setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
       }

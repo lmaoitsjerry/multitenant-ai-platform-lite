@@ -61,7 +61,7 @@ export default function ClientsList() {
       if (response.data?.success) {
         setShowAddModal(false);
         setToast({ type: 'success', message: 'Client created successfully!' });
-        loadClients(); // Refresh the list
+        loadClients(true); // Force refresh the list (bypass cache)
       } else {
         setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
       }
@@ -74,13 +74,13 @@ export default function ClientsList() {
     }
   };
 
-  const loadClients = async () => {
+  const loadClients = async (forceRefresh = false) => {
     try {
       setLoading(true);
       const params = { limit: 100 };
       if (stageFilter) params.pipeline_stage = stageFilter;
-      
-      const response = await crmApi.listClients(params);
+
+      const response = await crmApi.listClients(params, forceRefresh);
       setClients(response.data?.data || []);
     } catch (error) {
       console.error('Failed to load clients:', error);
