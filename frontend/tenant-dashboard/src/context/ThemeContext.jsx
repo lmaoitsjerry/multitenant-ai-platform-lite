@@ -225,6 +225,10 @@ export function ThemeProvider({ children }) {
       if (theme.colors.primary && !theme.colors.sidebar_active_text) {
         root.style.setProperty('--color-sidebar-active-text', theme.colors.primary);
       }
+      // Auto-generate sidebar hover based on primary (very subtle tint)
+      if (theme.colors.primary && !theme.colors.sidebar_hover) {
+        root.style.setProperty('--color-sidebar-hover', generateTint(theme.colors.primary, 0.08));
+      }
     }
 
     // Apply fonts

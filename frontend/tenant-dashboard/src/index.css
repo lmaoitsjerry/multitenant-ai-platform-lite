@@ -37,12 +37,12 @@
   --color-border: #E2E8F0;
   --color-border-light: #F1F5F9;
 
-  /* Sidebar Colors - Customizable per tenant */
+  /* Sidebar Colors - Auto-derived from primary when theme changes */
   --color-sidebar-bg: #FFFFFF;
   --color-sidebar-text: var(--color-text-primary);
   --color-sidebar-text-muted: var(--color-text-muted);
-  --color-sidebar-hover: var(--color-border-light);
-  --color-sidebar-active-bg: #F3E8FF;
+  --color-sidebar-hover: rgba(var(--color-primary-rgb), 0.08);
+  --color-sidebar-active-bg: rgba(var(--color-primary-rgb), 0.15);
   --color-sidebar-active-text: var(--color-primary-dark);
 
   /* Typography */
@@ -57,9 +57,9 @@
 
 /* Dark Mode Variables - Inspired by GitHub/VS Code dark themes */
 [data-theme="dark"] {
-  /* Background hierarchy - neutral grays with slight warmth */
-  --color-background: #0d1117;
-  --color-surface: #161b22;
+  /* Background hierarchy - content area uses the neutral dark */
+  --color-background: #161b22;
+  --color-surface: #1c2128;
   --color-surface-elevated: #21262d;
 
   /* Text hierarchy - high contrast for readability */
@@ -77,13 +77,13 @@
   --color-primary-dark: #7c3aed;
   --color-primary-rgb: 139, 92, 246;
 
-  /* Sidebar Colors - Dark mode defaults */
-  --color-sidebar-bg: #161b22;
+  /* Sidebar Colors - Darker, theme-influenced background */
+  --color-sidebar-bg: #0d1117;
   --color-sidebar-text: #e6edf3;
   --color-sidebar-text-muted: #7d8590;
-  --color-sidebar-hover: #21262d;
-  --color-sidebar-active-bg: #30363d;
-  --color-sidebar-active-text: #a78bfa;
+  --color-sidebar-hover: #161b22;
+  --color-sidebar-active-bg: rgba(139, 92, 246, 0.15);
+  --color-sidebar-active-text: var(--color-primary-light);
 }
 
 /* ==================== Tailwind Theme Extension ==================== */

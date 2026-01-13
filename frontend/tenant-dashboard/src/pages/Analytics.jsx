@@ -52,34 +52,51 @@ function StatCard({ title, value, change, changeType, icon: Icon, prefix = '', s
   );
 }
 
-// Simple bar chart component
-function BarChart({ data, valueKey = 'value', labelKey = 'label', color = 'purple' }) {
+// Simple bar chart component with tooltips
+function BarChart({ data, valueKey = 'value', labelKey = 'label', color = 'primary' }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
   if (!data || data.length === 0) {
-    return <p className="text-gray-400 text-center py-8">No data available</p>;
+    return <p className="text-theme-muted text-center py-8">No data available</p>;
   }
 
   const maxValue = Math.max(...data.map(d => d[valueKey] || 0), 1);
 
+  // Use theme-aware colors
   const colorClass = {
-    purple: 'bg-purple-600',
+    primary: 'bg-theme-primary',
     blue: 'bg-blue-600',
     green: 'bg-green-600',
-  }[color] || 'bg-purple-600';
+    purple: 'bg-theme-primary',
+  }[color] || 'bg-theme-primary';
 
   return (
     <div className="space-y-3">
       {data.map((item, idx) => (
-        <div key={idx} className="flex items-center gap-3">
-          <span className="text-sm text-gray-600 w-28 text-right truncate" title={item[labelKey]}>
+        <div
+          key={idx}
+          className="flex items-center gap-3 relative group"
+          onMouseEnter={() => setHoveredIndex(idx)}
+          onMouseLeave={() => setHoveredIndex(null)}
+        >
+          <span className="text-sm text-theme-secondary w-28 text-right truncate" title={item[labelKey]}>
             {item[labelKey]}
           </span>
-          <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
+          <div className="flex-1 bg-theme-border-light rounded-full h-6 overflow-hidden relative">
             <div
-              className={`h-full ${colorClass} rounded-full transition-all duration-500`}
+              className={`h-full ${colorClass} rounded-full transition-all duration-500 hover:opacity-80 cursor-pointer`}
               style={{ width: `${(item[valueKey] / maxValue) * 100}%` }}
             />
+            {/* Tooltip */}
+            {hoveredIndex === idx && (
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-10 bg-gray-900 text-white text-xs rounded px-3 py-1.5 whitespace-nowrap shadow-lg">
+                <div className="font-semibold">{item[labelKey]}</div>
+                <div className="text-gray-300">Value: {typeof item[valueKey] === 'number' ? item[valueKey].toLocaleString() : item[valueKey]}</div>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+              </div>
+            )}
           </div>
-          <span className="text-sm font-medium text-gray-900 w-16 text-right">
+          <span className="text-sm font-medium text-theme w-16 text-right">
             {typeof item[valueKey] === 'number' ? item[valueKey].toLocaleString() : item[valueKey]}
           </span>
         </div>
@@ -88,26 +105,41 @@ function BarChart({ data, valueKey = 'value', labelKey = 'label', color = 'purpl
   );
 }
 
-// Trend chart (vertical bars)
+// Trend chart (vertical bars) with tooltips
 function TrendChart({ data, valueKey = 'count', labelKey = 'date' }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
   if (!data || data.length === 0) {
-    return <p className="text-gray-400 text-center py-8">No trend data available</p>;
+    return <p className="text-theme-muted text-center py-8">No trend data available</p>;
   }
 
   const maxValue = Math.max(...data.map(d => d[valueKey] || 0), 1);
   const height = 120;
+  const displayData = data.slice(-12);
 
   return (
     <div className="relative h-40">
       <div className="absolute inset-0 flex items-end justify-between gap-1 pt-4">
-        {data.slice(-12).map((item, idx) => (
-          <div key={idx} className="flex-1 flex flex-col items-center min-w-0">
+        {displayData.map((item, idx) => (
+          <div
+            key={idx}
+            className="flex-1 flex flex-col items-center min-w-0 relative group"
+            onMouseEnter={() => setHoveredIndex(idx)}
+            onMouseLeave={() => setHoveredIndex(null)}
+          >
+            {/* Tooltip */}
+            {hoveredIndex === idx && (
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                <div className="font-semibold">{item[valueKey]?.toLocaleString() || 0}</div>
+                <div className="text-gray-300">{item[labelKey]}</div>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+              </div>
+            )}
             <div
-              className="w-full bg-purple-500 rounded-t transition-all duration-500 hover:bg-purple-600 min-h-[4px]"
+              className="w-full bg-theme-primary rounded-t transition-all duration-300 hover:opacity-80 min-h-[4px] cursor-pointer"
               style={{ height: `${Math.max((item[valueKey] / maxValue) * height, 4)}px` }}
-              title={`${item[valueKey]}`}
             />
-            <span className="text-xs text-gray-500 mt-2 truncate w-full text-center">
+            <span className="text-xs text-theme-muted mt-2 truncate w-full text-center">
               {item[labelKey]?.split('-').slice(-1)[0] || item[labelKey]}
             </span>
           </div>
@@ -264,8 +296,8 @@ export default function Analytics() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-gray-500">Loading analytics...</p>
+          <div className="w-10 h-10 border-4 border-theme-primary border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-theme-muted">Loading analytics...</p>
         </div>
       </div>
     );
