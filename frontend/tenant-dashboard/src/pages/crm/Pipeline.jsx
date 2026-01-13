@@ -11,6 +11,9 @@ import {
   ArrowPathIcon,
   Squares2X2Icon,
   TableCellsIcon,
+  XMarkIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 
 const STAGES = [
@@ -202,6 +205,9 @@ export default function Pipeline() {
   const [viewMode, setViewMode] = useState(() => {
     return localStorage.getItem('pipeline_view') || 'kanban';
   });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState(null);
 
   // Memoized loadData to prevent recreation
   const loadData = useCallback(async () => {
@@ -231,6 +237,44 @@ export default function Pipeline() {
   useEffect(() => {
     localStorage.setItem('pipeline_view', viewMode);
   }, [viewMode]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Handle create client
+  const handleCreateClient = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    setCreating(true);
+    try {
+      const response = await crmApi.createClient({
+        name: formData.get('name'),
+        email: formData.get('email'),
+        phone: formData.get('phone') || null,
+        source: formData.get('source')
+      });
+
+      if (response.data?.success) {
+        setShowAddModal(false);
+        setToast({ type: 'success', message: 'Client created successfully!' });
+        loadData(); // Refresh the list
+      } else {
+        setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
+      }
+    } catch (error) {
+      console.error('Failed to create client:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to create client';
+      setToast({ type: 'error', message: errorMsg });
+    } finally {
+      setCreating(false);
+    }
+  };
 
   // Memoized stage drop handler
   const handleStageDrop = useCallback(async (clientId, newStage) => {
@@ -362,7 +406,10 @@ export default function Pipeline() {
           <Link to="/crm/clients" className="btn-secondary">
             View All Clients
           </Link>
-          <button className="btn-primary flex items-center gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary flex items-center gap-2"
+          >
             <PlusIcon className="w-5 h-5" />
             Add Client
           </button>
@@ -413,6 +460,139 @@ export default function Pipeline() {
           stages={STAGES}
           onStageChange={handleStageDrop}
         />
+      )}
+
+      {/* Add Client Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-[9999] overflow-y-auto">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+            onClick={() => setShowAddModal(false)}
+          />
+
+          {/* Modal Container */}
+          <div className="flex min-h-full items-center justify-center p-4">
+            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md transform transition-all">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Add New Client</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleCreateClient} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                  <input
+                    type="text"
+                    name="name"
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    placeholder="Client name"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                  <input
+                    type="email"
+                    name="email"
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    placeholder="client@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    placeholder="+27 82 123 4567"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                  <select
+                    name="source"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none cursor-pointer"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+                      backgroundPosition: 'right 0.5rem center',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundSize: '1.5em 1.5em',
+                      paddingRight: '2.5rem'
+                    }}
+                  >
+                    <option value="manual">Manual Entry</option>
+                    <option value="referral">Referral</option>
+                    <option value="website">Website</option>
+                    <option value="email">Email Inquiry</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creating}
+                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {creating ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <PlusIcon className="w-5 h-5" />
+                        Add Client
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-toast">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : 'bg-red-600 text-white'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircleIcon className="w-5 h-5" />
+            ) : (
+              <ExclamationCircleIcon className="w-5 h-5" />
+            )}
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="p-1 hover:bg-white/20 rounded transition-colors"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

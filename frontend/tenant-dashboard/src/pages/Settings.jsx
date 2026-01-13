@@ -1358,6 +1358,43 @@ export default function Settings() {
                         />
                       </div>
                     </div>
+
+                    <div className="pt-6 border-t border-gray-200">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Sidebar Colors</h4>
+                      <p className="text-xs text-gray-500 mb-4">Customize your sidebar appearance</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <ColorPicker
+                          label="Sidebar Background"
+                          description="Main sidebar background color"
+                          value={pendingColors.sidebar_bg || '#FFFFFF'}
+                          onChange={(v) => handleColorChange('sidebar_bg', v)}
+                        />
+                        <ColorPicker
+                          label="Sidebar Text"
+                          description="Navigation text color"
+                          value={pendingColors.sidebar_text || '#1E293B'}
+                          onChange={(v) => handleColorChange('sidebar_text', v)}
+                        />
+                        <ColorPicker
+                          label="Sidebar Hover"
+                          description="Hover state background"
+                          value={pendingColors.sidebar_hover || '#F1F5F9'}
+                          onChange={(v) => handleColorChange('sidebar_hover', v)}
+                        />
+                        <ColorPicker
+                          label="Active Item Background"
+                          description="Selected menu item background"
+                          value={pendingColors.sidebar_active_bg || '#F3E8FF'}
+                          onChange={(v) => handleColorChange('sidebar_active_bg', v)}
+                        />
+                        <ColorPicker
+                          label="Active Item Text"
+                          description="Selected menu item text color"
+                          value={pendingColors.sidebar_active_text || '#7C3AED'}
+                          onChange={(v) => handleColorChange('sidebar_active_text', v)}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

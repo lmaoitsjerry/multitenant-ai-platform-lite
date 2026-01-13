@@ -485,9 +485,27 @@ export const crmApi = {
     setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
     return response;
   },
-  createClient: (data) => api.post('/api/v1/crm/clients', data),
-  updateClient: (id, data) => api.patch(`/api/v1/crm/clients/${id}`, data),
-  deleteClient: (id) => api.delete(`/api/v1/crm/clients/${id}`),
+  createClient: async (data) => {
+    const response = await api.post('/api/v1/crm/clients', data);
+    // Clear CRM caches after successful creation so list refreshes
+    if (response.data?.success) {
+      clearCache('crm-');
+      clearCache('pipeline');
+      clearCache('dashboard');
+    }
+    return response;
+  },
+  updateClient: async (id, data) => {
+    const response = await api.patch(`/api/v1/crm/clients/${id}`, data);
+    clearCache('crm-');
+    clearCache(`client-${id}`);
+    return response;
+  },
+  deleteClient: async (id) => {
+    const response = await api.delete(`/api/v1/crm/clients/${id}`);
+    clearCache('crm-');
+    return response;
+  },
 
   // Pipeline
   getPipeline: async () => {
