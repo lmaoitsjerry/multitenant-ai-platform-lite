@@ -22,7 +22,12 @@ export function AppProvider({ children }) {
     // If authenticated and haven't loaded yet, load client info
     if (isAuthenticated && !hasLoadedRef.current) {
       hasLoadedRef.current = true;
-      loadClientInfo();
+      // Small delay to ensure auth tokens are fully settled before making API calls
+      // This prevents race conditions where API call fires before token is ready
+      const timeoutId = setTimeout(() => {
+        loadClientInfo();
+      }, 50);
+      return () => clearTimeout(timeoutId);
     } else if (!isAuthenticated) {
       // Not authenticated, don't show loading/error - just reset
       setLoading(false);

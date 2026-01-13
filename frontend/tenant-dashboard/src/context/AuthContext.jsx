@@ -18,6 +18,19 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, []);
 
+  // Listen for session expiration events from axios interceptor
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('[Auth] Session expired event received');
+      clearAuth();
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, []);
+
   const initializeAuth = async () => {
     console.log('[Auth] Initializing auth...');
     try {

@@ -2,69 +2,27 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BuildingOfficeIcon,
-  CpuChipIcon,
   EnvelopeIcon,
-  BookOpenIcon,
   RocketLaunchIcon,
   CheckCircleIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  SparklesIcon,
   ArrowPathIcon,
   XMarkIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { onboardingApi } from '../../services/api';
 
-// Confirmation Modal Component
-function ConfirmModal({ isOpen, title, message, confirmText, cancelText, onConfirm, onCancel, danger }) {
-  if (!isOpen) return null;
+const STORAGE_KEY = 'tenant_onboarding_progress_lite';
 
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${danger ? 'bg-red-100' : 'bg-amber-100'}`}>
-            <ExclamationTriangleIcon className={`w-6 h-6 ${danger ? 'text-red-600' : 'text-amber-600'}`} />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        </div>
-        <p className="text-gray-600 mb-6">{message}</p>
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 px-4 py-2 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            {cancelText || 'Cancel'}
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-              danger
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-amber-600 text-white hover:bg-amber-700'
-            }`}
-          >
-            {confirmText || 'Confirm'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const STORAGE_KEY = 'tenant_onboarding_progress';
-
-// Step definitions (Lite version - no voice/outbound features)
+// Lite version: 3 steps only
 const STEPS = [
   { id: 1, name: 'Company Profile', icon: BuildingOfficeIcon },
-  { id: 2, name: 'AI Agent', icon: CpuChipIcon },
-  { id: 3, name: 'Email Settings', icon: EnvelopeIcon },
-  { id: 4, name: 'Knowledge Base', icon: BookOpenIcon },
-  { id: 5, name: 'Review & Launch', icon: RocketLaunchIcon },
+  { id: 2, name: 'Email Settings', icon: EnvelopeIcon },
+  { id: 3, name: 'Review & Launch', icon: RocketLaunchIcon },
 ];
 
-// Default form data
+// Default form data (Lite version - no AI agent, no KB)
 const getDefaultData = () => ({
   company: {
     company_name: '',
@@ -74,47 +32,43 @@ const getDefaultData = () => ({
     timezone: 'Africa/Johannesburg',
     currency: 'ZAR',
     brand_theme: {
-      theme_id: 'ocean-blue',
-      primary: '#0EA5E9',
-      secondary: '#0284C7',
-      accent: '#38BDF8',
+      theme_id: 'royal-purple',
+      primary: '#7C3AED',
+      secondary: '#6D28D9',
+      accent: '#A78BFA',
     },
-    logo_url: '',
-  },
-  agents: {
-    inbound_description: '',
-    inbound_prompt: '',
-    inbound_agent_name: 'AI Assistant',
   },
   email: {
     from_name: '',
+    from_email: '',
     email_signature: '',
     auto_send_quotes: true,
     quote_validity_days: 14,
-    follow_up_days: 3,
     sendgrid_api_key: '',
-    from_email: '',
   },
-  knowledge_base: {
-    categories: ['Destinations', 'Hotels', 'Visa Info', 'FAQs', 'Company Policies'],
-    skip_initial_setup: true,
-  },
-  // Admin user credentials for first login
   admin_email: '',
   admin_password: '',
   admin_name: '',
 });
 
+// Fallback themes
+const DEFAULT_THEMES = [
+  { id: 'ocean-blue', name: 'Ocean Blue', description: 'Professional and trustworthy', primary: '#0EA5E9', secondary: '#0284C7', accent: '#38BDF8' },
+  { id: 'safari-gold', name: 'Safari Gold', description: 'Warm and adventurous', primary: '#D97706', secondary: '#B45309', accent: '#FBBF24' },
+  { id: 'sunset-orange', name: 'Sunset Orange', description: 'Energetic and vibrant', primary: '#EA580C', secondary: '#C2410C', accent: '#FB923C' },
+  { id: 'forest-green', name: 'Forest Green', description: 'Natural and eco-friendly', primary: '#059669', secondary: '#047857', accent: '#34D399' },
+  { id: 'royal-purple', name: 'Royal Purple', description: 'Luxurious and premium', primary: '#7C3AED', secondary: '#6D28D9', accent: '#A78BFA' },
+  { id: 'teal-modern', name: 'Teal Modern', description: 'Fresh and contemporary', primary: '#0D9488', secondary: '#0F766E', accent: '#2DD4BF' },
+];
+
 export default function TenantOnboarding() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState(getDefaultData());
-  const [themes, setThemes] = useState([]);
+  const [themes, setThemes] = useState(DEFAULT_THEMES);
   const [loading, setLoading] = useState(false);
-  const [generatingPrompt, setGeneratingPrompt] = useState(null);
   const [errors, setErrors] = useState({});
   const [provisioningStatus, setProvisioningStatus] = useState(null);
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   // Load saved progress on mount
   useEffect(() => {
@@ -133,29 +87,22 @@ export default function TenantOnboarding() {
 
   // Save progress on changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      formData,
-      currentStep,
-    }));
+    if (formData.company.company_name || formData.admin_email) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        formData,
+        currentStep,
+      }));
+    }
   }, [formData, currentStep]);
 
   const loadThemes = async () => {
     try {
       const response = await onboardingApi.getThemes();
-      setThemes(response.data?.themes || []);
+      if (response.data?.themes?.length > 0) {
+        setThemes(response.data.themes);
+      }
     } catch (error) {
-      console.error('Failed to load themes:', error);
-      // Provide fallback themes if API fails
-      setThemes([
-        { id: 'ocean-blue', name: 'Ocean Blue', description: 'Professional and trustworthy', primary: '#0EA5E9', secondary: '#0284C7', accent: '#38BDF8' },
-        { id: 'safari-gold', name: 'Safari Gold', description: 'Warm and adventurous', primary: '#D97706', secondary: '#B45309', accent: '#FBBF24' },
-        { id: 'sunset-orange', name: 'Sunset Orange', description: 'Energetic and vibrant', primary: '#EA580C', secondary: '#C2410C', accent: '#FB923C' },
-        { id: 'forest-green', name: 'Forest Green', description: 'Natural and eco-friendly', primary: '#059669', secondary: '#047857', accent: '#34D399' },
-        { id: 'royal-purple', name: 'Royal Purple', description: 'Luxurious and premium', primary: '#7C3AED', secondary: '#6D28D9', accent: '#A78BFA' },
-        { id: 'classic-black', name: 'Classic Black', description: 'Elegant and sophisticated', primary: '#1F2937', secondary: '#111827', accent: '#6B7280' },
-        { id: 'rose-pink', name: 'Rose Pink', description: 'Modern and stylish', primary: '#DB2777', secondary: '#BE185D', accent: '#F472B6' },
-        { id: 'teal-modern', name: 'Teal Modern', description: 'Fresh and contemporary', primary: '#0D9488', secondary: '#0F766E', accent: '#2DD4BF' },
-      ]);
+      console.error('Failed to load themes, using defaults');
     }
   };
 
@@ -167,23 +114,31 @@ export default function TenantOnboarding() {
         [field]: value,
       },
     }));
-    // Clear error for this field
     setErrors(prev => ({ ...prev, [`${section}.${field}`]: null }));
   };
 
   const updateTopLevel = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, [field]: null }));
   };
 
   const validateStep = (step) => {
     const newErrors = {};
 
     if (step === 1) {
-      if (!formData.company.company_name) newErrors['company.company_name'] = 'Company name is required';
-      if (!formData.company.support_email) newErrors['company.support_email'] = 'Support email is required';
-      if (!formData.company.brand_theme?.theme_id) newErrors['company.brand_theme'] = 'Please select a brand theme';
-      // Validate admin credentials
-      if (!formData.admin_email) newErrors['admin_email'] = 'Admin email is required';
+      if (!formData.company.company_name?.trim()) {
+        newErrors['company.company_name'] = 'Company name is required';
+      }
+      if (!formData.company.support_email?.trim()) {
+        newErrors['company.support_email'] = 'Support email is required';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.company.support_email)) {
+        newErrors['company.support_email'] = 'Please enter a valid email';
+      }
+      if (!formData.admin_email?.trim()) {
+        newErrors['admin_email'] = 'Admin email is required';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.admin_email)) {
+        newErrors['admin_email'] = 'Please enter a valid email';
+      }
       if (!formData.admin_password) {
         newErrors['admin_password'] = 'Admin password is required';
       } else if (formData.admin_password.length < 8) {
@@ -192,16 +147,9 @@ export default function TenantOnboarding() {
     }
 
     if (step === 2) {
-      if (!formData.agents.inbound_description) {
-        newErrors['agents.inbound_description'] = 'Please describe your AI agent';
+      if (!formData.email.from_name?.trim()) {
+        newErrors['email.from_name'] = 'From name is required';
       }
-      if (!formData.agents.inbound_prompt) {
-        newErrors['agents.inbound_prompt'] = 'Please generate a system prompt first';
-      }
-    }
-
-    if (step === 4) {
-      if (!formData.email.from_name) newErrors['email.from_name'] = 'From name is required';
     }
 
     setErrors(newErrors);
@@ -218,91 +166,78 @@ export default function TenantOnboarding() {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
-  const generatePrompt = async (agentType) => {
-    const description = formData.agents.inbound_description;
-
-    if (!description || description.length < 20) {
-      setErrors(prev => ({
-        ...prev,
-        [`agents.${agentType}_description`]: 'Please provide a longer description (at least 20 characters)',
-      }));
+  const handleLaunch = async () => {
+    // Validate final step
+    if (!validateStep(1) || !validateStep(2)) {
+      setProvisioningStatus({
+        step: 'error',
+        message: 'Please complete all required fields',
+        errors: Object.values(errors).filter(Boolean),
+      });
       return;
     }
 
-    setGeneratingPrompt(agentType);
-
-    try {
-      const response = await onboardingApi.generatePrompt({
-        description,
-        agent_type: 'inbound',
-        company_name: formData.company.company_name,
-        agent_name: formData.agents.inbound_agent_name,
-      });
-
-      if (response.data) {
-        const { system_prompt, agent_name } = response.data;
-        updateField('agents', `${agentType}_prompt`, system_prompt);
-        if (agent_name && !formData.agents[`${agentType}_agent_name`]) {
-          updateField('agents', `${agentType}_agent_name`, agent_name);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to generate prompt:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to generate prompt. Please try again.';
-      setErrors(prev => ({
-        ...prev,
-        [`agents.${agentType}_prompt`]: errorMessage,
-      }));
-    } finally {
-      setGeneratingPrompt(null);
-    }
-  };
-
-  const handleLaunch = async () => {
-    if (!validateStep(currentStep)) return;
-
     setLoading(true);
-    setProvisioningStatus({ step: 'starting', message: 'Starting onboarding...' });
+    setProvisioningStatus({ step: 'starting', message: 'Starting setup...' });
 
     try {
-      // Prepare the request (Lite version - no voice features)
+      // Build the request for Lite version
       const request = {
-        company: formData.company,
-        agents: formData.agents,
+        company: {
+          ...formData.company,
+          brand_theme: formData.company.brand_theme,
+        },
+        // Lite version: minimal agent config (required by backend)
+        agents: {
+          inbound_description: `Travel consultant for ${formData.company.company_name}`,
+          inbound_prompt: `You are a helpful travel assistant for ${formData.company.company_name}. Help customers with travel inquiries and generate quotes.`,
+          inbound_agent_name: 'Assistant',
+        },
         email: formData.email,
-        knowledge_base: formData.knowledge_base,
-        // Admin user credentials
+        // Lite version: skip knowledge base
+        knowledge_base: {
+          categories: ['Destinations', 'Hotels', 'FAQs'],
+          skip_initial_setup: true,
+        },
+        // No voice features in Lite
+        provision_phone: false,
+        // Outbound disabled in Lite
+        outbound: {
+          enabled: false,
+          timing: 'next_business_day',
+          call_window_start: '09:00',
+          call_window_end: '17:00',
+          call_days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+          max_attempts: 2,
+          min_quote_value: 0,
+        },
+        // Admin credentials
         admin_email: formData.admin_email,
         admin_password: formData.admin_password,
-        admin_name: formData.admin_name || undefined,
+        admin_name: formData.admin_name || formData.company.company_name + ' Admin',
       };
 
-      setProvisioningStatus({ step: 'config', message: 'Creating tenant configuration...' });
+      setProvisioningStatus({ step: 'config', message: 'Creating your platform...' });
 
       const response = await onboardingApi.complete(request);
 
-      if (response.data?.success) {
+      if (response.data?.success || response.data?.tenant_id) {
         setProvisioningStatus({
           step: 'complete',
-          message: 'Onboarding complete!',
-          resources: response.data.resources,
+          message: 'Setup complete!',
+          resources: response.data.resources || { tenant_id: response.data.tenant_id },
+          tenant_id: response.data.tenant_id,
         });
-
-        // Clear saved progress
         localStorage.removeItem(STORAGE_KEY);
       } else {
-        setProvisioningStatus({
-          step: 'error',
-          message: response.data?.message || 'Onboarding failed',
-          errors: response.data?.errors || [],
-        });
+        throw new Error(response.data?.message || 'Setup failed');
       }
     } catch (error) {
       console.error('Onboarding failed:', error);
       setProvisioningStatus({
         step: 'error',
-        message: error.response?.data?.detail || 'Failed to complete onboarding',
-        errors: [error.message],
+        message: error.response?.data?.detail || error.message || 'Failed to complete setup',
+        errors: error.response?.data?.errors || [error.message],
       });
     } finally {
       setLoading(false);
@@ -310,51 +245,12 @@ export default function TenantOnboarding() {
   };
 
   const resetOnboarding = () => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Start Over?',
-      message: 'Are you sure you want to start over? All progress will be lost.',
-      onConfirm: () => {
-        setConfirmModal({ ...confirmModal, isOpen: false });
-        localStorage.removeItem(STORAGE_KEY);
-        setFormData(getDefaultData());
-        setCurrentStep(1);
-        setErrors({});
-        setProvisioningStatus(null);
-      }
-    });
-  };
-
-  // Render step content
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return <Step1CompanyProfile formData={formData} updateField={updateField} updateTopLevel={updateTopLevel} errors={errors} themes={themes} />;
-      case 2:
-        return (
-          <Step2AgentConfig
-            formData={formData}
-            updateField={updateField}
-            errors={errors}
-            generatePrompt={generatePrompt}
-            generatingPrompt={generatingPrompt}
-          />
-        );
-      case 3:
-        return <Step3EmailSettings formData={formData} updateField={updateField} errors={errors} />;
-      case 4:
-        return <Step4KnowledgeBase formData={formData} updateField={updateField} />;
-      case 5:
-        return (
-          <Step5Review
-            formData={formData}
-            provisioningStatus={provisioningStatus}
-            onLaunch={handleLaunch}
-            loading={loading}
-          />
-        );
-      default:
-        return null;
+    if (window.confirm('Are you sure you want to start over? All progress will be lost.')) {
+      localStorage.removeItem(STORAGE_KEY);
+      setFormData(getDefaultData());
+      setCurrentStep(1);
+      setErrors({});
+      setProvisioningStatus(null);
     }
   };
 
@@ -362,11 +258,11 @@ export default function TenantOnboarding() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-6">
+        <div className="max-w-3xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Tenant Onboarding</h1>
-              <p className="text-gray-500 mt-1">Configure your AI travel platform</p>
+              <h1 className="text-2xl font-bold text-gray-900">Platform Setup</h1>
+              <p className="text-gray-500 mt-1">Get your travel platform ready in minutes</p>
             </div>
             <button
               onClick={resetOnboarding}
@@ -380,14 +276,14 @@ export default function TenantOnboarding() {
 
       {/* Progress Steps */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-center gap-4">
             {STEPS.map((step, idx) => (
               <div key={step.id} className="flex items-center">
                 <button
                   onClick={() => currentStep > step.id && setCurrentStep(step.id)}
                   disabled={currentStep < step.id}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                     currentStep === step.id
                       ? 'bg-purple-100 text-purple-700'
                       : currentStep > step.id
@@ -396,7 +292,7 @@ export default function TenantOnboarding() {
                   }`}
                 >
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                       currentStep === step.id
                         ? 'bg-purple-600 text-white'
                         : currentStep > step.id
@@ -407,14 +303,14 @@ export default function TenantOnboarding() {
                     {currentStep > step.id ? (
                       <CheckCircleIcon className="w-5 h-5" />
                     ) : (
-                      <span className="text-sm font-medium">{step.id}</span>
+                      step.id
                     )}
                   </div>
-                  <span className="hidden md:block text-sm font-medium">{step.name}</span>
+                  <span className="hidden sm:block font-medium">{step.name}</span>
                 </button>
                 {idx < STEPS.length - 1 && (
                   <div
-                    className={`w-8 h-0.5 mx-1 ${
+                    className={`w-12 h-0.5 mx-2 ${
                       currentStep > step.id ? 'bg-green-500' : 'bg-gray-200'
                     }`}
                   />
@@ -426,18 +322,41 @@ export default function TenantOnboarding() {
       </div>
 
       {/* Step Content */}
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-3xl mx-auto px-4 py-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
-          {renderStepContent()}
+          {currentStep === 1 && (
+            <Step1CompanyProfile
+              formData={formData}
+              updateField={updateField}
+              updateTopLevel={updateTopLevel}
+              errors={errors}
+              themes={themes}
+            />
+          )}
+          {currentStep === 2 && (
+            <Step2EmailSettings
+              formData={formData}
+              updateField={updateField}
+              errors={errors}
+            />
+          )}
+          {currentStep === 3 && (
+            <Step3Review
+              formData={formData}
+              provisioningStatus={provisioningStatus}
+              onLaunch={handleLaunch}
+              loading={loading}
+            />
+          )}
         </div>
 
-        {/* Navigation */}
-        {currentStep < 6 && (
+        {/* Navigation - hide on step 3 when showing results */}
+        {!(currentStep === 3 && (provisioningStatus?.step === 'complete' || provisioningStatus?.step === 'error' || loading)) && (
           <div className="flex items-center justify-between mt-6">
             <button
               onClick={handleBack}
               disabled={currentStep === 1}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${
                 currentStep === 1
                   ? 'text-gray-300 cursor-not-allowed'
                   : 'text-gray-600 hover:bg-gray-100'
@@ -446,50 +365,47 @@ export default function TenantOnboarding() {
               <ArrowLeftIcon className="w-5 h-5" />
               Back
             </button>
-            <button
-              onClick={handleNext}
-              className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-            >
-              Next
-              <ArrowRightIcon className="w-5 h-5" />
-            </button>
+
+            {currentStep < 3 ? (
+              <button
+                onClick={handleNext}
+                className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+              >
+                Next
+                <ArrowRightIcon className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                onClick={handleLaunch}
+                disabled={loading}
+                className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+              >
+                <RocketLaunchIcon className="w-5 h-5" />
+                Launch Platform
+              </button>
+            )}
           </div>
         )}
       </div>
-
-      {/* Confirmation Modal */}
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        confirmText="Start Over"
-        danger={true}
-        onConfirm={confirmModal.onConfirm}
-        onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })}
-      />
     </div>
   );
 }
 
-// ==================== Step Components ====================
-
+// ==================== Step 1: Company Profile ====================
 function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, themes }) {
   const timezones = [
     { value: 'Africa/Johannesburg', label: 'South Africa (SAST)' },
     { value: 'Africa/Lagos', label: 'Nigeria (WAT)' },
     { value: 'Africa/Nairobi', label: 'Kenya (EAT)' },
     { value: 'Europe/London', label: 'UK (GMT/BST)' },
-    { value: 'America/New_York', label: 'US Eastern (EST/EDT)' },
-    { value: 'Australia/Sydney', label: 'Australia (AEST/AEDT)' },
+    { value: 'America/New_York', label: 'US Eastern' },
   ];
 
   const currencies = [
-    { value: 'ZAR', label: 'South African Rand (ZAR)' },
-    { value: 'USD', label: 'US Dollar (USD)' },
-    { value: 'EUR', label: 'Euro (EUR)' },
-    { value: 'GBP', label: 'British Pound (GBP)' },
-    { value: 'KES', label: 'Kenyan Shilling (KES)' },
-    { value: 'NGN', label: 'Nigerian Naira (NGN)' },
+    { value: 'ZAR', label: 'South African Rand (R)' },
+    { value: 'USD', label: 'US Dollar ($)' },
+    { value: 'EUR', label: 'Euro (€)' },
+    { value: 'GBP', label: 'British Pound (£)' },
   ];
 
   const selectTheme = (theme) => {
@@ -502,12 +418,13 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Company Profile</h2>
-        <p className="text-gray-500 mt-1">Basic information about your travel agency</p>
+        <p className="text-gray-500 mt-1">Tell us about your travel business</p>
       </div>
 
+      {/* Company Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="md:col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -518,12 +435,13 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
             value={formData.company.company_name}
             onChange={(e) => updateField('company', 'company_name', e.target.value)}
             placeholder="e.g., Safari Adventures Travel"
-            className={`input w-full ${errors['company.company_name'] ? 'border-red-500' : ''}`}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+              errors['company.company_name'] ? 'border-red-500' : 'border-gray-300'
+            }`}
           />
           {errors['company.company_name'] && (
             <p className="text-sm text-red-500 mt-1">{errors['company.company_name']}</p>
           )}
-          <p className="text-xs text-gray-500 mt-1">A unique tenant ID will be auto-generated from your company name</p>
         </div>
 
         <div>
@@ -535,7 +453,9 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
             value={formData.company.support_email}
             onChange={(e) => updateField('company', 'support_email', e.target.value)}
             placeholder="support@yourcompany.com"
-            className={`input w-full ${errors['company.support_email'] ? 'border-red-500' : ''}`}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+              errors['company.support_email'] ? 'border-red-500' : 'border-gray-300'
+            }`}
           />
           {errors['company.support_email'] && (
             <p className="text-sm text-red-500 mt-1">{errors['company.support_email']}</p>
@@ -543,24 +463,13 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
           <input
             type="tel"
             value={formData.company.support_phone}
             onChange={(e) => updateField('company', 'support_phone', e.target.value)}
             placeholder="+27 12 345 6789"
-            className="input w-full"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
-          <input
-            type="url"
-            value={formData.company.website_url}
-            onChange={(e) => updateField('company', 'website_url', e.target.value)}
-            placeholder="https://www.yourcompany.com"
-            className="input w-full"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           />
         </div>
 
@@ -569,7 +478,7 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
           <select
             value={formData.company.timezone}
             onChange={(e) => updateField('company', 'timezone', e.target.value)}
-            className="input w-full"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           >
             {timezones.map((tz) => (
               <option key={tz.value} value={tz.value}>{tz.label}</option>
@@ -582,7 +491,7 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
           <select
             value={formData.company.currency}
             onChange={(e) => updateField('company', 'currency', e.target.value)}
-            className="input w-full"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           >
             {currencies.map((c) => (
               <option key={c.value} value={c.value}>{c.label}</option>
@@ -591,16 +500,10 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
         </div>
       </div>
 
-      {/* Brand Theme Selection */}
-      <div className="mt-8">
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          Brand Theme <span className="text-red-500">*</span>
-        </label>
-        <p className="text-sm text-gray-500 mb-4">Select a color theme for your platform's dashboard and emails</p>
-        {errors['company.brand_theme'] && (
-          <p className="text-sm text-red-500 mb-3">{errors['company.brand_theme']}</p>
-        )}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Brand Theme */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-3">Brand Theme</label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {themes.map((theme) => (
             <button
               key={theme.id}
@@ -608,64 +511,49 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
               onClick={() => selectTheme(theme)}
               className={`relative p-4 rounded-xl border-2 transition-all text-left ${
                 formData.company.brand_theme?.theme_id === theme.id
-                  ? 'border-purple-500 ring-2 ring-purple-200'
+                  ? 'border-purple-500 ring-2 ring-purple-200 bg-purple-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              {formData.company.brand_theme?.theme_id === theme.id && (
-                <div className="absolute top-2 right-2">
-                  <CheckCircleIcon className="w-5 h-5 text-purple-600" />
-                </div>
-              )}
-              <div className="flex gap-1 mb-3">
-                <div
-                  className="w-8 h-8 rounded-full"
-                  style={{ backgroundColor: theme.primary }}
-                />
-                <div
-                  className="w-8 h-8 rounded-full"
-                  style={{ backgroundColor: theme.secondary }}
-                />
-                <div
-                  className="w-8 h-8 rounded-full"
-                  style={{ backgroundColor: theme.accent }}
-                />
+              <div className="flex gap-1 mb-2">
+                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.primary }} />
+                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.secondary }} />
+                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.accent }} />
               </div>
               <p className="font-medium text-gray-900 text-sm">{theme.name}</p>
-              <p className="text-xs text-gray-500">{theme.description}</p>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Admin Account Section */}
-      <div className="mt-8 pt-8 border-t border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Admin Account</h3>
-        <p className="text-sm text-gray-500 mb-4">Create your first admin account to access the dashboard after setup</p>
+      {/* Admin Account */}
+      <div className="border-t border-gray-200 pt-8">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Admin Account</h3>
+        <p className="text-sm text-gray-500 mb-4">Create your login credentials</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Admin Name
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
             <input
               type="text"
               value={formData.admin_name}
               onChange={(e) => updateTopLevel('admin_name', e.target.value)}
               placeholder="John Doe"
-              className="input w-full"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Admin Email <span className="text-red-500">*</span>
+              Login Email <span className="text-red-500">*</span>
             </label>
             <input
               type="email"
               value={formData.admin_email}
               onChange={(e) => updateTopLevel('admin_email', e.target.value)}
-              placeholder="admin@yourcompany.com"
-              className={`input w-full ${errors['admin_email'] ? 'border-red-500' : ''}`}
+              placeholder="you@yourcompany.com"
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                errors['admin_email'] ? 'border-red-500' : 'border-gray-300'
+              }`}
             />
             {errors['admin_email'] && (
               <p className="text-sm text-red-500 mt-1">{errors['admin_email']}</p>
@@ -673,21 +561,20 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Admin Password <span className="text-red-500">*</span>
+              Password <span className="text-red-500">*</span>
             </label>
             <input
               type="password"
               value={formData.admin_password}
               onChange={(e) => updateTopLevel('admin_password', e.target.value)}
-              placeholder="Create a strong password (min 8 characters)"
-              className={`input w-full ${errors['admin_password'] ? 'border-red-500' : ''}`}
+              placeholder="At least 8 characters"
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                errors['admin_password'] ? 'border-red-500' : 'border-gray-300'
+              }`}
             />
             {errors['admin_password'] && (
               <p className="text-sm text-red-500 mt-1">{errors['admin_password']}</p>
             )}
-            <p className="text-xs text-gray-500 mt-1">
-              Password must be at least 8 characters with uppercase, lowercase, and number
-            </p>
           </div>
         </div>
       </div>
@@ -695,89 +582,13 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
   );
 }
 
-function Step2AgentConfig({ formData, updateField, errors, generatePrompt, generatingPrompt }) {
-  return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">AI Agent Configuration</h2>
-        <p className="text-gray-500 mt-1">Configure the AI agent that handles email inquiries and generates quotes</p>
-      </div>
-
-      {/* Agent Configuration */}
-      <div className="border border-gray-200 rounded-lg p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Email Quote Agent</h3>
-        <p className="text-sm text-gray-500 mb-4">This agent processes incoming email inquiries and generates personalized travel quotes</p>
-
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Agent Name</label>
-          <input
-            type="text"
-            value={formData.agents.inbound_agent_name}
-            onChange={(e) => updateField('agents', 'inbound_agent_name', e.target.value)}
-            placeholder="AI Assistant"
-            className="input w-full max-w-xs"
-          />
-          <p className="text-xs text-gray-500 mt-1">Used in email signatures and quote documents</p>
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Describe Your Agent <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            value={formData.agents.inbound_description}
-            onChange={(e) => updateField('agents', 'inbound_description', e.target.value)}
-            rows={4}
-            placeholder="Example: I want a friendly, professional agent named Sarah who specializes in African safaris and beach holidays. She should be warm but not too casual, always mention our 24/7 support, and try to upsell premium packages when appropriate."
-            className={`input w-full ${errors['agents.inbound_description'] ? 'border-red-500' : ''}`}
-          />
-          {errors['agents.inbound_description'] && (
-            <p className="text-sm text-red-500 mt-1">{errors['agents.inbound_description']}</p>
-          )}
-        </div>
-
-        <button
-          onClick={() => generatePrompt('inbound')}
-          disabled={generatingPrompt === 'inbound'}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 disabled:opacity-50"
-        >
-          {generatingPrompt === 'inbound' ? (
-            <ArrowPathIcon className="w-5 h-5 animate-spin" />
-          ) : (
-            <SparklesIcon className="w-5 h-5" />
-          )}
-          {generatingPrompt === 'inbound' ? 'Generating...' : 'Generate System Prompt'}
-        </button>
-
-        {formData.agents.inbound_prompt && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Generated System Prompt
-            </label>
-            <textarea
-              value={formData.agents.inbound_prompt}
-              onChange={(e) => updateField('agents', 'inbound_prompt', e.target.value)}
-              rows={8}
-              className="input w-full font-mono text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">You can edit this prompt to fine-tune your agent's behavior</p>
-          </div>
-        )}
-        {errors['agents.inbound_prompt'] && (
-          <p className="text-sm text-red-500 mt-2">{errors['agents.inbound_prompt']}</p>
-        )}
-      </div>
-
-    </div>
-  );
-}
-
-function Step3EmailSettings({ formData, updateField, errors }) {
+// ==================== Step 2: Email Settings ====================
+function Step2EmailSettings({ formData, updateField, errors }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-gray-900">Email & Communication</h2>
-        <p className="text-gray-500 mt-1">Configure email settings for quotes and invoices</p>
+        <h2 className="text-xl font-semibold text-gray-900">Email Settings</h2>
+        <p className="text-gray-500 mt-1">Configure how your quotes and invoices are sent</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -790,222 +601,143 @@ function Step3EmailSettings({ formData, updateField, errors }) {
             value={formData.email.from_name}
             onChange={(e) => updateField('email', 'from_name', e.target.value)}
             placeholder="e.g., Safari Adventures"
-            className={`input w-full ${errors['email.from_name'] ? 'border-red-500' : ''}`}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+              errors['email.from_name'] ? 'border-red-500' : 'border-gray-300'
+            }`}
           />
           {errors['email.from_name'] && (
             <p className="text-sm text-red-500 mt-1">{errors['email.from_name']}</p>
           )}
+          <p className="text-xs text-gray-500 mt-1">Appears as sender name in emails</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">From Email</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">From Email (Optional)</label>
           <input
             type="email"
             value={formData.email.from_email}
             onChange={(e) => updateField('email', 'from_email', e.target.value)}
             placeholder="quotes@yourcompany.com"
-            className="input w-full"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           />
           <p className="text-xs text-gray-500 mt-1">Leave blank to use support email</p>
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Email Signature</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Email Signature (Optional)</label>
         <textarea
           value={formData.email.email_signature}
           onChange={(e) => updateField('email', 'email_signature', e.target.value)}
-          rows={4}
-          placeholder="Best regards,&#10;The Safari Adventures Team&#10;+27 12 345 6789 | www.safari-adventures.com"
-          className="input w-full"
+          rows={3}
+          placeholder="Best regards,&#10;The Safari Adventures Team&#10;+27 12 345 6789"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
+      <div className="flex items-center gap-6 py-4 px-4 bg-gray-50 rounded-lg">
+        <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
-            id="auto_send"
             checked={formData.email.auto_send_quotes}
             onChange={(e) => updateField('email', 'auto_send_quotes', e.target.checked)}
             className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
           />
-          <label htmlFor="auto_send" className="text-sm text-gray-700">
-            Auto-send quotes to customers
-          </label>
-        </div>
+          <span className="text-sm text-gray-700">Auto-send quotes to customers</span>
+        </label>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Quote Validity</label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-700">Quote valid for</span>
           <select
             value={formData.email.quote_validity_days}
             onChange={(e) => updateField('email', 'quote_validity_days', parseInt(e.target.value))}
-            className="input w-full"
+            className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
           >
             <option value={7}>7 days</option>
             <option value={14}>14 days</option>
             <option value={30}>30 days</option>
-            <option value={60}>60 days</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Follow-up After</label>
-          <select
-            value={formData.email.follow_up_days}
-            onChange={(e) => updateField('email', 'follow_up_days', parseInt(e.target.value))}
-            className="input w-full"
-          >
-            <option value={2}>2 days</option>
-            <option value={3}>3 days</option>
-            <option value={5}>5 days</option>
-            <option value={7}>7 days</option>
           </select>
         </div>
       </div>
 
-      {/* SendGrid API Key */}
+      {/* SendGrid (Optional) */}
       <div className="border-t border-gray-200 pt-6">
-        <h3 className="font-medium text-gray-900 mb-2">SendGrid Configuration (Optional)</h3>
-        <p className="text-sm text-gray-500 mb-4">Enter your SendGrid API key for email delivery, or leave blank to use the platform default.</p>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">SendGrid API Key</label>
-          <input
-            type="password"
-            value={formData.email.sendgrid_api_key}
-            onChange={(e) => updateField('email', 'sendgrid_api_key', e.target.value)}
-            placeholder="SG.xxxxxxxxxxxxxxxx"
-            className="input w-full"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Step4KnowledgeBase({ formData, updateField }) {
-  const defaultCategories = ['Destinations', 'Hotels', 'Visa Info', 'FAQs', 'Company Policies', 'Terms & Conditions'];
-
-  const toggleCategory = (category) => {
-    const current = formData.knowledge_base.categories || [];
-    if (current.includes(category)) {
-      updateField('knowledge_base', 'categories', current.filter(c => c !== category));
-    } else {
-      updateField('knowledge_base', 'categories', [...current, category]);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">Knowledge Base Setup</h2>
-        <p className="text-gray-500 mt-1">Configure your AI's knowledge base categories</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Knowledge Categories
-        </label>
+        <h3 className="font-medium text-gray-900 mb-2">SendGrid API Key (Optional)</h3>
         <p className="text-sm text-gray-500 mb-4">
-          Select categories to organize your knowledge base. You can upload documents to these categories after setup.
+          Enter your own SendGrid API key for email delivery, or leave blank to use the platform default.
         </p>
-        <div className="flex flex-wrap gap-2">
-          {defaultCategories.map((category) => (
-            <button
-              key={category}
-              onClick={() => toggleCategory(category)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                formData.knowledge_base.categories?.includes(category)
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="p-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-        <div className="text-center">
-          <BookOpenIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="font-medium text-gray-900 mb-2">Document Upload</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            You can upload destination guides, hotel information, FAQ documents, and more after completing setup.
-          </p>
-          <div className="flex items-center justify-center gap-2">
-            <input
-              type="checkbox"
-              id="skip_kb"
-              checked={formData.knowledge_base.skip_initial_setup}
-              onChange={(e) => updateField('knowledge_base', 'skip_initial_setup', e.target.checked)}
-              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-            />
-            <label htmlFor="skip_kb" className="text-sm text-gray-700">
-              Skip document upload for now (recommended)
-            </label>
-          </div>
-        </div>
+        <input
+          type="password"
+          value={formData.email.sendgrid_api_key}
+          onChange={(e) => updateField('email', 'sendgrid_api_key', e.target.value)}
+          placeholder="SG.xxxxxxxxxxxxxxxx"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+        />
       </div>
     </div>
   );
 }
 
-function Step5Review({ formData, provisioningStatus, onLaunch, loading }) {
+// ==================== Step 3: Review & Launch ====================
+function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
+  // Success state
   if (provisioningStatus?.step === 'complete') {
     return (
       <div className="text-center py-8">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CheckCircleIcon className="w-10 h-10 text-green-600" />
+        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <CheckCircleIcon className="w-12 h-12 text-green-600" />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Onboarding Complete!</h2>
-        <p className="text-gray-500 mb-8">Your AI travel platform is ready to go.</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">You're All Set!</h2>
+        <p className="text-gray-500 mb-8">Your travel platform is ready to use.</p>
 
-        <div className="bg-gray-50 rounded-lg p-6 text-left max-w-md mx-auto mb-8">
-          <h3 className="font-medium text-gray-900 mb-4">Your Resources</h3>
-          <dl className="space-y-3">
+        <div className="bg-gray-50 rounded-lg p-6 text-left max-w-sm mx-auto mb-8">
+          <h3 className="font-medium text-gray-900 mb-3">Your Login Details</h3>
+          <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <dt className="text-gray-500">Tenant ID:</dt>
-              <dd className="font-medium font-mono">{provisioningStatus.resources?.tenant_id}</dd>
+              <dt className="text-gray-500">Email:</dt>
+              <dd className="font-medium">{formData.admin_email}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Status:</dt>
-              <dd className="font-medium text-green-600">Ready</dd>
+              <dt className="text-gray-500">Tenant ID:</dt>
+              <dd className="font-mono text-xs">{provisioningStatus.tenant_id || provisioningStatus.resources?.tenant_id}</dd>
             </div>
           </dl>
         </div>
 
         <a
-          href={`/?client=${provisioningStatus.resources?.tenant_id}`}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+          href="/login"
+          className="inline-flex items-center gap-2 px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
         >
-          Go to Dashboard
+          Go to Login
           <ArrowRightIcon className="w-5 h-5" />
         </a>
       </div>
     );
   }
 
+  // Error state
   if (provisioningStatus?.step === 'error') {
     return (
       <div className="text-center py-8">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <span className="text-3xl">!</span>
+        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <ExclamationTriangleIcon className="w-12 h-12 text-red-600" />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Onboarding Failed</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Setup Failed</h2>
         <p className="text-gray-500 mb-4">{provisioningStatus.message}</p>
+
         {provisioningStatus.errors?.length > 0 && (
-          <div className="bg-red-50 rounded-lg p-4 text-left max-w-md mx-auto mb-8">
-            <ul className="list-disc list-inside text-sm text-red-700">
+          <div className="bg-red-50 rounded-lg p-4 text-left max-w-md mx-auto mb-6">
+            <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
               {provisioningStatus.errors.map((err, idx) => (
                 <li key={idx}>{err}</li>
               ))}
             </ul>
           </div>
         )}
+
         <button
           onClick={onLaunch}
-          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
         >
           Try Again
         </button>
@@ -1013,57 +745,102 @@ function Step5Review({ formData, provisioningStatus, onLaunch, loading }) {
     );
   }
 
+  // Loading state
   if (loading) {
     return (
-      <div className="text-center py-8">
+      <div className="text-center py-12">
         <ArrowPathIcon className="w-12 h-12 text-purple-600 mx-auto mb-6 animate-spin" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Setting Up Your Platform</h2>
-        <p className="text-gray-500">{provisioningStatus?.message || 'Please wait...'}</p>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Setting Up Your Platform</h2>
+        <p className="text-gray-500">{provisioningStatus?.message || 'This may take a moment...'}</p>
       </div>
     );
   }
 
+  // Review state
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Review & Launch</h2>
-        <p className="text-gray-500 mt-1">Review your configuration before launching</p>
+        <p className="text-gray-500 mt-1">Review your settings before launching</p>
       </div>
 
-      {/* Summary Sections */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <SummaryCard title="Company" icon={BuildingOfficeIcon}>
-          <SummaryItem label="Name" value={formData.company.company_name} />
-          <SummaryItem label="Email" value={formData.company.support_email} />
-          <SummaryItem label="Currency" value={formData.company.currency} />
-          <SummaryItem label="Theme" value={formData.company.brand_theme?.theme_id?.replace(/-/g, ' ')} />
-        </SummaryCard>
+      {/* Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <BuildingOfficeIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="font-medium text-gray-900">Company</h3>
+          </div>
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Name</dt>
+              <dd className="font-medium text-gray-900">{formData.company.company_name || '-'}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Email</dt>
+              <dd className="font-medium text-gray-900">{formData.company.support_email || '-'}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Currency</dt>
+              <dd className="font-medium text-gray-900">{formData.company.currency}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Theme</dt>
+              <dd className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: formData.company.brand_theme?.primary }} />
+                <span className="font-medium text-gray-900 capitalize">
+                  {formData.company.brand_theme?.theme_id?.replace(/-/g, ' ')}
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </div>
 
-        <SummaryCard title="AI Agent" icon={CpuChipIcon}>
-          <SummaryItem label="Agent Name" value={formData.agents.inbound_agent_name} />
-          <SummaryItem
-            label="System Prompt"
-            value={formData.agents.inbound_prompt ? 'Configured' : 'Not set'}
-            status={!!formData.agents.inbound_prompt}
-          />
-        </SummaryCard>
-
-        <SummaryCard title="Email" icon={EnvelopeIcon}>
-          <SummaryItem label="From Name" value={formData.email.from_name} />
-          <SummaryItem
-            label="Auto-send Quotes"
-            value={formData.email.auto_send_quotes ? 'Yes' : 'No'}
-            status={formData.email.auto_send_quotes}
-          />
-          <SummaryItem label="Quote Validity" value={`${formData.email.quote_validity_days} days`} />
-          <SummaryItem
-            label="SendGrid"
-            value={formData.email.sendgrid_api_key ? 'Custom' : 'Platform default'}
-          />
-        </SummaryCard>
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <EnvelopeIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="font-medium text-gray-900">Email</h3>
+          </div>
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-gray-500">From Name</dt>
+              <dd className="font-medium text-gray-900">{formData.email.from_name || '-'}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Auto-send Quotes</dt>
+              <dd className={`font-medium ${formData.email.auto_send_quotes ? 'text-green-600' : 'text-gray-500'}`}>
+                {formData.email.auto_send_quotes ? 'Yes' : 'No'}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Quote Validity</dt>
+              <dd className="font-medium text-gray-900">{formData.email.quote_validity_days} days</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-gray-500">SendGrid</dt>
+              <dd className="font-medium text-gray-900">
+                {formData.email.sendgrid_api_key ? 'Custom Key' : 'Platform Default'}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </div>
 
-      <div className="text-center pt-6">
+      <div className="border border-gray-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <CheckCircleIcon className="w-5 h-5 text-purple-600" />
+          <h3 className="font-medium text-gray-900">Admin Account</h3>
+        </div>
+        <dl className="text-sm">
+          <div className="flex justify-between">
+            <dt className="text-gray-500">Login Email</dt>
+            <dd className="font-medium text-gray-900">{formData.admin_email || '-'}</dd>
+          </div>
+        </dl>
+      </div>
+
+      {/* Launch Button */}
+      <div className="text-center pt-4">
         <button
           onClick={onLaunch}
           disabled={loading}
@@ -1073,32 +850,9 @@ function Step5Review({ formData, provisioningStatus, onLaunch, loading }) {
           Launch My Platform
         </button>
         <p className="text-sm text-gray-500 mt-3">
-          This will create your tenant configuration and set up your platform
+          This will create your account and configure your platform
         </p>
       </div>
-    </div>
-  );
-}
-
-function SummaryCard({ title, icon: Icon, children }) {
-  return (
-    <div className="border border-gray-200 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5 text-purple-600" />
-        <h3 className="font-medium text-gray-900">{title}</h3>
-      </div>
-      <dl className="space-y-2">{children}</dl>
-    </div>
-  );
-}
-
-function SummaryItem({ label, value, status }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <dt className="text-gray-500">{label}</dt>
-      <dd className={`font-medium ${status === false ? 'text-gray-400' : status === true ? 'text-green-600' : ''}`}>
-        {value || '-'}
-      </dd>
     </div>
   );
 }

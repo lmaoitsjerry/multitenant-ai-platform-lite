@@ -14,13 +14,17 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated (only on mount, not after login)
+  // This handles the case where user navigates to /login when already logged in
   useEffect(() => {
-    if (isAuthenticated) {
+    // Only redirect if already authenticated on initial render
+    // Don't redirect here after login - handleSubmit does that
+    if (isAuthenticated && !submitting) {
       const from = location.state?.from?.pathname || '/';
       navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate, location]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run on mount
 
   // Clear error on unmount
   useEffect(() => {

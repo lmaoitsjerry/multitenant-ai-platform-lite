@@ -77,11 +77,12 @@ api.interceptors.response.use(
 
       if (!refreshToken) {
         isRefreshing = false;
-        // Clear auth and redirect to login
+        // Clear auth and dispatch logout event (let React handle navigation)
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         localStorage.removeItem(REFRESH_TOKEN_KEY);
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        // Dispatch event for AuthContext to handle navigation properly
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
         return Promise.reject(error);
       }
 
@@ -113,11 +114,12 @@ api.interceptors.response.use(
         processQueue(refreshError, null);
         isRefreshing = false;
 
-        // Clear auth and redirect to login
+        // Clear auth and dispatch logout event (let React handle navigation)
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         localStorage.removeItem(REFRESH_TOKEN_KEY);
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        // Dispatch event for AuthContext to handle navigation properly
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
 
         return Promise.reject(refreshError);
       }
