@@ -1,4 +1,4 @@
-# Multi-Tenant AI Travel Platform - Bug Fixes & Optimizations
+# Multi-Tenant AI Travel Platform - Inbound Email & Helpdesk RAG
 
 ## What This Is
 
@@ -6,42 +6,64 @@ A multi-tenant AI-powered travel platform for property management companies, fea
 
 ## Core Value
 
-Reliable AI-powered helpdesk that answers tenant property queries using FAISS vector search over 98K+ documents, with fast dashboard experiences for both tenants and admins.
+Automated inbound email processing that generates and sends quotes without manual intervention, backed by a helpdesk that provides natural, helpful responses using RAG over 98K+ documents.
 
 ## Requirements
 
 ### Validated
 
-- ✓ Multi-tenant architecture with X-Client-ID isolation — existing
-- ✓ JWT authentication via Supabase — existing
-- ✓ FAISS vector search with 98,086 documents loaded from GCS — existing
-- ✓ Quote generation agent with PDF output — existing
-- ✓ Invoice management with Stripe integration — existing
-- ✓ CRM with leads and contacts — existing
-- ✓ Email processing via SendGrid webhooks — existing
-- ✓ Internal admin platform with tenant management — existing
-- ✓ Helpdesk FAISS integration (public endpoints) — Phase 1
+- ✓ Multi-tenant architecture with X-Client-ID isolation — v1.0
+- ✓ JWT authentication via Supabase — v1.0
+- ✓ FAISS vector search with 98,086 documents loaded from GCS — v1.0
+- ✓ Quote generation agent with PDF output — v1.0
+- ✓ Invoice management with Stripe integration — v1.0
+- ✓ CRM with leads and contacts — v1.0
+- ✓ Email processing via SendGrid webhooks — v1.0
+- ✓ Internal admin platform with tenant management — v1.0
+- ✓ Helpdesk FAISS integration (public endpoints) — v1.0
+- ✓ Tenant dashboard instant loading (stale-while-revalidate) — v1.0
+- ✓ Admin platform instant loading (caching patterns) — v1.0
 
 ### Active
 
-- [ ] Issue 2: Tenant dashboard slow performance (multiple API calls, no caching)
-- [ ] Issue 3: Admin revenue showing $0 (paid_at field not set correctly)
-- [ ] Issue 5: Admin platform slow loading (multiple API calls on mount)
+**System 1: Inbound Email Auto-Quote Pipeline**
+- [ ] EMAIL-01: SendGrid Inbound Parse receives emails and triggers webhook
+- [ ] EMAIL-02: Webhook endpoint parses email and finds tenant by TO address
+- [ ] EMAIL-03: LLM-powered email parser extracts trip details (destination, dates, travelers, budget)
+- [ ] EMAIL-04: Quote generator creates quote from parsed details with hotel/rate lookup
+- [ ] EMAIL-05: Quote email sent via tenant's SendGrid subuser credentials
+- [ ] EMAIL-06: Notification created in tenant dashboard ("New inquiry - Quote sent")
+
+**System 2: Helpdesk RAG Enhancement**
+- [ ] RAG-01: Search returns 5-8 relevant documents for context
+- [ ] RAG-02: LLM synthesizes natural, conversational response from context
+- [ ] RAG-03: Response includes specific details (names, prices, features) from documents
+- [ ] RAG-04: Handles unknown questions gracefully with honest acknowledgment
 
 ### Out of Scope
 
-- Major refactoring of multi-tenant architecture — working fine, just needs optimization
-- Rebuilding FAISS index from UI — read-only index is acceptable for now
-- Adding new features — focus on fixing existing issues only
+- Rebuilding FAISS index from UI — read-only index is acceptable
+- Adding new destinations/hotels — focus on pipeline, not data
+- Major refactoring of multi-tenant architecture — working fine
+- Real-time chat/WebSocket — async email pipeline is sufficient
 
 ## Context
 
-**Current Issues Identified:**
-1. **Helpdesk** (FIXED): Was returning hardcoded responses instead of FAISS RAG search due to auth issues. Fixed by making endpoints public.
-2. **Tenant Dashboard Performance**: Multiple API calls on mount, no caching, slow perceived loading.
-3. **Admin Revenue**: Invoice `paid_at` field may not be set correctly, causing $0 revenue display.
-4. **Admin Knowledge Base** (FIXED): Now displays FAISS index stats (98,086 vectors, document count, bucket info).
-5. **Admin Platform Loading**: Similar to tenant dashboard - multiple API calls, no lazy loading.
+**Current State:**
+1. **Inbound Email Pipeline (BROKEN)**: Emails sent to tenant SendGrid subusers (e.g., final-itc-3@zorah.ai) should trigger automatic quote generation. Currently no quotes are being generated or sent.
+
+2. **Helpdesk RAG (POOR QUALITY)**: FAISS searches work but responses are robotic, list-like dumps of search results instead of natural, helpful answers.
+
+**Expected Inbound Email Flow:**
+```
+Customer Email → SendGrid Inbound Parse → Webhook → Tenant Lookup →
+Email Parser (LLM) → Quote Generator → Email Sender → Notification
+```
+
+**Expected Helpdesk Behavior:**
+- User asks: "What hotels do you have in Zanzibar with beach access?"
+- Current: Returns list of search results
+- Required: Natural response recommending specific properties with features
 
 **Technical Environment:**
 - Backend: FastAPI (Python 3.11) on Cloud Run
@@ -50,28 +72,25 @@ Reliable AI-powered helpdesk that answers tenant property queries using FAISS ve
 - Vector Store: FAISS index in GCS bucket `zorah-faiss-index`
 - Embeddings: sentence-transformers `all-mpnet-base-v2` (768 dimensions)
 - Email: SendGrid with subusers per tenant
-
-**Known Technical Debt (from CONCERNS.md):**
-- FAISS loads 98K vectors on startup (~100 seconds cold start)
-- Hardcoded admin token in `src/api/admin_routes.py`
-- No automated test suite
-- Some endpoints return generic errors
+- LLM: OpenAI GPT-4o-mini for parsing and responses
 
 ## Constraints
 
-- **Tech Stack**: Must use existing stack (FastAPI, React, Supabase) — no new frameworks
-- **Performance**: Dashboard pages should load perceived content in <2 seconds
-- **Backwards Compatibility**: No breaking changes to API contracts
-- **Memory**: FAISS + sentence-transformers is ~500MB, must stay within Cloud Run limits
+- **Surgical Changes**: All changes must be production-ready, no breaking changes
+- **Edge Cases**: Every edge case must be handled with comprehensive logging
+- **SendGrid Subusers**: Emails MUST be sent via tenant's subuser, not main account
+- **Response Time**: Helpdesk responses < 3 seconds
+- **Memory**: Stay within Cloud Run limits (FAISS + sentence-transformers ~500MB)
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Make helpdesk endpoints public | Prevents 401 errors with expired JWT tokens | ✓ Good |
-| Use optional auth for helpdesk | Allows both authenticated and anonymous queries | ✓ Good |
-| Add FAISS stats to admin knowledge base | Provides visibility into vector index health | ✓ Good |
-| Focus on caching for performance | Simpler than restructuring API calls | — Pending |
+| Use GPT-4o-mini for email parsing | Fast, cheap, good at structured extraction | — Pending |
+| Fallback rule-based parser | Handles cases where LLM fails | — Pending |
+| Send via tenant SendGrid subuser | Maintains tenant branding and deliverability | — Pending |
+| Return 5-8 documents for RAG context | More context = better synthesis | — Pending |
+| Temperature 0.7 for helpdesk | Natural variation without hallucination | — Pending |
 
 ---
-*Last updated: 2026-01-16 after GSD initialization*
+*Last updated: 2026-01-16 after v2.0 milestone initialization*
