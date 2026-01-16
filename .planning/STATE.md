@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 
 ## Current Position
 
-Phase: 1 of 3 (Tenant Dashboard Performance)
-Plan: 01-01 (Non-blocking Layout)
-Status: In progress
-Last activity: 2026-01-16 — Implementing stale-while-revalidate for clientInfo
+Phase: 2 of 3 (Invoice Revenue Fix)
+Plan: 02-01 (Fix paid_at field)
+Status: Starting
+Last activity: 2026-01-16 — Phase 1 complete, moving to Phase 2
 
-Progress: ▓▓░░░░░░░░ 20%
+Progress: ▓▓▓░░░░░░░ 33%
 
 ## Completed Work
 

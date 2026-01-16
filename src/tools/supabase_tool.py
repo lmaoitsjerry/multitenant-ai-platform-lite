@@ -488,15 +488,19 @@ class SupabaseTool:
         """Update invoice status"""
         if not self.client:
             return False
-        
+
         try:
             update_data = {
                 'status': status,
                 'updated_at': datetime.utcnow().isoformat()
             }
-            
-            if payment_date:
-                update_data['payment_date'] = payment_date.isoformat()
+
+            # Set paid_at timestamp when invoice is marked as paid
+            if status == 'paid':
+                # Use provided payment_date or default to now
+                paid_timestamp = (payment_date or datetime.utcnow()).isoformat()
+                update_data['paid_at'] = paid_timestamp
+
             if payment_reference:
                 update_data['payment_reference'] = payment_reference
             
@@ -520,9 +524,11 @@ class SupabaseTool:
     ) -> List[Dict[str, Any]]:
         """List invoices with optional filtering, enriched with destination"""
         if not self.client:
+            logger.warning(f"[LIST_INVOICES] No Supabase client available for tenant {self.tenant_id}")
             return []
 
         try:
+            logger.info(f"[LIST_INVOICES] Querying table={self.TABLE_INVOICES}, tenant_id={self.tenant_id}, status={status}")
             query = self.client.table(self.TABLE_INVOICES)\
                 .select("*")\
                 .eq('tenant_id', self.tenant_id)
@@ -536,6 +542,7 @@ class SupabaseTool:
                 .execute()
 
             invoices = result.data or []
+            logger.info(f"[LIST_INVOICES] Query returned {len(invoices)} invoices for tenant {self.tenant_id}")
 
             # First pass: try to get destination from items
             quote_ids_needed = []
@@ -1160,6 +1167,9 @@ class SupabaseTool:
         email_from_email: Optional[str] = None,
         email_reply_to: Optional[str] = None,
         quotes_email: Optional[str] = None,
+        # SendGrid settings (for subuser support)
+        sendgrid_api_key: Optional[str] = None,
+        sendgrid_username: Optional[str] = None,
         # Banking settings
         bank_name: Optional[str] = None,
         bank_account_name: Optional[str] = None,
@@ -1203,6 +1213,14 @@ class SupabaseTool:
             update_data["email_reply_to"] = email_reply_to
         if quotes_email is not None:
             update_data["quotes_email"] = quotes_email
+
+        # SendGrid settings (for subuser support)
+        if sendgrid_api_key is not None:
+            update_data["sendgrid_api_key"] = sendgrid_api_key
+        if sendgrid_username is not None:
+            update_data["sendgrid_username"] = sendgrid_username
+
+        # Banking settings
         if bank_name is not None:
             update_data["bank_name"] = bank_name
         if bank_account_name is not None:

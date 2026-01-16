@@ -6,7 +6,7 @@ Fix performance issues and data accuracy bugs across the tenant dashboard and ad
 
 ## Phases
 
-- [ ] **Phase 1: Tenant Dashboard Performance** - Fix slow loading with caching and lazy loading
+- [x] **Phase 1: Tenant Dashboard Performance** - Fix slow loading with caching and lazy loading
 - [ ] **Phase 2: Invoice Revenue Fix** - Fix paid_at field and revenue calculations
 - [ ] **Phase 3: Admin Platform Performance** - Optimize admin dashboard loading
 
@@ -40,8 +40,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Fix invoice paid_at field in payment webhook handler
-- [ ] 02-02: Fix admin revenue calculation query
+- [x] 02-01: Fix invoice paid_at field + admin revenue calculation
 
 ### Phase 3: Admin Platform Performance
 **Goal**: Admin platform loads quickly
@@ -61,8 +60,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Tenant Dashboard Performance | 0/2 | Not started | - |
-| 2. Invoice Revenue Fix | 0/2 | Not started | - |
+| 1. Tenant Dashboard Performance | 1/2 | Complete | 2026-01-16 |
+| 2. Invoice Revenue Fix | 0/2 | In progress | - |
 | 3. Admin Platform Performance | 0/1 | Not started | - |
 
 ---
