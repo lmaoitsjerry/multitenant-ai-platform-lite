@@ -54,6 +54,8 @@ Progress: [###.......] 33%
 |----|----------|---------|------|
 | D-01-01-01 | Use database lookup for tenant resolution | Original code only parsed email structure | 2026-01-16 |
 | D-01-01-02 | Add 11-step diagnostic logging | Need visibility into email pipeline | 2026-01-16 |
+| D-02-01-01 | Use 5-minute cache TTL for tenant email mappings | Balance freshness and performance | 2026-01-16 |
+| D-02-01-02 | Return 3-tuple from find_tenant_by_email | Track cache hit status for diagnostics | 2026-01-16 |
 | D-02-02-01 | Use GPT-4o-mini for cost-efficient parsing | ~$0.15/1M tokens, fast response | 2026-01-16 |
 | D-02-02-02 | Always fallback to rule-based parser on LLM failure | Reliability over accuracy | 2026-01-16 |
 
@@ -71,6 +73,23 @@ Stopped at: Completed 02-02-PLAN.md
 Resume file: .planning/phases/02-tenant-lookup-email-parsing/02-02-SUMMARY.md
 
 ## Recent Completions
+
+### 02-01: Tenant Lookup Optimization (2026-01-16)
+
+**Summary:** O(1) cached tenant email lookup with 5-minute TTL, diagnostic endpoint, and 10 unit tests.
+
+**Key Changes:**
+- Added `_tenant_email_cache` with 5-minute TTL
+- Added `_refresh_tenant_email_cache()` for building mappings
+- Added GET `/webhooks/email/lookup/{email}` diagnostic endpoint
+- Added 10 unit tests for tenant lookup
+
+**Commits:**
+- 39a951a: perf(02-01): add tenant email lookup caching
+- 4237861: feat(02-01): add tenant email lookup endpoint
+- 0641a24: test(02-01): add unit tests for tenant email lookup
+
+**Next:** Phase 3 - Quote Generation & Sending
 
 ### 02-02: LLM Email Parser (2026-01-16)
 
