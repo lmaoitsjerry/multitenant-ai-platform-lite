@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from config.loader import ClientConfig
 from src.middleware.auth_middleware import get_current_user_optional
+from src.services.rag_response_service import generate_rag_response
 
 logger = logging.getLogger(__name__)
 
@@ -263,28 +264,12 @@ def search_knowledge_base(config: ClientConfig, query: str, top_k: int = 5):
         return []
 
 
-def format_knowledge_response(results: List[Dict], question: str) -> str:
+def format_knowledge_response(results: List[Dict], question: str) -> Dict[str, Any]:
     """
-    Format knowledge base results into a natural, conversational response.
+    Format knowledge base results using RAG synthesis.
+    Returns dict with 'answer', 'sources', 'method'.
     """
-    if not results:
-        return None
-
-    # Combine relevant content
-    combined = "\n\n".join([r.get("content", "") for r in results[:2]])
-
-    # Create a natural wrapper
-    intro_phrases = [
-        "Based on what I found in the knowledge base, here's what I can tell you:",
-        "I found some helpful info for you:",
-        "Here's what I've got on that topic:",
-        "Great question! Here's what I found:",
-    ]
-
-    import random
-    intro = random.choice(intro_phrases)
-
-    return f"{intro}\n\n{combined}\n\nHope that helps! Let me know if you need more details."
+    return generate_rag_response(question, results)
 
 
 def get_smart_response(question: str) -> tuple:
@@ -365,20 +350,21 @@ async def ask_helpdesk(
         kb_results = search_knowledge_base(config, question)
 
         if kb_results:
-            # Format knowledge base results into natural response
-            answer = format_knowledge_response(kb_results, question)
-            sources = [
-                {
-                    "filename": r.get("source", "Knowledge Base"),
-                    "score": r.get("score", 0),
-                    "type": "knowledge_base"
-                }
-                for r in kb_results
-            ]
+            # Use RAG synthesis for natural response
+            rag_response = format_knowledge_response(kb_results, question)
+
             return {
                 "success": True,
-                "answer": answer,
-                "sources": sources
+                "answer": rag_response['answer'],
+                "sources": [
+                    {
+                        "filename": s.get("filename", "Knowledge Base"),
+                        "score": s.get("score", 0),
+                        "type": "knowledge_base"
+                    }
+                    for s in rag_response.get('sources', [])
+                ],
+                "method": rag_response.get('method', 'rag')
             }
 
         # Step 2: Fall back to smart static responses
@@ -466,11 +452,15 @@ async def test_faiss_search(q: str = "Maldives hotels"):
     For debugging and verification only.
 
     Returns 5-8 documents with relevance filtering (via search_with_context).
+    Also includes a RAG synthesis preview of the response.
     """
     try:
         results = search_shared_faiss_index(q)
 
         if results:
+            # Also show RAG synthesis preview
+            rag_result = generate_rag_response(q, results[:3])
+
             return {
                 "success": True,
                 "query": q,
@@ -482,7 +472,9 @@ async def test_faiss_search(q: str = "Maldives hotels"):
                         "source": r.get("source")
                     }
                     for r in results
-                ]
+                ],
+                "synthesized_preview": rag_result['answer'][:300] + "..." if len(rag_result['answer']) > 300 else rag_result['answer'],
+                "synthesis_method": rag_result.get('method', 'unknown')
             }
         else:
             return {
