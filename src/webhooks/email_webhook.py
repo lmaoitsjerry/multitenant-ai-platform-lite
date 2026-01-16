@@ -656,22 +656,25 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
         if should_generate_quote:
             try:
                 quote_agent = QuoteAgent(config)
+                # Create draft quote for consultant review before sending
                 result = quote_agent.generate_quote(
                     customer_data=parsed_data,
-                    send_email=True,
-                    assign_consultant=True
+                    send_email=False,  # Don't send email automatically
+                    assign_consultant=True,
+                    initial_status='draft'  # Draft status for consultant review
                 )
 
                 quote_id = result.get('quote_id')
                 elapsed = time.time() - start_time
-                diagnostic_log(diagnostic_id, 11, "Quote generated successfully", {
+                diagnostic_log(diagnostic_id, 11, "Draft quote generated for consultant review", {
                     'quote_id': quote_id,
+                    'status': 'draft',
                     'customer_email': email.from_email,
                     'destination': parsed_data.get('destination'),
                     'elapsed_ms': round(elapsed * 1000, 2)
                 })
 
-                # Create notification for auto-quote sent
+                # Create notification for draft quote requiring review
                 try:
                     from src.api.notifications_routes import NotificationService
                     notification_service = NotificationService(config)
@@ -679,11 +682,11 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
                     destination = parsed_data.get('destination', 'travel inquiry')
                     notification_service.notify_quote_request(
                         customer_name=customer_name,
-                        destination=destination,
+                        destination=f"{destination} (DRAFT - review required)",
                         quote_id=quote_id or 'unknown'
                     )
                 except Exception as notif_err:
-                    logger.warning(f"[{diagnostic_id}] Failed to create auto-quote notification: {notif_err}")
+                    logger.warning(f"[{diagnostic_id}] Failed to create draft quote notification: {notif_err}")
 
             except Exception as e:
                 elapsed = time.time() - start_time
