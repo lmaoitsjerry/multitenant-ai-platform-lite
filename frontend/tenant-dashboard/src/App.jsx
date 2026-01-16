@@ -140,15 +140,26 @@ function RouteSkeleton() {
 }
 
 // Cache warmer - runs once when user is authenticated
+// Only warms essential data to avoid overloading backend
 function CacheWarmer() {
   const { user } = useAuth();
 
   useEffect(() => {
     if (user) {
-      // DISABLED: warmCache fires too many concurrent requests
-      // The backend can't handle them all at once (sync Supabase calls block)
-      // TODO: Re-enable when backend uses async Supabase client
-      // warmCache();
+      // Warm cache for essential data only (limited to avoid backend overload)
+      // Sequential to prevent concurrent request issues with sync Supabase
+      const warmEssentials = async () => {
+        try {
+          // Only warm the dashboard endpoint (includes stats, quotes, usage)
+          // Other data will be fetched on-demand
+          await warmCache();
+        } catch (e) {
+          console.debug('Cache warming skipped:', e);
+        }
+      };
+      // Delay warming to let initial render complete first
+      const timeoutId = setTimeout(warmEssentials, 500);
+      return () => clearTimeout(timeoutId);
     }
   }, [user]);
 
@@ -236,6 +247,16 @@ function App() {
                 </Suspense>
               } />
               <Route path="/onboard" element={
+                <Suspense fallback={<PageLoader />}>
+                  <TenantOnboarding />
+                </Suspense>
+              } />
+              <Route path="/onboarding" element={
+                <Suspense fallback={<PageLoader />}>
+                  <TenantOnboarding />
+                </Suspense>
+              } />
+              <Route path="/setup" element={
                 <Suspense fallback={<PageLoader />}>
                   <TenantOnboarding />
                 </Suspense>

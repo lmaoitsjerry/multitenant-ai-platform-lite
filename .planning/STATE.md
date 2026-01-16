@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 1 of 3 (Tenant Dashboard Performance)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-01-16 — Project initialized
+Plan: 01-01 (Non-blocking Layout)
+Status: In progress
+Last activity: 2026-01-16 — Implementing stale-while-revalidate for clientInfo
 
-Progress: ░░░░░░░░░░ 0%
+Progress: ▓▓░░░░░░░░ 20%
 
 ## Completed Work
 

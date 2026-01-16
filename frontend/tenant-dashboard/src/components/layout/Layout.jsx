@@ -3,19 +3,10 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 
 export default function Layout({ children }) {
-  const { sidebarOpen, loading, error } = useApp();
+  const { loading, error, sidebarExpanded } = useApp();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-theme-background">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-theme-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-theme-secondary">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Only show full-page error for hard failures (not loading states)
+  // Layout renders immediately - children handle their own loading states
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-theme-background">
@@ -38,13 +29,16 @@ export default function Layout({ children }) {
     );
   }
 
+  // Render layout immediately - don't block on clientInfo loading
+  // This allows dashboard to show cached data while clientInfo loads in background
   return (
     <div className="min-h-screen bg-theme-background">
       <Sidebar />
       <div
-        className={`transition-all duration-300 ${
-          sidebarOpen ? 'ml-64' : 'ml-16'
-        }`}
+        style={{
+          marginLeft: sidebarExpanded ? '16rem' : '4rem',
+          transition: 'margin-left 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
       >
         <Header />
         <main className="p-6">

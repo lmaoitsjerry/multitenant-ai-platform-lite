@@ -25,8 +25,8 @@ Fix performance issues and data accuracy bugs across the tenant dashboard and ad
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Add caching layer for dashboard API calls
-- [ ] 01-02: Implement skeleton loaders and lazy loading
+- [x] 01-01: Non-blocking Layout + stale-while-revalidate for clientInfo
+- [ ] 01-02: Optimize warmCache + verify performance
 
 ### Phase 2: Invoice Revenue Fix
 **Goal**: Revenue calculations show accurate data

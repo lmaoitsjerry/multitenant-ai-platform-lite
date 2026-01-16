@@ -3,6 +3,24 @@ import axios from 'axios';
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'access_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
+const TENANT_ID_KEY = 'tenant_id';
+
+// Get tenant ID - priority: localStorage (from onboarding) > env var > default
+export const getTenantId = () => {
+  return localStorage.getItem(TENANT_ID_KEY) || import.meta.env.VITE_CLIENT_ID || 'example';
+};
+
+// Set tenant ID (called after onboarding)
+export const setTenantId = (tenantId) => {
+  if (tenantId) {
+    localStorage.setItem(TENANT_ID_KEY, tenantId);
+  }
+};
+
+// Clear tenant ID (for switching tenants or logout)
+export const clearTenantId = () => {
+  localStorage.removeItem(TENANT_ID_KEY);
+};
 
 // Create axios instance with default config
 // NOTE: Do NOT set default Content-Type here - let axios auto-detect for FormData uploads
@@ -13,9 +31,18 @@ const api = axios.create({
 
 // Add client ID and auth headers to all requests
 api.interceptors.request.use((config) => {
-  // Add client ID
-  const clientId = import.meta.env.VITE_CLIENT_ID || 'africastay';
-  config.headers['X-Client-ID'] = clientId;
+  // TENANT-AGNOSTIC LOGIN: Don't send X-Client-ID for login requests
+  // This allows the backend to auto-detect the user's tenant from their email
+  // After login, the tenant_id is stored and used for all subsequent requests
+  const isLoginRequest = config.url?.includes('/auth/login');
+
+  if (!isLoginRequest) {
+    // Add client ID for all non-login requests
+    const clientId = getTenantId();
+    if (clientId && clientId !== 'example') {
+      config.headers['X-Client-ID'] = clientId;
+    }
+  }
 
   // Add auth token if available
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -91,7 +118,7 @@ api.interceptors.response.use(
           `${api.defaults.baseURL}/api/v1/auth/refresh`,
           { refresh_token: refreshToken },
           {
-            headers: { 'X-Client-ID': import.meta.env.VITE_CLIENT_ID || 'africastay' },
+            headers: { 'X-Client-ID': getTenantId() },
             timeout: 10000, // 10 second timeout
           }
         );
@@ -250,54 +277,28 @@ export const prefetch = async (key, fetcher, ttl = DETAIL_CACHE_TTL) => {
   }
 };
 
-// Warm cache on app start - preload commonly used data
+// Warm cache on app start - preload essential data only
+// Uses sequential fetching to avoid overloading backend with concurrent requests
 export const warmCache = async () => {
-  const warmPromises = [];
-
   // Only warm cache if user is authenticated
   const token = localStorage.getItem('access_token');
   if (!token) return;
 
   try {
-    // Prefetch dashboard data (includes stats, recent quotes, usage)
-    warmPromises.push(
-      prefetch('dashboard-all', () => api.get('/api/v1/dashboard/all'), STATS_CACHE_TTL)
-    );
+    // Essential: Dashboard data (includes stats, recent quotes, usage in one call)
+    // This is the most important - covers the landing page entirely
+    await prefetch('dashboard-all', () => api.get('/api/v1/dashboard/all', { timeout: 30000 }), STATS_CACHE_TTL);
 
-    // Prefetch pricing destinations (static - rarely changes)
-    warmPromises.push(
-      prefetch('destinations', () => api.get('/api/v1/pricing/destinations'), STATIC_CACHE_TTL)
-    );
+    // Secondary: Client info (needed for header display)
+    // Only if not already cached
+    if (!getCached('client-info')) {
+      await prefetch('client-info', () => api.get('/api/v1/client/info'), STATIC_CACHE_TTL);
+    }
 
-    // Prefetch hotels (static - rarely changes)
-    warmPromises.push(
-      prefetch('hotels', () => api.get('/api/v1/pricing/hotels'), STATIC_CACHE_TTL)
-    );
-
-    // Prefetch client info (tenant-specific, rarely changes)
-    warmPromises.push(
-      prefetch('client-info', () => api.get('/api/v1/client/info'), STATIC_CACHE_TTL)
-    );
-
-    // Prefetch branding presets (static)
-    warmPromises.push(
-      prefetch('branding-presets', () => api.get('/api/v1/branding/presets'), STATIC_CACHE_TTL)
-    );
-
-    // Prefetch recent quotes (commonly accessed)
-    warmPromises.push(
-      prefetch('quotes-list-{}', () => api.get('/api/v1/quotes', { params: { limit: 20 } }), LIST_CACHE_TTL)
-    );
-
-    // Prefetch pipeline (commonly accessed)
-    warmPromises.push(
-      prefetch('pipeline', () => api.get('/api/v1/crm/pipeline'), STATS_CACHE_TTL)
-    );
-
-    await Promise.allSettled(warmPromises);
     console.debug('Cache warmed successfully');
   } catch (e) {
-    console.debug('Cache warming failed:', e);
+    // Silently fail - cache warming is best effort
+    console.debug('Cache warming skipped:', e?.message);
   }
 };
 
@@ -373,10 +374,11 @@ export const quotesApi = {
     setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
     return response;
   },
-  generate: (data) => api.post('/api/v1/quotes/generate', data),
+  generate: (data) => api.post('/api/v1/quotes/generate', data, { timeout: 30000 }), // 30s for quote generation
   resend: (id) => api.post(`/api/v1/quotes/${id}/resend`),
   update: (id, data) => api.patch(`/api/v1/quotes/${id}`, data),
   delete: (id) => api.delete(`/api/v1/quotes/${id}`),
+  download: (id) => api.get(`/api/v1/quotes/${id}/pdf`, { responseType: 'blob' }),
 
   // Prefetch quote detail on hover
   prefetch: (id) => prefetch(`quote-${id}`, () => api.get(`/api/v1/quotes/${id}`)),
@@ -473,10 +475,15 @@ export const crmApi = {
     // Skip cache if force refresh
     if (!forceRefresh) {
       const cached = getCached(cacheKey);
-      if (cached) return { data: cached };
+      if (cached) {
+        console.log('[crmApi.listClients] Returning cached data:', cached);
+        return { data: cached };
+      }
     }
 
+    console.log('[crmApi.listClients] Fetching from API:', params);
     const response = await api.get('/api/v1/crm/clients', { params });
+    console.log('[crmApi.listClients] API response status:', response.status, 'data:', response.data);
     setCached(cacheKey, response.data, LIST_CACHE_TTL);
     return response;
   },
@@ -545,6 +552,18 @@ export const crmApi = {
 
 // ==================== Invoices API ====================
 export const invoicesApi = {
+  // Clear all invoice list caches (called after create/update/delete)
+  clearListCache: () => {
+    // Clear all cached invoice lists by removing entries that start with 'invoices-list-'
+    for (const key of cache.keys()) {
+      if (key.startsWith('invoices-list-') || key === 'invoice-stats') {
+        cache.delete(key);
+      }
+    }
+    // Also clear dashboard cache since it shows invoice stats
+    cache.delete('dashboard-all');
+  },
+
   list: async (params = {}) => {
     const cacheKey = `invoices-list-${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
@@ -563,20 +582,58 @@ export const invoicesApi = {
     setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
     return response;
   },
-  // Create invoice from quote
-  createFromQuote: (data) => api.post('/api/v1/invoices/convert-quote', data),
-  // Create manual invoice (without quote)
-  createManual: (data) => api.post('/api/v1/invoices/create', data),
+  // Create invoice from quote - clears cache after success
+  createFromQuote: async (data) => {
+    const response = await api.post('/api/v1/invoices/convert-quote', data);
+    if (response.data?.success || response.data?.invoice_id) {
+      invoicesApi.clearListCache();
+    }
+    return response;
+  },
+  // Create manual invoice (without quote) - clears cache after success
+  createManual: async (data) => {
+    const response = await api.post('/api/v1/invoices/create', data);
+    if (response.data?.success || response.data?.invoice_id) {
+      invoicesApi.clearListCache();
+    }
+    return response;
+  },
   // Alias for backwards compatibility (creates from quote)
-  create: (data) => api.post('/api/v1/invoices/convert-quote', data),
-  update: (id, data) => api.patch(`/api/v1/invoices/${id}`, data),
-  delete: (id) => api.delete(`/api/v1/invoices/${id}`),
+  create: async (data) => {
+    const response = await api.post('/api/v1/invoices/convert-quote', data);
+    if (response.data?.success || response.data?.invoice_id) {
+      invoicesApi.clearListCache();
+    }
+    return response;
+  },
+  update: async (id, data) => {
+    const response = await api.patch(`/api/v1/invoices/${id}`, data);
+    invoicesApi.clearListCache();
+    cache.delete(`invoice-${id}`);
+    return response;
+  },
+  delete: async (id) => {
+    const response = await api.delete(`/api/v1/invoices/${id}`);
+    invoicesApi.clearListCache();
+    cache.delete(`invoice-${id}`);
+    return response;
+  },
 
   // Actions
   send: (id) => api.post(`/api/v1/invoices/${id}/send`),
   download: (id) => api.get(`/api/v1/invoices/${id}/pdf`, { responseType: 'blob' }),
-  updateStatus: (id, status) => api.patch(`/api/v1/invoices/${id}/status`, { status }),
-  recordPayment: (id, data) => api.post(`/api/v1/invoices/${id}/payments`, data),
+  updateStatus: async (id, status) => {
+    const response = await api.patch(`/api/v1/invoices/${id}/status`, { status });
+    invoicesApi.clearListCache();
+    cache.delete(`invoice-${id}`);
+    return response;
+  },
+  recordPayment: async (id, data) => {
+    const response = await api.post(`/api/v1/invoices/${id}/payments`, data);
+    invoicesApi.clearListCache();
+    cache.delete(`invoice-${id}`);
+    return response;
+  },
 
   // Stats
   getStats: async () => {
