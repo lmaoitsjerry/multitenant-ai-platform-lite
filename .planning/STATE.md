@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-16)
 
 **Core value:** Automated inbound email -> quote pipeline + natural helpdesk RAG responses
-**Current focus:** Phase 3 - Quote Generation Pipeline
+**Current focus:** Phase 4 - Helpdesk RAG Enhancement (next)
 
 ## Current Position
 
 Phase: 3 of 6 (Quote Generation Pipeline)
-Plan: 03-01 planned, ready for execution
-Status: Ready to execute
-Last activity: 2026-01-16 - Phase 3 planned
+Plan: 03-01 completed
+Status: Phase 3 complete
+Last activity: 2026-01-16 - Completed 03-01-PLAN.md
 
-Progress: [###.......] 33%
+Progress: [####......] 44%
 
 ## Milestones
 
@@ -32,8 +32,8 @@ Progress: [###.......] 33%
 
 **System 1: Inbound Email Auto-Quote Pipeline**
 - Expected: Email -> SendGrid Inbound Parse -> Webhook -> Tenant Lookup -> Parse -> Quote -> Send
-- Status: FIXED - Tenant lookup works, LLM email parsing integrated
-- Remaining: Add draft status support, wire webhook to create drafts
+- Status: COMPLETE - Draft quote workflow implemented
+- Workflow: Email -> Parse -> Draft Quote -> Consultant Review -> Approve -> Send
 
 **System 2: Helpdesk RAG**
 - Expected: Natural, conversational responses with specific details
@@ -47,7 +47,7 @@ Progress: [###.......] 33%
 - OpenAI GPT-4o-mini for parsing and responses
 - Tenant lookup: NOW supports support_email, sendgrid_username@zorah.ai, primary_email
 - Email parsing: LLMEmailParser (primary) with UniversalEmailParser (fallback)
-- Quote generation: QuoteAgent already wired to email webhook, needs draft status support
+- Quote generation: Draft status workflow complete, consultant review before send
 
 ### Decisions
 
@@ -59,6 +59,8 @@ Progress: [###.......] 33%
 | D-02-01-02 | Return 3-tuple from find_tenant_by_email | Track cache hit status for diagnostics | 2026-01-16 |
 | D-02-02-01 | Use GPT-4o-mini for cost-efficient parsing | ~$0.15/1M tokens, fast response | 2026-01-16 |
 | D-02-02-02 | Always fallback to rule-based parser on LLM failure | Reliability over accuracy | 2026-01-16 |
+| D-03-01-01 | Auto-generated quotes from emails use draft status | Prevents incorrect quotes from being sent | 2026-01-16 |
+| D-03-01-02 | PDF still generated for draft quotes | Allows consultants to preview quote before approving | 2026-01-16 |
 
 ### Blockers/Concerns
 
@@ -70,10 +72,27 @@ Progress: [###.......] 33%
 ## Session Continuity
 
 Last session: 2026-01-16
-Stopped at: Created 03-01-PLAN.md
-Resume file: .planning/phases/03-quote-generation-pipeline/03-01-PLAN.md
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
 
 ## Recent Completions
+
+### 03-01: Quote Generation Pipeline (2026-01-16)
+
+**Summary:** Draft quote workflow with initial_status parameter, preventing auto-send and enabling consultant review.
+
+**Key Changes:**
+- Added `initial_status` parameter to QuoteAgent.generate_quote()
+- Draft quotes skip email sending and follow-up calls
+- Email webhook creates draft quotes for all inbound emails
+- 13 comprehensive tests added
+
+**Commits:**
+- adbb398: feat(03-01): add draft status support to QuoteAgent
+- e83d870: feat(03-01): wire email webhook to create draft quotes
+- 29db0e8: test(03-01): add comprehensive quote generation tests
+
+**Next:** Phase 4 - Helpdesk RAG Enhancement
 
 ### 02-01: Tenant Lookup Optimization (2026-01-16)
 
