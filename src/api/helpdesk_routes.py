@@ -8,6 +8,7 @@ Falls back to helpful static responses when no knowledge base results.
 
 import logging
 import os
+import time
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
@@ -342,16 +343,29 @@ async def ask_helpdesk(
     Searches knowledge base first, falls back to smart static responses.
 
     Note: Authentication is optional - helpdesk works for all users.
+    Returns timing data for performance monitoring.
     """
+    start_time = time.time()
+
     try:
         question = request.question
 
         # Step 1: Try knowledge base search
+        search_start = time.time()
         kb_results = search_knowledge_base(config, question)
+        search_time = time.time() - search_start
 
         if kb_results:
-            # Use RAG synthesis for natural response
+            # Step 2: RAG synthesis
+            synth_start = time.time()
             rag_response = format_knowledge_response(kb_results, question)
+            synth_time = time.time() - synth_start
+
+            total_time = time.time() - start_time
+            logger.info(f"Helpdesk RAG: search={search_time:.2f}s, synth={synth_time:.2f}s, total={total_time:.2f}s")
+
+            if total_time > 3.0:
+                logger.warning(f"Helpdesk response exceeded 3s target: {total_time:.2f}s")
 
             return {
                 "success": True,
@@ -364,24 +378,43 @@ async def ask_helpdesk(
                     }
                     for s in rag_response.get('sources', [])
                 ],
-                "method": rag_response.get('method', 'rag')
+                "method": rag_response.get('method', 'rag'),
+                "timing": {
+                    "search_ms": int(search_time * 1000),
+                    "synthesis_ms": int(synth_time * 1000),
+                    "total_ms": int(total_time * 1000)
+                }
             }
 
         # Step 2: Fall back to smart static responses
         answer, topic, sources = get_smart_response(question)
+        total_time = time.time() - start_time
+        logger.info(f"Helpdesk fallback: search={search_time:.2f}s, total={total_time:.2f}s (no KB results)")
 
         return {
             "success": True,
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "method": "static",
+            "timing": {
+                "search_ms": int(search_time * 1000),
+                "synthesis_ms": 0,
+                "total_ms": int(total_time * 1000)
+            }
         }
 
     except Exception as e:
-        logger.error(f"Helpdesk error: {e}")
+        total_time = time.time() - start_time
+        logger.error(f"Helpdesk error after {total_time:.2f}s: {e}")
         return {
             "success": False,
             "answer": "Hmm, I ran into a small hiccup processing that. Could you try rephrasing your question? If it keeps happening, feel free to reach out to support!",
-            "sources": []
+            "sources": [],
+            "timing": {
+                "search_ms": 0,
+                "synthesis_ms": 0,
+                "total_ms": int(total_time * 1000)
+            }
         }
 
 
