@@ -383,11 +383,148 @@ def _format_time_ago(timestamp_str: str) -> str:
 # ==================== Notification Service ====================
 
 class NotificationService:
-    """Service for creating notifications from backend events"""
+    """
+    Service for creating notifications from backend events.
+
+    Creates in-app notifications and optionally sends email notifications
+    based on user preferences.
+    """
+
+    # Map notification types to preference field names
+    TYPE_TO_PREFERENCE = {
+        'quote_request': 'email_quote_request',
+        'email_received': 'email_email_received',
+        'invoice_paid': 'email_invoice_paid',
+        'invoice_overdue': 'email_invoice_overdue',
+        'booking_confirmed': 'email_booking_confirmed',
+        'client_added': 'email_client_added',
+        'team_invite': 'email_team_invite',
+        'system': 'email_system',
+        'mention': 'email_mention',
+    }
 
     def __init__(self, config: ClientConfig):
         self.config = config
         self.supabase = SupabaseTool(config)
+        self._email_sender = None
+
+    @property
+    def email_sender(self):
+        """Lazy-load email sender"""
+        if self._email_sender is None:
+            try:
+                from src.utils.email_sender import EmailSender
+                self._email_sender = EmailSender(self.config)
+            except Exception as e:
+                logger.warning(f"Email sender not available: {e}")
+        return self._email_sender
+
+    def _get_user_preferences(self, user_id: str) -> Dict:
+        """Get notification preferences for a user"""
+        try:
+            result = self.supabase.client.table('notification_preferences')\
+                .select('*')\
+                .eq('tenant_id', self.config.client_id)\
+                .eq('user_id', user_id)\
+                .single()\
+                .execute()
+
+            if result.data:
+                return result.data
+        except Exception as e:
+            logger.debug(f"No preferences found for user {user_id}: {e}")
+
+        # Return defaults - most notifications enabled
+        return {
+            'email_quote_request': True,
+            'email_email_received': True,
+            'email_invoice_paid': True,
+            'email_invoice_overdue': True,
+            'email_booking_confirmed': True,
+            'email_client_added': False,
+            'email_team_invite': True,
+            'email_system': True,
+            'email_mention': True,
+        }
+
+    def _get_user_email(self, user_id: str) -> Optional[str]:
+        """Get email address for a user"""
+        try:
+            result = self.supabase.client.table('organization_users')\
+                .select('email')\
+                .eq('id', user_id)\
+                .single()\
+                .execute()
+
+            if result.data:
+                return result.data.get('email')
+        except Exception as e:
+            logger.debug(f"Could not get email for user {user_id}: {e}")
+        return None
+
+    def _should_send_email(self, user_id: str, notification_type: str) -> bool:
+        """Check if user wants email notification for this type"""
+        pref_key = self.TYPE_TO_PREFERENCE.get(notification_type)
+        if not pref_key:
+            return False
+
+        prefs = self._get_user_preferences(user_id)
+        return prefs.get(pref_key, False)
+
+    def _send_notification_email(
+        self,
+        user_id: str,
+        title: str,
+        message: str,
+        notification_type: str
+    ):
+        """Send email notification if user wants it and email is available"""
+        if not self.email_sender:
+            return
+
+        if not self._should_send_email(user_id, notification_type):
+            return
+
+        email = self._get_user_email(user_id)
+        if not email:
+            return
+
+        try:
+            company_name = getattr(self.config, 'company_name', 'Travel Platform')
+            primary_color = getattr(self.config, 'primary_color', '#6366F1')
+
+            body_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+                <div style="background-color: {primary_color}; color: white; padding: 20px; text-align: center;">
+                    <h2 style="margin: 0;">{title}</h2>
+                </div>
+                <div style="padding: 25px; background-color: #f9fafb;">
+                    <p style="font-size: 16px; line-height: 1.6;">{message}</p>
+                    <p style="margin-top: 20px; font-size: 14px; color: #666;">
+                        Log in to your dashboard to view more details.
+                    </p>
+                </div>
+                <div style="padding: 15px; text-align: center; font-size: 12px; color: #999;">
+                    <p style="margin: 0;">This is an automated notification from {company_name}</p>
+                    <p style="margin: 5px 0 0 0;">You can manage your notification preferences in Settings.</p>
+                </div>
+            </body>
+            </html>
+            """
+
+            self.email_sender.send_email(
+                to=email,
+                subject=f"[{company_name}] {title}",
+                body_html=body_html,
+                body_text=f"{title}\n\n{message}\n\nLog in to your dashboard to view more details."
+            )
+            logger.info(f"Sent notification email to {email}: {title}")
+
+        except Exception as e:
+            logger.error(f"Failed to send notification email: {e}")
 
     def create_notification(
         self,
@@ -397,9 +534,14 @@ class NotificationService:
         message: str,
         entity_type: str = None,
         entity_id: str = None,
-        metadata: dict = None
+        metadata: dict = None,
+        send_email: bool = True
     ) -> Optional[str]:
-        """Create a notification for a specific user"""
+        """
+        Create a notification for a specific user.
+
+        Optionally sends email notification based on user preferences.
+        """
         try:
             result = self.supabase.client.table('notifications').insert({
                 'tenant_id': self.config.client_id,
@@ -412,7 +554,13 @@ class NotificationService:
                 'metadata': metadata or {}
             }).execute()
 
-            return result.data[0]['id'] if result.data else None
+            notification_id = result.data[0]['id'] if result.data else None
+
+            # Send email notification if enabled
+            if send_email and notification_id:
+                self._send_notification_email(user_id, title, message, type)
+
+            return notification_id
         except Exception as e:
             logger.error(f"Failed to create notification: {e}")
             return None
@@ -424,7 +572,8 @@ class NotificationService:
         message: str,
         entity_type: str = None,
         entity_id: str = None,
-        metadata: dict = None
+        metadata: dict = None,
+        send_email: bool = True
     ) -> int:
         """Create notifications for all tenant users"""
         try:
@@ -444,7 +593,8 @@ class NotificationService:
                     message=message,
                     entity_type=entity_type,
                     entity_id=entity_id,
-                    metadata=metadata
+                    metadata=metadata,
+                    send_email=send_email
                 ):
                     count += 1
 
@@ -459,6 +609,27 @@ class NotificationService:
             type='quote_request',
             title='New quote request',
             message=f'{customer_name} requested a quote for {destination}',
+            entity_type='quote',
+            entity_id=quote_id
+        )
+
+    def notify_quote_sent(
+        self,
+        customer_name: str,
+        customer_email: str,
+        destination: str,
+        quote_id: str
+    ):
+        """
+        Notify consultant that quote was sent successfully.
+
+        Called when a draft quote is approved and sent to the customer.
+        Uses 'system' type since 'quote_sent' is not in the allowed notification types.
+        """
+        self.notify_all_users(
+            type='system',
+            title='Quote sent',
+            message=f'Quote for {customer_name} ({destination}) sent to {customer_email}',
             entity_type='quote',
             entity_id=quote_id
         )
