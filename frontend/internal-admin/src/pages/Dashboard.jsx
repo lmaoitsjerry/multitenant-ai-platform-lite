@@ -9,7 +9,25 @@ import {
   ExclamationTriangleIcon,
   PlusCircleIcon,
 } from '@heroicons/react/24/outline';
-import { tenantsApi, usageApi, systemApi } from '../services/api';
+import { tenantsApi, analyticsApi, systemApi, getCached, setCached, CACHE_TTL } from '../services/api';
+
+// Cache keys for dashboard data
+const CACHE_KEYS = {
+  OVERVIEW: 'dashboard_overview',
+  TENANTS: 'dashboard_tenants',
+  TOP_TENANTS: 'dashboard_top_tenants',
+  HEALTH: 'dashboard_health'
+};
+
+// Get cached dashboard data for instant display
+function getCachedDashboardData() {
+  return {
+    overview: getCached(CACHE_KEYS.OVERVIEW)?.data || getCached(CACHE_KEYS.OVERVIEW),
+    tenants: getCached(CACHE_KEYS.TENANTS)?.data || getCached(CACHE_KEYS.TENANTS)?.tenants || [],
+    topTenants: getCached(CACHE_KEYS.TOP_TENANTS)?.data || getCached(CACHE_KEYS.TOP_TENANTS) || [],
+    health: getCached(CACHE_KEYS.HEALTH)
+  };
+}
 
 function StatCard({ title, value, icon: Icon, href, loading, color = 'zorah' }) {
   const content = (
@@ -50,27 +68,48 @@ function HealthIndicator({ status }) {
 }
 
 export default function Dashboard() {
-  const [loading, setLoading] = useState(true);
-  const [health, setHealth] = useState(null);
-  const [tenants, setTenants] = useState([]);
-  const [usage, setUsage] = useState(null);
+  // Initialize with cached data for instant display
+  const cachedData = getCachedDashboardData();
+  const [loading, setLoading] = useState(!cachedData.overview);
+  const [health, setHealth] = useState(cachedData.health);
+  const [tenants, setTenants] = useState(cachedData.tenants);
+  const [overview, setOverview] = useState(cachedData.overview);
+  const [topTenants, setTopTenants] = useState(cachedData.topTenants);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
-    try {
+    // Only show loading if we don't have cached data
+    if (!overview) {
       setLoading(true);
-      const [healthRes, tenantsRes, usageRes] = await Promise.all([
+    }
+
+    try {
+      const [healthRes, tenantsRes, overviewRes, topTenantsRes] = await Promise.all([
         systemApi.getHealth(),
         tenantsApi.listSummary(),
-        usageApi.getSummary('month'),
+        analyticsApi.getOverview(),
+        analyticsApi.getTopTenants('revenue', 5),
       ]);
 
-      setHealth(healthRes.data);
-      setTenants(tenantsRes.data?.tenants || []);
-      setUsage(usageRes.data);
+      // Update state
+      const healthData = healthRes.data;
+      const tenantsData = tenantsRes.data?.data || tenantsRes.data?.tenants || [];
+      const overviewData = overviewRes.data?.data || overviewRes.data;
+      const topTenantsData = topTenantsRes.data?.data || [];
+
+      setHealth(healthData);
+      setTenants(tenantsData);
+      setOverview(overviewData);
+      setTopTenants(topTenantsData);
+
+      // Cache the data for next visit
+      setCached(CACHE_KEYS.HEALTH, healthData, CACHE_TTL.SHORT);
+      setCached(CACHE_KEYS.TENANTS, tenantsData, CACHE_TTL.MEDIUM);
+      setCached(CACHE_KEYS.OVERVIEW, overviewData, CACHE_TTL.MEDIUM);
+      setCached(CACHE_KEYS.TOP_TENANTS, topTenantsData, CACHE_TTL.MEDIUM);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -106,29 +145,29 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Total Tenants"
-          value={tenants.length}
+          value={overview?.total_tenants || tenants.length}
           icon={BuildingOffice2Icon}
           href="/tenants"
           loading={loading}
         />
         <StatCard
-          title="Total Revenue (Month)"
-          value={formatCurrency(usage?.totals?.total_revenue)}
+          title="Revenue (This Month)"
+          value={formatCurrency(overview?.revenue_this_month)}
           icon={CurrencyDollarIcon}
           href="/usage"
           loading={loading}
           color="green"
         />
         <StatCard
-          title="Quotes Generated"
-          value={usage?.totals?.total_quotes || 0}
+          title="Quotes (This Month)"
+          value={overview?.quotes_this_month || 0}
           icon={DocumentTextIcon}
           loading={loading}
           color="blue"
         />
         <StatCard
-          title="Active Users"
-          value={usage?.totals?.total_active_users || 0}
+          title="Total Users"
+          value={overview?.total_users || 0}
           icon={UsersIcon}
           loading={loading}
           color="purple"
@@ -156,8 +195,8 @@ export default function Dashboard() {
             <div className="space-y-3">
               {tenants.slice(0, 5).map((tenant) => (
                 <Link
-                  key={tenant.client_id}
-                  to={`/tenants/${tenant.client_id}`}
+                  key={tenant.tenant_id}
+                  to={`/tenants/${tenant.tenant_id}`}
                   className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex items-center gap-3">
@@ -168,16 +207,13 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{tenant.company_name}</p>
-                      <p className="text-sm text-gray-500">{tenant.client_id}</p>
+                      <p className="text-sm text-gray-500">{tenant.tenant_id}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {tenant.vapi_configured && (
-                      <span className="badge badge-success">VAPI</span>
-                    )}
-                    {tenant.sendgrid_configured && (
-                      <span className="badge badge-info">Email</span>
-                    )}
+                    <span className="text-sm text-gray-500">
+                      {tenant.quote_count || 0} quotes
+                    </span>
                   </div>
                 </Link>
               ))}
@@ -185,10 +221,10 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Usage by Tenant */}
+        {/* Top Tenants by Revenue */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Usage by Tenant (This Month)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Top Tenants (This Month)</h3>
             <Link to="/usage" className="text-sm text-zorah-600 hover:text-zorah-700">
               Details →
             </Link>
@@ -200,23 +236,24 @@ export default function Dashboard() {
                 <div key={i} className="h-12 bg-gray-100 rounded animate-pulse"></div>
               ))}
             </div>
-          ) : usage?.by_tenant?.length > 0 ? (
+          ) : topTenants?.length > 0 ? (
             <div className="space-y-3">
-              {usage.by_tenant.map((tenantUsage) => (
-                <div
-                  key={tenantUsage.client_id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              {topTenants.map((tenant) => (
+                <Link
+                  key={tenant.tenant_id}
+                  to={`/tenants/${tenant.tenant_id}`}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <div>
-                    <p className="font-medium text-gray-900">{tenantUsage.client_id}</p>
+                    <p className="font-medium text-gray-900">{tenant.company_name || tenant.tenant_id}</p>
                     <p className="text-sm text-gray-500">
-                      {tenantUsage.quotes_generated} quotes • {tenantUsage.invoices_paid} paid
+                      {tenant.quotes_count || 0} quotes • {tenant.invoices_paid || 0} paid
                     </p>
                   </div>
                   <p className="font-bold text-green-600">
-                    {formatCurrency(tenantUsage.total_revenue)}
+                    {formatCurrency(tenant.total_revenue)}
                   </p>
-                </div>
+                </Link>
               ))}
             </div>
           ) : (
