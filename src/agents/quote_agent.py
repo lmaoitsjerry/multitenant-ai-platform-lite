@@ -82,13 +82,26 @@ class QuoteAgent:
         self,
         customer_data: Dict[str, Any],
         send_email: bool = True,
-        assign_consultant: bool = True
+        assign_consultant: bool = True,
+        selected_hotels: Optional[List[str]] = None,
+        initial_status: str = "generated"
     ) -> Dict[str, Any]:
         """
         Generate a complete quote for customer
+
+        Args:
+            customer_data: Customer travel requirements
+            send_email: Whether to send quote email
+            assign_consultant: Whether to assign a consultant
+            selected_hotels: Optional list of hotel names to include (user selection)
+            initial_status: Initial quote status - 'draft' or 'generated' (default).
+                           Use initial_status='draft' for email auto-quotes that require
+                           consultant review before sending.
         """
         try:
             logger.info(f"Generating quote for {customer_data.get('email')}")
+            if selected_hotels:
+                logger.info(f"User selected hotels: {selected_hotels}")
 
             # Generate quote ID
             quote_id = self._generate_quote_id()
@@ -96,8 +109,21 @@ class QuoteAgent:
             # Validate and normalize input
             normalized = self._normalize_customer_data(customer_data)
 
-            # Find matching hotels
-            hotels = self._find_hotels(normalized)
+            # Find matching hotels - use different approach for user-selected vs auto-select
+            if selected_hotels:
+                # User selected specific hotels - use relaxed date filtering
+                logger.info(f"User selected {len(selected_hotels)} hotels: {selected_hotels}")
+                hotels = self.bq_tool.find_rates_by_hotel_names(
+                    hotel_names=selected_hotels,
+                    nights=normalized['nights'],
+                    check_in=normalized['check_in'],
+                    check_out=normalized['check_out']
+                )
+                logger.info(f"Found {len(hotels)} rate records for selected hotels")
+            else:
+                # Auto-select mode - use destination-based query with date filtering
+                hotels = self._find_hotels(normalized)
+                logger.info(f"Found {len(hotels)} hotels from database for {normalized['destination']}")
 
             if not hotels:
                 logger.warning(f"No hotels found for {normalized['destination']}")
@@ -120,7 +146,7 @@ class QuoteAgent:
                 }
 
             # Select top hotels (limit to max)
-            selected_hotels = hotel_options[:self.max_hotels_per_quote]
+            final_hotels = hotel_options[:self.max_hotels_per_quote]
 
             # Assign consultant if requested
             consultant = None
@@ -140,26 +166,26 @@ class QuoteAgent:
                 'adults': normalized['adults'],
                 'children': normalized.get('children', 0),
                 'children_ages': normalized.get('children_ages') or [],
-                'hotels': selected_hotels,
-                'total_price': selected_hotels[0]['total_price'] if selected_hotels else 0,
+                'hotels': final_hotels,
+                'total_price': final_hotels[0]['total_price'] if final_hotels else 0,
                 'consultant': consultant,
-                'status': 'generated',
+                'status': initial_status,  # Use initial_status ('draft' or 'generated')
                 'created_at': datetime.utcnow().isoformat()
             }
 
             # Generate PDF
             pdf_bytes = None
             try:
-                pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, selected_hotels, normalized)
+                pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, final_hotels, normalized)
                 quote['pdf_generated'] = True
             except Exception as e:
                 logger.error(f"PDF generation failed: {e}")
                 quote['pdf_generated'] = False
 
-            # Send email if requested and PDF was generated
+            # Send email if requested and PDF was generated (skip for draft quotes)
             email_sent = False
             email_error = None
-            if send_email and pdf_bytes:
+            if initial_status != 'draft' and send_email and pdf_bytes:
                 try:
                     email_sent = self.email_sender.send_quote_email(
                         customer_email=normalized['email'],
@@ -173,12 +199,17 @@ class QuoteAgent:
                     logger.error(f"Email sending failed: {e}")
                     email_error = str(e)
 
-            quote['email_sent'] = email_sent
-            quote['status'] = 'sent' if email_sent else 'generated'
+            # Update status based on initial_status and email result
+            if initial_status == 'draft':
+                quote['email_sent'] = False
+                quote['status'] = 'draft'
+            else:
+                quote['email_sent'] = email_sent
+                quote['status'] = 'sent' if email_sent else 'generated'
 
-            # Auto-queue follow-up call for next business day if email was sent
+            # Auto-queue follow-up call for next business day if email was sent (skip for drafts)
             call_queued = False
-            if email_sent and normalized.get('phone'):
+            if initial_status != 'draft' and email_sent and normalized.get('phone'):
                 call_queued = self._schedule_follow_up_call(
                     quote_id=quote_id,
                     customer_name=normalized['name'],
@@ -213,7 +244,7 @@ class QuoteAgent:
                 'success': True,
                 'quote_id': quote_id,
                 'quote': quote,
-                'hotels_count': len(selected_hotels),
+                'hotels_count': len(final_hotels),  # Use actual hotels in quote, not selection
                 'email_sent': email_sent,
                 'email_error': email_error,
                 'consultant': consultant,
