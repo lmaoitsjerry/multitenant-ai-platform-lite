@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 4 of 6 (Email Sending & Notifications)
-Plan: Not yet planned
-Status: Ready to plan
-Last activity: 2026-01-16 - Phase 3 complete, verified
+Plan: 1 of 1 (Quote Sending Workflow)
+Status: Phase 4 complete
+Last activity: 2026-01-16 - Completed 04-01-PLAN.md
 
-Progress: [#####.....] 50%
+Progress: [######....] 60%
 
 ## Milestones
 
@@ -32,8 +32,8 @@ Progress: [#####.....] 50%
 
 **System 1: Inbound Email Auto-Quote Pipeline**
 - Expected: Email -> SendGrid Inbound Parse -> Webhook -> Tenant Lookup -> Parse -> Quote -> Send
-- Status: COMPLETE - Draft quote workflow implemented
-- Workflow: Email -> Parse -> Draft Quote -> Consultant Review -> Approve -> Send
+- Status: COMPLETE - Full workflow implemented
+- Workflow: Email -> Parse -> Draft Quote -> Consultant Review -> Approve (POST /send) -> Email Sent
 
 **System 2: Helpdesk RAG**
 - Expected: Natural, conversational responses with specific details
@@ -48,6 +48,7 @@ Progress: [#####.....] 50%
 - Tenant lookup: NOW supports support_email, sendgrid_username@zorah.ai, primary_email
 - Email parsing: LLMEmailParser (primary) with UniversalEmailParser (fallback)
 - Quote generation: Draft status workflow complete, consultant review before send
+- Quote sending: POST /api/v1/quotes/{quote_id}/send - regenerates PDF, sends via SendGrid
 
 ### Decisions
 
@@ -61,6 +62,8 @@ Progress: [#####.....] 50%
 | D-02-02-02 | Always fallback to rule-based parser on LLM failure | Reliability over accuracy | 2026-01-16 |
 | D-03-01-01 | Auto-generated quotes from emails use draft status | Prevents incorrect quotes from being sent | 2026-01-16 |
 | D-03-01-02 | PDF still generated for draft quotes | Allows consultants to preview quote before approving | 2026-01-16 |
+| D-04-01-01 | Regenerate PDF on send rather than caching | Ensures latest quote data | 2026-01-16 |
+| D-04-01-02 | Use 'system' notification type for quote_sent | 'quote_sent' not in DB CHECK constraint | 2026-01-16 |
 
 ### Blockers/Concerns
 
@@ -72,10 +75,27 @@ Progress: [#####.....] 50%
 ## Session Continuity
 
 Last session: 2026-01-16
-Stopped at: Completed 03-01-PLAN.md
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
 
 ## Recent Completions
+
+### 04-01: Quote Sending Workflow (2026-01-16)
+
+**Summary:** Draft quote approval endpoint with PDF regeneration, SendGrid email, status update, and consultant notifications.
+
+**Key Changes:**
+- Added `send_draft_quote()` method to QuoteAgent
+- Added `notify_quote_sent()` method to NotificationService
+- Added POST `/api/v1/quotes/{quote_id}/send` endpoint with auth
+- Auto-schedules follow-up calls when customer has phone
+
+**Commits:**
+- 1ffe3a4: feat(04-01): add send_draft_quote method to QuoteAgent
+- 2cdb49f: feat(04-01): add notify_quote_sent to NotificationService
+- 78814ac: feat(04-01): add POST /api/v1/quotes/{quote_id}/send endpoint
+
+**Next:** Phase 5 - Helpdesk RAG Enhancement
 
 ### 03-01: Quote Generation Pipeline (2026-01-16)
 
