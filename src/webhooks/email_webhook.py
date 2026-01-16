@@ -41,6 +41,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Webhooks"])
 
+# ==================== Tenant Email Cache ====================
+# Cache for tenant email mappings to avoid O(n) iteration on every request
+_tenant_email_cache: Dict[str, Any] = {}
+TENANT_CACHE_TTL = 300  # 5 minutes
+
 
 class ParsedEmail(BaseModel):
     """Parsed email data"""
@@ -54,6 +59,86 @@ class ParsedEmail(BaseModel):
     attachments: list = []
     headers: Dict[str, str] = {}
     received_at: str
+
+
+# ==================== Cache Management ====================
+
+def _refresh_tenant_email_cache() -> Dict[str, str]:
+    """
+    Refresh the tenant email cache by loading all tenant email mappings.
+
+    Returns:
+        Dict mapping email (lowercase) -> tenant_id
+    """
+    global _tenant_email_cache
+
+    email_to_tenant: Dict[str, str] = {}
+
+    try:
+        tenant_ids = list_clients()
+        logger.info(f"[EMAIL_WEBHOOK][CACHE] Refreshing tenant email cache for {len(tenant_ids)} tenants")
+
+        for tenant_id in tenant_ids:
+            try:
+                emails = get_tenant_email_addresses(tenant_id)
+
+                # Map each email type to tenant_id
+                if emails.get('support_email'):
+                    email_to_tenant[emails['support_email'].lower()] = {
+                        'tenant_id': tenant_id,
+                        'strategy': 'support_email'
+                    }
+                if emails.get('sendgrid_email'):
+                    email_to_tenant[emails['sendgrid_email'].lower()] = {
+                        'tenant_id': tenant_id,
+                        'strategy': 'sendgrid_email'
+                    }
+                if emails.get('primary_email'):
+                    email_to_tenant[emails['primary_email'].lower()] = {
+                        'tenant_id': tenant_id,
+                        'strategy': 'primary_email'
+                    }
+            except Exception as e:
+                logger.debug(f"[EMAIL_WEBHOOK][CACHE] Error loading tenant {tenant_id}: {e}")
+
+        _tenant_email_cache = {
+            'data': email_to_tenant,
+            'timestamp': time.time(),
+            'tenant_count': len(tenant_ids),
+            'email_count': len(email_to_tenant)
+        }
+
+        logger.info(f"[EMAIL_WEBHOOK][CACHE] Cache refreshed: {len(email_to_tenant)} email mappings for {len(tenant_ids)} tenants")
+
+    except Exception as e:
+        logger.error(f"[EMAIL_WEBHOOK][CACHE] Failed to refresh cache: {e}")
+        _tenant_email_cache = {
+            'data': {},
+            'timestamp': time.time(),
+            'error': str(e)
+        }
+
+    return _tenant_email_cache.get('data', {})
+
+
+def _get_cached_tenant_lookup(email: str) -> Optional[Dict[str, str]]:
+    """
+    Get tenant info from cache for an email.
+
+    Returns:
+        Dict with tenant_id and strategy if found, None otherwise
+    """
+    global _tenant_email_cache
+
+    # Check if cache needs refresh
+    cache_timestamp = _tenant_email_cache.get('timestamp', 0)
+    cache_age = time.time() - cache_timestamp
+
+    if cache_age > TENANT_CACHE_TTL or not _tenant_email_cache.get('data'):
+        _refresh_tenant_email_cache()
+
+    email_lower = email.lower().strip()
+    return _tenant_email_cache.get('data', {}).get(email_lower)
 
 
 # ==================== Diagnostic Logging Helpers ====================
@@ -107,9 +192,11 @@ def get_tenant_email_addresses(tenant_id: str) -> Dict[str, Optional[str]]:
     return result
 
 
-def find_tenant_by_email(to_email: str, diagnostic_id: str = None) -> Tuple[Optional[str], str]:
+def find_tenant_by_email(to_email: str, diagnostic_id: str = None) -> Tuple[Optional[str], str, bool]:
     """
     Find tenant by matching TO email against tenant email addresses.
+
+    Uses O(1) cached lookup first, falls back to O(n) iteration if cache miss.
 
     Supports:
     - support_email (any domain, e.g., support@company.com or someone@gmail.com)
@@ -117,19 +204,37 @@ def find_tenant_by_email(to_email: str, diagnostic_id: str = None) -> Tuple[Opti
     - primary_email (contact email)
 
     Returns:
-        Tuple of (tenant_id, match_strategy) or (None, "none")
+        Tuple of (tenant_id, match_strategy, cache_hit) or (None, "none", cache_hit)
     """
     to_email_lower = to_email.lower().strip()
+    start_time = time.time()
 
     if diagnostic_id:
         diagnostic_log(diagnostic_id, 3, f"Searching for tenant matching email: {to_email_lower}")
+
+    # First, try O(1) cache lookup
+    cached_result = _get_cached_tenant_lookup(to_email_lower)
+    if cached_result:
+        tenant_id = cached_result['tenant_id']
+        strategy = cached_result['strategy']
+        if diagnostic_id:
+            elapsed = (time.time() - start_time) * 1000
+            diagnostic_log(diagnostic_id, 3, f"CACHE HIT: {strategy} for tenant {tenant_id}", {
+                'matched_email': to_email_lower,
+                'elapsed_ms': round(elapsed, 2)
+            })
+        return tenant_id, strategy, True
+
+    # Cache miss - fall back to O(n) iteration (defensive)
+    if diagnostic_id:
+        diagnostic_log(diagnostic_id, 3, "Cache miss - falling back to iteration")
 
     # Get all tenant IDs
     try:
         tenant_ids = list_clients()
     except Exception as e:
         logger.error(f"Failed to list clients: {e}")
-        return None, "error"
+        return None, "error", False
 
     strategies_tried = []
 
@@ -139,26 +244,26 @@ def find_tenant_by_email(to_email: str, diagnostic_id: str = None) -> Tuple[Opti
         # Strategy 1: Match support_email (any domain)
         if emails['support_email'] and emails['support_email'].lower() == to_email_lower:
             if diagnostic_id:
-                diagnostic_log(diagnostic_id, 3, f"MATCH: support_email for tenant {tenant_id}", {
+                diagnostic_log(diagnostic_id, 3, f"MATCH (fallback): support_email for tenant {tenant_id}", {
                     'matched_email': emails['support_email']
                 })
-            return tenant_id, "support_email"
+            return tenant_id, "support_email", False
 
         # Strategy 2: Match sendgrid_username@zorah.ai
         if emails['sendgrid_email'] and emails['sendgrid_email'].lower() == to_email_lower:
             if diagnostic_id:
-                diagnostic_log(diagnostic_id, 3, f"MATCH: sendgrid_email for tenant {tenant_id}", {
+                diagnostic_log(diagnostic_id, 3, f"MATCH (fallback): sendgrid_email for tenant {tenant_id}", {
                     'matched_email': emails['sendgrid_email']
                 })
-            return tenant_id, "sendgrid_email"
+            return tenant_id, "sendgrid_email", False
 
         # Strategy 3: Match primary_email
         if emails['primary_email'] and emails['primary_email'].lower() == to_email_lower:
             if diagnostic_id:
-                diagnostic_log(diagnostic_id, 3, f"MATCH: primary_email for tenant {tenant_id}", {
+                diagnostic_log(diagnostic_id, 3, f"MATCH (fallback): primary_email for tenant {tenant_id}", {
                     'matched_email': emails['primary_email']
                 })
-            return tenant_id, "primary_email"
+            return tenant_id, "primary_email", False
 
         # Track what we tried for debugging
         strategies_tried.append({
@@ -169,12 +274,14 @@ def find_tenant_by_email(to_email: str, diagnostic_id: str = None) -> Tuple[Opti
         })
 
     if diagnostic_id:
+        elapsed = (time.time() - start_time) * 1000
         diagnostic_log(diagnostic_id, 3, f"No match found. Tried {len(tenant_ids)} tenants", {
             'to_email': to_email_lower,
+            'elapsed_ms': round(elapsed, 2),
             'sample_strategies': strategies_tried[:3]  # Log first 3 for debugging
         })
 
-    return None, "none"
+    return None, "none", False
 
 
 def extract_tenant_from_email(to_email: str, headers: Dict[str, str] = None, diagnostic_id: str = None) -> Tuple[Optional[str], str]:
@@ -194,7 +301,7 @@ def extract_tenant_from_email(to_email: str, headers: Dict[str, str] = None, dia
     local_part = to_email.split('@')[0] if '@' in to_email else to_email
 
     # Strategy 1: Database lookup (support_email, sendgrid_email, primary_email)
-    tenant_id, strategy = find_tenant_by_email(to_email, diagnostic_id)
+    tenant_id, strategy, _cache_hit = find_tenant_by_email(to_email, diagnostic_id)
     if tenant_id:
         return tenant_id, strategy
 
@@ -499,18 +606,23 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
 
         # STEP 8: Email parser import
         try:
+            from src.agents.llm_email_parser import LLMEmailParser
             from src.agents.universal_email_parser import UniversalEmailParser
             from src.agents.quote_agent import QuoteAgent
-            diagnostic_log(diagnostic_id, 8, "Email parser imported successfully")
+            diagnostic_log(diagnostic_id, 8, "Email parsers imported successfully", {
+                'llm_parser': 'LLMEmailParser',
+                'fallback_parser': 'UniversalEmailParser'
+            })
         except ImportError as e:
             diagnostic_log(diagnostic_id, 8, f"FAILED: Import error", {
                 'error': str(e),
-                'module': 'UniversalEmailParser or QuoteAgent'
+                'module': 'LLMEmailParser or QuoteAgent'
             })
             raise
 
         # STEP 9: Email parsed
-        parser = UniversalEmailParser(config)
+        # Try LLM parser first (has built-in fallback to rule-based)
+        parser = LLMEmailParser(config)
         parsed_data = parser.parse(email.body_text, email.subject)
 
         # Add sender info
