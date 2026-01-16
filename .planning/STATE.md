@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 6 of 6 (Integration Testing)
-Plan: Not yet planned
-Status: Ready to plan
-Last activity: 2026-01-16 - Phase 5 complete, verified
+Plan: 1 of 2 completed
+Status: In progress
+Last activity: 2026-01-16 - Completed 06-01-PLAN.md
 
-Progress: [########..] 83%
+Progress: [#########.] 92%
 
 ## Milestones
 
 ### v2.0: Inbound Email & Helpdesk RAG (Current)
-- 6 phases, 9 plans estimated
+- 6 phases, 10 plans completed
 - Focus: Fix broken email pipeline, enhance helpdesk quality
 
 ### v1.0: Bug Fixes & Optimizations (Completed)
@@ -34,12 +34,14 @@ Progress: [########..] 83%
 - Expected: Email -> SendGrid Inbound Parse -> Webhook -> Tenant Lookup -> Parse -> Quote -> Send
 - Status: COMPLETE - Full workflow implemented
 - Workflow: Email -> Parse -> Draft Quote -> Consultant Review -> Approve (POST /send) -> Email Sent
+- Testing: 9 integration tests covering e2e flow
 
 **System 2: Helpdesk RAG**
 - Expected: Natural, conversational responses with specific details
 - Status: COMPLETE - RAG synthesis with GPT-4o-mini
 - Flow: Question -> FAISS search_with_context() -> RAGResponseService -> Natural response
 - Timing: Logged and validated against 3s target
+- Testing: 9 integration tests covering RAG flow
 
 ### Technical Notes
 
@@ -72,6 +74,8 @@ Progress: [########..] 83%
 | D-05-02-01 | Temperature 0.7 for natural variation in responses | Natural language, not robotic | 2026-01-16 |
 | D-05-02-02 | 8 second timeout for LLM calls | Stay under 3s total target with network variance | 2026-01-16 |
 | D-05-02-03 | Include timing data in API response | Frontend debugging and performance monitoring | 2026-01-16 |
+| D-06-01-01 | Mock-based testing over FastAPI dependency injection | Simpler test isolation for integration tests | 2026-01-16 |
+| D-06-01-02 | Force-add test files to git | Test files excluded by gitignore but needed | 2026-01-16 |
 
 ### Blockers/Concerns
 
@@ -83,10 +87,28 @@ Progress: [########..] 83%
 ## Session Continuity
 
 Last session: 2026-01-16
-Stopped at: Completed 05-02-PLAN.md
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
 
 ## Recent Completions
+
+### 06-01: Core Integration Test Suite (2026-01-16)
+
+**Summary:** 46 integration tests covering email pipeline, helpdesk RAG, quote generation, and tenant isolation security.
+
+**Key Changes:**
+- Created test_integration_email_pipeline.py (9 tests)
+- Created test_integration_helpdesk_rag.py (9 tests)
+- Created test_integration_quote_gen.py (12 tests)
+- Created test_integration_tenant_isolation.py (16 tests)
+
+**Commits:**
+- 76c9bb1: test(06-01): add email pipeline integration tests
+- 3653220: test(06-01): add helpdesk RAG integration tests
+- c7381f0: test(06-01): add quote generation integration tests
+- 41e0043: test(06-01): add tenant isolation integration tests
+
+**Next:** Phase 6 Plan 2 - E2E Testing & Verification
 
 ### 05-02: LLM Response Synthesis (2026-01-16)
 
