@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 5 of 6 (Helpdesk RAG Enhancement)
-Plan: Not yet planned
-Status: Ready to plan
-Last activity: 2026-01-16 - Phase 4 complete, verified
+Plan: 1 of 2 complete
+Status: In progress
+Last activity: 2026-01-16 - Completed 05-01-PLAN.md
 
-Progress: [######....] 66%
+Progress: [#######...] 70%
 
 ## Milestones
 
@@ -39,6 +39,7 @@ Progress: [######....] 66%
 - Expected: Natural, conversational responses with specific details
 - Current: Robotic, list-like dumps of search results
 - Fix: Add LLM synthesis layer between FAISS search and response
+- Progress: FAISS search enhanced with search_with_context() - returns 5-8 filtered docs
 
 ### Technical Notes
 
@@ -49,6 +50,7 @@ Progress: [######....] 66%
 - Email parsing: LLMEmailParser (primary) with UniversalEmailParser (fallback)
 - Quote generation: Draft status workflow complete, consultant review before send
 - Quote sending: POST /api/v1/quotes/{quote_id}/send - regenerates PDF, sends via SendGrid
+- Helpdesk search: search_with_context() returns 5-8 docs with min_score=0.3 filtering
 
 ### Decisions
 
@@ -64,6 +66,8 @@ Progress: [######....] 66%
 | D-03-01-02 | PDF still generated for draft quotes | Allows consultants to preview quote before approving | 2026-01-16 |
 | D-04-01-01 | Regenerate PDF on send rather than caching | Ensures latest quote data | 2026-01-16 |
 | D-04-01-02 | Use 'system' notification type for quote_sent | 'quote_sent' not in DB CHECK constraint | 2026-01-16 |
+| D-05-01-01 | Default top_k=8 for more RAG context | More documents = better LLM synthesis context | 2026-01-16 |
+| D-05-01-02 | min_score=0.3 with fallback to top 3 | Balance quality filtering with minimum context | 2026-01-16 |
 
 ### Blockers/Concerns
 
@@ -75,10 +79,26 @@ Progress: [######....] 66%
 ## Session Continuity
 
 Last session: 2026-01-16
-Stopped at: Completed 04-01-PLAN.md
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
 
 ## Recent Completions
+
+### 05-01: FAISS Search Context Enhancement (2026-01-16)
+
+**Summary:** search_with_context() method returning 5-8 relevance-filtered documents for improved RAG synthesis.
+
+**Key Changes:**
+- Added `search_with_context()` method to FAISSHelpdeskService
+- Relevance filtering with min_score threshold (default 0.3)
+- Fallback to top 3 results if fewer pass threshold
+- Updated helpdesk routes to use enhanced search
+
+**Commits:**
+- ef042b3: feat(05-01): add search_with_context method to FAISS service
+- 2654f63: feat(05-01): update helpdesk routes to use search_with_context
+
+**Next:** Phase 5 Plan 2 - LLM Response Synthesis
 
 ### 04-01: Quote Sending Workflow (2026-01-16)
 
