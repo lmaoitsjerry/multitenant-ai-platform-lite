@@ -56,6 +56,7 @@ class QuoteGenerateRequest(BaseModel):
     inquiry: TravelInquiry
     send_email: bool = True
     assign_consultant: bool = True
+    selected_hotels: Optional[List[str]] = None  # Manually selected hotel names
 
 
 class PipelineStageEnum(str, Enum):
@@ -205,10 +206,12 @@ async def generate_quote(
         # Convert inquiry to dict
         inquiry_data = request.inquiry.model_dump()
 
+        # Pass selected hotels if provided
         result = agent.generate_quote(
             customer_data=inquiry_data,
             send_email=request.send_email,
-            assign_consultant=request.assign_consultant
+            assign_consultant=request.assign_consultant,
+            selected_hotels=request.selected_hotels
         )
 
         return result
@@ -270,6 +273,56 @@ async def get_quote(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@quotes_router.get("/{quote_id}/pdf")
+async def download_quote_pdf(
+    quote_id: str,
+    config: ClientConfig = Depends(get_client_config)
+):
+    """Generate and download quote PDF"""
+    from src.utils.pdf_generator import PDFGenerator
+
+    try:
+        agent = get_quote_agent(config)
+        quote = agent.get_quote(quote_id)
+
+        if not quote:
+            raise HTTPException(status_code=404, detail="Quote not found")
+
+        # Build customer data
+        customer_data = {
+            'name': quote.get('customer_name', ''),
+            'email': quote.get('customer_email', ''),
+            'phone': quote.get('customer_phone', ''),
+            'destination': quote.get('destination', ''),
+            'check_in': quote.get('check_in_date', ''),
+            'check_out': quote.get('check_out_date', ''),
+            'nights': quote.get('nights', 7),
+            'adults': quote.get('adults', 2),
+            'children': quote.get('children', 0),
+            'children_ages': quote.get('children_ages', [])
+        }
+
+        hotels = quote.get('hotels', [])
+
+        pdf_generator = PDFGenerator(config)
+        pdf_bytes = pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
+
+        if not pdf_bytes:
+            raise HTTPException(status_code=500, detail="Failed to generate quote PDF")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="Quote_{quote_id}.pdf"'}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate quote PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @quotes_router.post("/{quote_id}/resend")
 async def resend_quote(
     quote_id: str,
@@ -308,6 +361,61 @@ async def resend_quote(
         raise
     except Exception as e:
         logger.error(f"Failed to resend quote: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@quotes_router.post("/{quote_id}/send")
+async def send_quote(
+    quote_id: str,
+    request: Request,
+    config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Send a draft quote to the customer.
+
+    Requires authentication. Only draft quotes can be sent.
+
+    The quote will be:
+    1. Retrieved from database
+    2. Validated as 'draft' status
+    3. PDF regenerated
+    4. Email sent to customer via tenant's SendGrid subuser
+    5. Status updated to 'sent'
+    6. Notification created for consultant
+    """
+    from src.agents.quote_agent import QuoteAgent
+    from src.middleware.auth_middleware import get_current_user
+
+    # Ensure user is authenticated
+    try:
+        user = get_current_user(request)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        quote_agent = QuoteAgent(config)
+        result = quote_agent.send_draft_quote(quote_id)
+
+        if result.get('success'):
+            return {
+                'success': True,
+                'quote_id': quote_id,
+                'status': 'sent',
+                'sent_at': result.get('sent_at'),
+                'message': f"Quote sent to {result.get('customer_email')}"
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=result.get('error', 'Failed to send quote')
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending quote {quote_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -749,8 +857,10 @@ async def list_invoices(
     from src.tools.supabase_tool import SupabaseTool
 
     try:
+        logger.info(f"[LIST_INVOICES] tenant_id={config.client_id}, status={status}, limit={limit}")
         supabase = SupabaseTool(config)
         invoices = supabase.list_invoices(status=status, limit=limit, offset=offset)
+        logger.info(f"[LIST_INVOICES] Found {len(invoices)} invoices for tenant {config.client_id}")
 
         return {
             "success": True,
@@ -945,10 +1055,14 @@ async def download_invoice_pdf(
     from src.agents.quote_agent import QuoteAgent
 
     try:
+        logger.info(f"Generating PDF for invoice: {invoice_id}")
         supabase = SupabaseTool(config)
         invoice = supabase.get_invoice(invoice_id)
         if not invoice:
+            logger.warning(f"Invoice not found: {invoice_id}")
             raise HTTPException(status_code=404, detail="Invoice not found")
+
+        logger.info(f"Invoice found with {len(invoice.get('items', []))} items")
 
         trip_details = {}
         if invoice.get('quote_id'):
@@ -981,21 +1095,27 @@ async def download_invoice_pdf(
         }
 
         pdf_generator = PDFGenerator(config)
+        logger.info(f"Calling PDF generator with invoice_data keys: {list(invoice_data.keys())}")
         pdf_bytes = pdf_generator.generate_invoice_pdf(invoice_data, invoice.get('items', []), customer_data)
 
         if not pdf_bytes:
-            raise HTTPException(status_code=500, detail="Failed to generate invoice PDF")
+            logger.error("PDF generator returned empty bytes")
+            raise HTTPException(status_code=500, detail="Failed to generate invoice PDF - empty result")
 
+        logger.info(f"PDF generated successfully: {len(pdf_bytes)} bytes")
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="Invoice_{invoice_id}.pdf"'}
+            headers={
+                "Content-Disposition": f'attachment; filename="Invoice_{invoice_id}.pdf"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate invoice PDF: {e}")
+        logger.error(f"Failed to generate invoice PDF: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1041,23 +1161,73 @@ async def update_invoice_travelers(
 # ==================== PUBLIC ENDPOINTS ====================
 # These endpoints don't require authentication and are used for shareable links
 
+def get_invoice_public(invoice_id: str):
+    """Get invoice by ID without tenant filter (for public access)"""
+    import os
+    import httpx
+
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
+
+    if not supabase_url or not supabase_key:
+        logger.error("Missing SUPABASE_URL or SUPABASE_KEY")
+        return None
+
+    try:
+        # Use direct REST API call
+        url = f"{supabase_url}/rest/v1/invoices"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        params = {
+            "invoice_id": f"eq.{invoice_id}",
+            "select": "*"
+        }
+
+        response = httpx.get(url, headers=headers, params=params, timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+
+        if data and len(data) > 0:
+            return data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get public invoice: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 @public_router.get("/invoices/{invoice_id}/pdf")
 async def public_invoice_pdf(
     invoice_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    x_client_id: str = Header(None, alias="X-Client-ID")
 ):
     """
     Public endpoint to download invoice PDF.
     Used for shareable invoice links that don't require authentication.
     """
-    from src.tools.supabase_tool import SupabaseTool
     from src.utils.pdf_generator import PDFGenerator
 
     try:
-        supabase = SupabaseTool(config)
-        invoice = supabase.get_invoice(invoice_id)
+        # Get invoice without tenant filter (public access)
+        invoice = get_invoice_public(invoice_id)
         if not invoice:
+            logger.warning(f"Invoice not found for public access: {invoice_id}")
             raise HTTPException(status_code=404, detail="Invoice not found")
+
+        # Load config for the invoice's tenant
+        tenant_id = invoice.get('tenant_id')
+        if not tenant_id:
+            raise HTTPException(status_code=400, detail="Invoice has no tenant")
+
+        # Get config from tenant_id
+        try:
+            config = ClientConfig(tenant_id)
+        except Exception:
+            # Fallback to default config
+            config = ClientConfig('example')
 
         # Get trip details if linked to a quote
         trip_details = {}
@@ -1110,6 +1280,106 @@ async def public_invoice_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def get_quote_public(quote_id: str):
+    """Get quote by ID without tenant filter (for public access)"""
+    import os
+    import httpx
+
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
+
+    if not supabase_url or not supabase_key:
+        logger.error("Missing SUPABASE_URL or SUPABASE_KEY")
+        return None
+
+    try:
+        # Use direct REST API call
+        url = f"{supabase_url}/rest/v1/quotes"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        params = {
+            "quote_id": f"eq.{quote_id}",
+            "select": "*"
+        }
+
+        response = httpx.get(url, headers=headers, params=params, timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+
+        if data and len(data) > 0:
+            return data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get public quote: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+@public_router.get("/quotes/{quote_id}/pdf")
+async def public_quote_pdf(quote_id: str):
+    """
+    Public endpoint to view quote PDF.
+    Used for shareable quote links that don't require authentication.
+    """
+    from src.utils.pdf_generator import PDFGenerator
+
+    try:
+        # Get quote without tenant filter (public access)
+        quote = get_quote_public(quote_id)
+        if not quote:
+            logger.warning(f"Quote not found for public access: {quote_id}")
+            raise HTTPException(status_code=404, detail="Quote not found")
+
+        # Load config for the quote's tenant
+        tenant_id = quote.get('tenant_id')
+        if not tenant_id:
+            raise HTTPException(status_code=400, detail="Quote has no tenant")
+
+        try:
+            config = ClientConfig(tenant_id)
+        except Exception:
+            config = ClientConfig('example')
+
+        # Build customer data
+        customer_data = {
+            'name': quote.get('customer_name', ''),
+            'email': quote.get('customer_email', ''),
+            'phone': quote.get('customer_phone', ''),
+            'destination': quote.get('destination', ''),
+            'check_in': quote.get('check_in_date', ''),
+            'check_out': quote.get('check_out_date', ''),
+            'nights': quote.get('nights', 7),
+            'adults': quote.get('adults', 2),
+            'children': quote.get('children', 0),
+            'children_ages': quote.get('children_ages', [])
+        }
+
+        hotels = quote.get('hotels', [])
+
+        pdf_generator = PDFGenerator(config)
+        pdf_bytes = pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
+
+        if not pdf_bytes:
+            raise HTTPException(status_code=500, detail="Failed to generate quote PDF")
+
+        # Return as inline PDF (viewable in browser)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="Quote_{quote_id}.pdf"'}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate public quote PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== Export all routers ====================
 
 def include_routers(app):
@@ -1141,6 +1411,19 @@ def include_routers(app):
     # Admin & Provisioning
     from src.api.admin_routes import include_admin_router
     include_admin_router(app)
+
+    # Admin Extended Routes (Internal Platform)
+    from src.api.admin_tenants_routes import include_admin_tenants_router
+    include_admin_tenants_router(app)
+
+    from src.api.admin_analytics_routes import include_admin_analytics_router
+    include_admin_analytics_router(app)
+
+    from src.api.admin_sendgrid_routes import include_admin_sendgrid_router
+    include_admin_sendgrid_router(app)
+
+    from src.api.admin_knowledge_routes import include_admin_knowledge_router
+    include_admin_knowledge_router(app)
 
     # Branding & White-labeling
     from src.api.branding_routes import branding_router
