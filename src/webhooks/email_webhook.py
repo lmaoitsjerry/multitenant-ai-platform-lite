@@ -805,6 +805,7 @@ async def diagnose_email_webhook():
     results['webhook_endpoints'] = {
         'inbound': '/webhooks/email/inbound',
         'inbound_with_tenant': '/webhooks/email/inbound/{tenant_id}',
+        'lookup': '/webhooks/email/lookup/{email}',
         'debug': '/webhooks/email/debug',
         'diagnose': '/webhooks/email/diagnose',
         'status': '/webhooks/email/status',
@@ -1070,6 +1071,7 @@ async def get_webhook_status():
         "webhook_endpoints": {
             "generic": "/webhooks/email/inbound",
             "per_tenant": "/webhooks/email/inbound/{tenant_id}",
+            "lookup": "/webhooks/email/lookup/{email}",
             "test": "/webhooks/email/test/{tenant_id}",
             "debug": "/webhooks/email/debug",
             "diagnose": "/webhooks/email/diagnose"
