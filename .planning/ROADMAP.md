@@ -7,7 +7,7 @@ Fix two critical systems: (1) Inbound email pipeline that should auto-generate a
 ## Phases
 
 - [x] **Phase 1: Diagnostics & Logging** - Verify current state, add logging, test webhook accessibility
-- [ ] **Phase 2: Tenant Lookup & Email Parsing** - Robust tenant lookup, LLM-powered email parser
+- [x] **Phase 2: Tenant Lookup & Email Parsing** - Robust tenant lookup, LLM-powered email parser
 - [ ] **Phase 3: Quote Generation Pipeline** - Connect parser to quote generator, create quotes
 - [ ] **Phase 4: Email Sending & Notifications** - Send quotes via SendGrid subuser, create notifications
 - [ ] **Phase 5: Helpdesk RAG Enhancement** - Natural responses with context synthesis
@@ -43,8 +43,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: Implement robust tenant lookup by email address
-- [ ] 02-02: Implement LLM-powered email parser with fallback
+- [x] 02-01: Implement robust tenant lookup by email address
+- [x] 02-02: Implement LLM-powered email parser with fallback
 
 ### Phase 3: Quote Generation Pipeline
 **Goal:** Parsed trip details become quote records in database
@@ -114,7 +114,7 @@ Plans:
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 1. Diagnostics & Logging | 1/1 | Complete |
-| 2. Tenant Lookup & Email Parsing | 0/2 | Not Started |
+| 2. Tenant Lookup & Email Parsing | 2/2 | Complete |
 | 3. Quote Generation Pipeline | 0/1 | Not Started |
 | 4. Email Sending & Notifications | 0/2 | Not Started |
 | 5. Helpdesk RAG Enhancement | 0/2 | Not Started |
