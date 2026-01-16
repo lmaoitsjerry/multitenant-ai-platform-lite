@@ -682,3 +682,162 @@ class QuoteAgent:
             candidate += timedelta(days=1)
 
         return candidate.astimezone(pytz.UTC).replace(tzinfo=None)
+
+    def send_draft_quote(self, quote_id: str) -> Dict[str, Any]:
+        """
+        Send a draft quote to the customer.
+
+        Retrieves a draft quote, regenerates the PDF, sends it via email,
+        updates the status to 'sent', and schedules a follow-up call if
+        the customer has a phone number.
+
+        Args:
+            quote_id: The quote ID to send
+
+        Returns:
+            Dict with success, quote_id, sent_at, customer_email, error (if any)
+        """
+        try:
+            logger.info(f"Sending draft quote: {quote_id}")
+
+            # 1. Retrieve the quote
+            quote = self.get_quote(quote_id)
+            if not quote:
+                logger.error(f"Quote not found: {quote_id}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'Quote not found'
+                }
+
+            # 2. Validate quote exists and status is 'draft'
+            current_status = quote.get('status', '')
+            if current_status != 'draft':
+                logger.error(f"Quote {quote_id} is not a draft (status={current_status})")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': f"Quote is not a draft (current status: {current_status})"
+                }
+
+            # 3. Extract quote data
+            customer_email = quote.get('customer_email')
+            customer_name = quote.get('customer_name', 'Valued Customer')
+            customer_phone = quote.get('customer_phone')
+            destination = quote.get('destination', 'your destination')
+            hotels = quote.get('hotels', [])
+
+            if not customer_email:
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'Quote has no customer email'
+                }
+
+            # Build customer data for PDF generation
+            customer_data = {
+                'name': customer_name,
+                'email': customer_email,
+                'phone': customer_phone,
+                'destination': destination,
+                'check_in': quote.get('check_in_date', ''),
+                'check_out': quote.get('check_out_date', ''),
+                'nights': quote.get('nights', 7),
+                'adults': quote.get('adults', 2),
+                'children': quote.get('children', 0),
+                'children_ages': quote.get('children_ages', [])
+            }
+
+            # 4. Regenerate PDF
+            pdf_bytes = None
+            try:
+                pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
+                logger.info(f"PDF regenerated for quote {quote_id}")
+            except Exception as e:
+                logger.error(f"PDF generation failed for quote {quote_id}: {e}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': f'PDF generation failed: {str(e)}'
+                }
+
+            if not pdf_bytes:
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'PDF generation returned empty result'
+                }
+
+            # 5. Send email using EmailSender
+            email_sent = False
+            try:
+                email_sent = self.email_sender.send_quote_email(
+                    customer_email=customer_email,
+                    customer_name=customer_name,
+                    quote_pdf_data=pdf_bytes,
+                    destination=destination,
+                    quote_id=quote_id
+                )
+            except Exception as e:
+                logger.error(f"Email sending failed for quote {quote_id}: {e}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': f'Email sending failed: {str(e)}'
+                }
+
+            if not email_sent:
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'Email sending failed (SendGrid returned error)'
+                }
+
+            # 6. Update quote status to 'sent'
+            sent_at = datetime.utcnow().isoformat()
+            status_updated = self.update_quote_status(quote_id, 'sent')
+            if not status_updated:
+                logger.warning(f"Failed to update quote status to 'sent' for {quote_id}")
+
+            # 7. Schedule follow-up call if customer has phone number
+            call_queued = False
+            if customer_phone:
+                call_queued = self._schedule_follow_up_call(
+                    quote_id=quote_id,
+                    customer_name=customer_name,
+                    customer_email=customer_email,
+                    customer_phone=customer_phone,
+                    destination=destination
+                )
+
+            # 8. Create notification for "quote sent"
+            try:
+                from src.api.notifications_routes import NotificationService
+                notification_service = NotificationService(self.config)
+                notification_service.notify_quote_sent(
+                    customer_name=customer_name,
+                    customer_email=customer_email,
+                    destination=destination,
+                    quote_id=quote_id
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send quote sent notification: {e}")
+
+            logger.info(f"Draft quote {quote_id} sent successfully to {customer_email}")
+
+            return {
+                'success': True,
+                'quote_id': quote_id,
+                'sent_at': sent_at,
+                'customer_email': customer_email,
+                'status': 'sent',
+                'call_queued': call_queued
+            }
+
+        except Exception as e:
+            logger.error(f"Error sending draft quote {quote_id}: {e}")
+            return {
+                'success': False,
+                'quote_id': quote_id,
+                'error': str(e)
+            }
