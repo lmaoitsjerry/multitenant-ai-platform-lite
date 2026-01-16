@@ -634,6 +634,7 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
         diagnostic_log(diagnostic_id, 9, "Email parsed", {
             'destination': parsed_data.get('destination'),
             'is_travel_inquiry': parsed_data.get('is_travel_inquiry'),
+            'parse_method': parsed_data.get('parse_method', 'unknown'),
             'customer_name': parsed_data.get('name'),
             'customer_email': parsed_data.get('email'),
             'adults': parsed_data.get('adults'),
@@ -720,7 +721,62 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
         logger.exception(f"[{diagnostic_id}] Error processing email")
 
 
-# ==================== Diagnostic Endpoint ====================
+# ==================== Diagnostic Endpoints ====================
+
+@router.get("/email/lookup/{email:path}")
+async def lookup_tenant_by_email(email: str):
+    """
+    Lookup which tenant an email address maps to.
+
+    Use this to test tenant resolution without sending full emails.
+
+    Args:
+        email: Email address to lookup (e.g., final-itc-3@zorah.ai)
+
+    Returns:
+        JSON with tenant lookup result including timing and cache hit status
+    """
+    diagnostic_id = str(uuid.uuid4())[:8].upper()
+    start_time = time.time()
+
+    tenant_id, strategy, cache_hit = find_tenant_by_email(email, diagnostic_id)
+
+    elapsed_ms = round((time.time() - start_time) * 1000, 2)
+
+    if tenant_id:
+        # Get matched email for response
+        try:
+            emails = get_tenant_email_addresses(tenant_id)
+            matched_email = None
+            if strategy == 'support_email':
+                matched_email = emails.get('support_email')
+            elif strategy == 'sendgrid_email':
+                matched_email = emails.get('sendgrid_email')
+            elif strategy == 'primary_email':
+                matched_email = emails.get('primary_email')
+        except:
+            matched_email = email
+
+        return {
+            "found": True,
+            "tenant_id": tenant_id,
+            "strategy": strategy,
+            "matched_email": matched_email,
+            "diagnostic_id": diagnostic_id,
+            "cache_hit": cache_hit,
+            "elapsed_ms": elapsed_ms
+        }
+    else:
+        return {
+            "found": False,
+            "tenant_id": None,
+            "strategy": "none",
+            "diagnostic_id": diagnostic_id,
+            "cache_hit": cache_hit,
+            "elapsed_ms": elapsed_ms,
+            "suggestion": "Email not registered. Check tenant_settings.support_email or sendgrid_username."
+        }
+
 
 @router.get("/email/diagnose")
 async def diagnose_email_webhook():
