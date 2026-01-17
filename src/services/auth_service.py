@@ -409,7 +409,16 @@ class AuthService:
 
     async def request_password_reset(self, email: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Send password reset email.
+        Send password reset email via Supabase Auth.
+
+        The password reset link in the email points to the Site URL configured in Supabase.
+
+        CONFIGURATION REQUIRED:
+        1. Supabase Dashboard > Authentication > URL Configuration
+        2. Set "Site URL" to your frontend URL (e.g., http://localhost:5173)
+        3. Add your frontend URL to "Redirect URLs" (e.g., http://localhost:5173/*)
+
+        The reset link format: {Site URL}/reset-password?token={token}&type=recovery
 
         Args:
             email: User's email address
