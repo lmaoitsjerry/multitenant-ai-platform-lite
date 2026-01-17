@@ -27,10 +27,21 @@ _USER_CACHE_TTL = 60  # Cache user for 60 seconds
 
 def get_cached_auth_client(supabase_url: str, supabase_key: str) -> Client:
     """Get or create a cached Supabase client for auth"""
-    cache_key = supabase_url[:30]
+    # Include key suffix in cache to differentiate anon vs service role clients
+    key_suffix = supabase_key[-10:] if supabase_key else "nokey"
+    cache_key = f"{supabase_url[:30]}:{key_suffix}"
     if cache_key not in _auth_client_cache:
         _auth_client_cache[cache_key] = create_client(supabase_url, supabase_key)
     return _auth_client_cache[cache_key]
+
+
+def get_fresh_admin_client(supabase_url: str, supabase_key: str) -> Client:
+    """Create a fresh Supabase client for admin operations (no caching).
+
+    This is used for admin API calls like creating users, which seem to have
+    issues with cached clients in concurrent scenarios.
+    """
+    return create_client(supabase_url, supabase_key)
 
 
 class AuthService:
@@ -54,21 +65,25 @@ class AuthService:
         self,
         email: str,
         password: str,
-        tenant_id: str
+        tenant_id: str = None
     ) -> Tuple[bool, Dict[str, Any]]:
         """
-        Authenticate user with email/password and verify tenant membership.
+        Authenticate user with email/password.
+
+        TENANT-AGNOSTIC: If tenant_id is not provided, the system will
+        automatically determine the user's tenant from their organization membership.
+        This allows users to login without knowing their tenant ID.
 
         Args:
             email: User's email address
             password: User's password
-            tenant_id: Tenant ID to verify membership
+            tenant_id: Optional - Tenant ID to verify membership (if not provided, auto-detected)
 
         Returns:
             Tuple of (success, data/error)
         """
         try:
-            # Authenticate with Supabase Auth
+            # Authenticate with Supabase Auth (tenant-agnostic)
             auth_response = self.client.auth.sign_in_with_password({
                 "email": email,
                 "password": password
@@ -79,21 +94,29 @@ class AuthService:
 
             auth_user_id = auth_response.user.id
 
-            # Verify user belongs to the tenant
-            user_record = self.client.table("organization_users").select("*").eq(
+            # Look up user in organization_users
+            # If tenant_id provided, filter by it; otherwise get any active membership
+            query = self.client.table("organization_users").select("*").eq(
                 "auth_user_id", auth_user_id
             ).eq(
-                "tenant_id", tenant_id
-            ).eq(
                 "is_active", True
-            ).single().execute()
+            )
 
-            if not user_record.data:
-                # User exists in auth but not in this organization
+            if tenant_id:
+                # Specific tenant requested - verify membership
+                query = query.eq("tenant_id", tenant_id)
+                user_record = query.single().execute()
+                org_user = user_record.data
+            else:
+                # No tenant specified - get first active membership (tenant-agnostic login)
+                user_record = query.limit(1).execute()
+                # .limit() returns a list, get first item
+                org_user = user_record.data[0] if user_record.data else None
+
+            if not org_user:
+                # User exists in auth but not in any organization
                 await self.logout()
-                return False, {"error": "User not found in this organization"}
-
-            org_user = user_record.data
+                return False, {"error": "User not found in any organization"}
 
             # Update last login
             self.client.table("organization_users").update({
@@ -119,8 +142,12 @@ class AuthService:
             logger.error(f"Auth error during login: {e}")
             return False, {"error": str(e.message) if hasattr(e, 'message') else "Authentication failed"}
         except Exception as e:
-            logger.error(f"Error during login: {e}")
-            return False, {"error": "An error occurred during login"}
+            error_msg = str(e)
+            logger.error(f"Error during login: {error_msg}")
+            # Return the actual error message for better user feedback
+            if "Invalid login credentials" in error_msg:
+                return False, {"error": "Invalid email or password"}
+            return False, {"error": error_msg if error_msg else "An error occurred during login"}
 
     async def logout(self) -> bool:
         """Sign out current user session"""
@@ -162,7 +189,10 @@ class AuthService:
 
     def verify_jwt(self, token: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify and decode JWT token locally without blocking network calls.
+        Verify and decode JWT token with cryptographic signature verification.
+
+        Supabase JWTs are signed with HS256 using the JWT secret. This method
+        validates the signature to ensure tokens haven't been tampered with.
 
         Args:
             token: JWT access token
@@ -171,16 +201,16 @@ class AuthService:
             Tuple of (valid, payload/error)
         """
         try:
-            # Decode JWT without signature verification first to check structure
-            # Supabase JWTs are signed with HS256 using the JWT secret
-            # We skip signature verification for performance - the token was issued by Supabase
-            # and we verify the user exists in our database as a second check
+            # Decode and verify JWT with signature validation
+            # Supabase JWTs use HS256 algorithm
             payload = jwt.decode(
                 token,
+                self.jwt_secret,
+                algorithms=["HS256"],
                 options={
-                    "verify_signature": False,
+                    "verify_signature": True,
                     "verify_exp": True,
-                    "verify_aud": False,
+                    "verify_aud": False,  # Supabase audience varies
                 }
             )
 
@@ -195,6 +225,9 @@ class AuthService:
 
         except jwt.ExpiredSignatureError:
             return False, {"error": "Token expired"}
+        except jwt.InvalidSignatureError:
+            logger.warning("JWT signature verification failed - possible token tampering")
+            return False, {"error": "Invalid token signature"}
         except jwt.InvalidTokenError as e:
             logger.error(f"Invalid JWT: {e}")
             return False, {"error": "Invalid token"}
@@ -261,6 +294,7 @@ class AuthService:
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create new user in Supabase Auth and organization_users table.
+        If user already exists in auth, link them to the new tenant.
 
         Args:
             email: User's email
@@ -273,9 +307,14 @@ class AuthService:
         Returns:
             Tuple of (success, user data/error)
         """
+        auth_user_id = None
+
+        # Use a fresh client for admin operations to avoid caching issues
+        admin_client = get_fresh_admin_client(self.supabase_url, self.supabase_key)
+
         try:
-            # Create user in Supabase Auth (admin API)
-            auth_response = self.client.auth.admin.create_user({
+            # Try to create user in Supabase Auth (admin API)
+            auth_response = admin_client.auth.admin.create_user({
                 "email": email,
                 "password": password,
                 "email_confirm": True,  # Skip email verification for invited users
@@ -285,13 +324,59 @@ class AuthService:
                 }
             })
 
-            if not auth_response.user:
-                return False, {"error": "Failed to create auth user"}
+            if auth_response.user:
+                auth_user_id = auth_response.user.id
+                logger.info(f"Created new auth user: {email}")
 
-            auth_user_id = auth_response.user.id
+        except (AuthApiError, Exception) as e:
+            error_str = str(e)
+            logger.warning(f"Could not create auth user (may already exist): {error_str}")
 
-            # Create organization user record
-            org_user = self.client.table("organization_users").insert({
+            # User might already exist - try to get their ID by email
+            # First try to sign in with the provided password
+            try:
+                sign_in_response = self.client.auth.sign_in_with_password({
+                    "email": email,
+                    "password": password
+                })
+                if sign_in_response.user:
+                    auth_user_id = sign_in_response.user.id
+                    logger.info(f"Existing user signed in: {email}")
+                    # Sign out to clean up the session
+                    try:
+                        self.client.auth.sign_out()
+                    except:
+                        pass
+            except Exception as signin_err:
+                logger.warning(f"Could not sign in existing user: {signin_err}")
+                # If sign in fails, the password is wrong - can't proceed
+                return False, {"error": "Email already registered with different password"}
+
+        if not auth_user_id:
+            return False, {"error": "Failed to create or find auth user"}
+
+        # Check if user already exists in this tenant's organization
+        # Use admin_client for all DB operations to ensure service_role bypasses RLS
+        try:
+            existing = admin_client.table("organization_users").select("*").eq(
+                "auth_user_id", str(auth_user_id)
+            ).eq(
+                "tenant_id", tenant_id
+            ).execute()
+
+            if existing.data:
+                # User already in this tenant
+                return True, {
+                    "user": existing.data[0],
+                    "auth_user_id": str(auth_user_id),
+                    "already_existed": True
+                }
+        except Exception as e:
+            logger.warning(f"Error checking existing org user: {e}")
+
+        # Create organization user record
+        try:
+            org_user = admin_client.table("organization_users").insert({
                 "tenant_id": tenant_id,
                 "auth_user_id": str(auth_user_id),
                 "email": email,
@@ -302,8 +387,6 @@ class AuthService:
             }).execute()
 
             if not org_user.data:
-                # Rollback: delete auth user if org user creation fails
-                self.client.auth.admin.delete_user(auth_user_id)
                 return False, {"error": "Failed to create organization user"}
 
             return True, {
@@ -311,15 +394,9 @@ class AuthService:
                 "auth_user_id": str(auth_user_id)
             }
 
-        except AuthApiError as e:
-            logger.error(f"Auth error creating user: {e}")
-            error_msg = str(e.message) if hasattr(e, 'message') else str(e)
-            if "already been registered" in error_msg.lower():
-                return False, {"error": "Email already registered"}
-            return False, {"error": error_msg}
         except Exception as e:
-            logger.error(f"Error creating user: {e}")
-            return False, {"error": "Failed to create user"}
+            logger.error(f"Error creating organization user: {e}")
+            return False, {"error": f"Failed to create organization user: {str(e)}"}
 
     async def request_password_reset(self, email: str) -> Tuple[bool, Dict[str, Any]]:
         """
