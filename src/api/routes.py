@@ -178,12 +178,14 @@ async def sendgrid_inbound_legacy(
 ):
     """
     Legacy SendGrid Inbound Parse endpoint for production compatibility.
-    Routes to africastay tenant by default.
-    
+    Dynamically routes to tenant based on the 'to' email address.
+
     URL: /api/webhooks/sendgrid-inbound
     """
-    from src.webhooks.email_webhook import receive_tenant_email
-    return await receive_tenant_email("africastay", request, background_tasks)
+    from src.webhooks.email_webhook import receive_inbound_email
+
+    # Use the generic inbound handler which does proper tenant lookup
+    return await receive_inbound_email(request, background_tasks)
 
 
 # ==================== Quote Endpoints ====================

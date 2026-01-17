@@ -62,7 +62,7 @@ class RAGResponseService:
             return {
                 'answer': answer,
                 'sources': [
-                    {'filename': r.get('source', 'Knowledge Base'), 'score': r.get('score', 0)}
+                    {'filename': self._clean_source_name(r.get('source', '')), 'score': r.get('score', 0)}
                     for r in search_results[:5]  # Top 5 sources
                 ],
                 'method': 'rag'
@@ -70,6 +70,32 @@ class RAGResponseService:
         except Exception as e:
             logger.error(f"LLM synthesis failed: {e}")
             return self._fallback_response(question, search_results)
+
+    def _clean_source_name(self, source: str) -> str:
+        """Clean up source names - convert temp file paths to friendly names"""
+        if not source:
+            return "Knowledge Base"
+
+        # Extract filename from path
+        if '/' in source or '\\' in source:
+            # Get just the filename
+            filename = source.replace('\\', '/').split('/')[-1]
+
+            # Remove temp prefixes (e.g., tmpvz1yjphh_)
+            if filename.startswith('tmp') or '/tmp' in source or '\\tmp' in source or 'Temp' in source:
+                return "Knowledge Base Document"
+
+            # Remove extension for display
+            for ext in ['.pdf', '.docx', '.doc', '.txt', '.md']:
+                if filename.lower().endswith(ext):
+                    filename = filename[:-len(ext)]
+                    break
+
+            # Clean up underscores and format nicely
+            filename = filename.replace('_', ' ').replace('-', ' ')
+            return filename.title() if filename else "Knowledge Base"
+
+        return source if source else "Knowledge Base"
 
     def _build_context(self, results: List[Dict], max_chars: int) -> str:
         """Build context string from search results"""
@@ -138,13 +164,30 @@ Provide a helpful, natural response using the information above. If the context 
         if not results:
             return self._no_results_response(question)
 
-        # Simple concatenation with intro (existing behavior)
-        combined = "\n\n".join([r.get('content', '')[:500] for r in results[:3]])
-        answer = f"Here's what I found in the knowledge base:\n\n{combined}\n\nFor more specific information, please refine your question."
+        # Build a more structured response from search results
+        # Extract key info instead of raw dump
+        content_parts = []
+        for r in results[:3]:
+            content = r.get('content', '').strip()
+            if content:
+                # Clean up the content - take first 400 chars but try to end at sentence
+                if len(content) > 400:
+                    end_pos = content[:400].rfind('.')
+                    if end_pos > 200:
+                        content = content[:end_pos + 1]
+                    else:
+                        content = content[:400] + "..."
+                content_parts.append(content)
+
+        combined = "\n\n".join(content_parts)
+        answer = f"Based on our knowledge base:\n\n{combined}\n\nWould you like more details on any of these topics?"
 
         return {
             'answer': answer,
-            'sources': [{'filename': r.get('source', 'Knowledge Base'), 'score': r.get('score', 0)} for r in results[:3]],
+            'sources': [
+                {'filename': self._clean_source_name(r.get('source', '')), 'score': r.get('score', 0)}
+                for r in results[:3]
+            ],
             'method': 'fallback'
         }
 
