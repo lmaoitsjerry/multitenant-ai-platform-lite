@@ -68,15 +68,29 @@ class PhoneNumberSearchRequest(BaseModel):
 # ==================== Admin Auth Dependency ====================
 
 def verify_admin_token(x_admin_token: str = Header(None, alias="X-Admin-Token")) -> bool:
-    """Verify admin authentication token"""
+    """
+    Verify admin authentication token.
+
+    SECURITY: Always requires a valid token. If ADMIN_API_TOKEN is not configured,
+    all admin requests are rejected. This prevents accidental exposure in production.
+    """
     admin_token = os.getenv("ADMIN_API_TOKEN")
 
     if not admin_token:
-        # If no admin token configured, allow access (dev mode)
-        logger.warning("No ADMIN_API_TOKEN configured - admin endpoints are unprotected")
-        return True
+        logger.error(
+            "ADMIN_API_TOKEN not configured - admin endpoints are disabled. "
+            "Set ADMIN_API_TOKEN environment variable to enable admin access."
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Admin endpoints not configured. Contact system administrator."
+        )
+
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="X-Admin-Token header required")
 
     if x_admin_token != admin_token:
+        logger.warning(f"Invalid admin token attempt from request")
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
     return True
@@ -369,6 +383,9 @@ async def get_tenant_details(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Tenant not found: {tenant_id}")
 
+    # Get destinations from BigQuery (actual rates data)
+    bq_destinations = await get_bigquery_destinations(config)
+
     return {
         "tenant_id": tenant_id,
         "client": {
@@ -378,7 +395,10 @@ async def get_tenant_details(
             "timezone": config.timezone,
             "currency": config.currency
         },
-        "destinations": config.destinations,
+        "destinations": bq_destinations.get("destinations", config.destinations),
+        "destinations_count": bq_destinations.get("total_destinations", 0),
+        "hotels_count": bq_destinations.get("total_hotels", 0),
+        "rates_count": bq_destinations.get("total_rates", 0),
         "consultants": config.consultants,
         "infrastructure": {
             "gcp_project": config.gcp_project_id,
@@ -400,6 +420,65 @@ async def get_tenant_details(
 
 
 # ==================== Helper Functions ====================
+
+async def get_bigquery_destinations(config: ClientConfig) -> Dict[str, Any]:
+    """
+    Get destinations data from BigQuery hotel_rates table.
+    Returns count of unique destinations and hotels from the actual pricing data.
+    """
+    try:
+        from google.cloud import bigquery
+        import asyncio
+
+        client = bigquery.Client(project=config.gcp_project_id)
+        dataset = getattr(config, 'shared_pricing_dataset', None) or 'africastay_analytics'
+
+        query = f"""
+        SELECT
+            destination,
+            COUNT(DISTINCT hotel_name) as hotel_count,
+            COUNT(*) as rate_count
+        FROM `{config.gcp_project_id}.{dataset}.hotel_rates`
+        WHERE is_active = TRUE
+        GROUP BY destination
+        ORDER BY destination
+        """
+
+        results = await asyncio.to_thread(
+            lambda: list(client.query(query).result())
+        )
+
+        destinations = []
+        total_hotels = 0
+        total_rates = 0
+
+        for row in results:
+            destinations.append({
+                "name": row.destination,
+                "hotel_count": row.hotel_count,
+                "rate_count": row.rate_count,
+                "enabled": True
+            })
+            total_hotels += row.hotel_count
+            total_rates += row.rate_count
+
+        return {
+            "destinations": destinations,
+            "total_destinations": len(destinations),
+            "total_hotels": total_hotels,
+            "total_rates": total_rates
+        }
+    except Exception as e:
+        logger.warning(f"Could not get BigQuery destinations for {config.client_id}: {e}")
+        # Fall back to config destinations
+        return {
+            "destinations": config.destinations,
+            "total_destinations": len(config.destinations) if config.destinations else 0,
+            "total_hotels": 0,
+            "total_rates": 0,
+            "error": str(e)
+        }
+
 
 async def update_tenant_config_file(
     tenant_id: str,
@@ -492,6 +571,15 @@ class SystemHealthResponse(BaseModel):
     active_tenants: int
     database_status: str
     timestamp: str
+
+
+class CreateTestUserRequest(BaseModel):
+    """Request to create a test user for a tenant"""
+    tenant_id: str = Field(..., min_length=2, max_length=50)
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., min_length=6, description="User password")
+    name: str = Field(default="Test User", description="User display name")
+    role: str = Field(default="admin", pattern="^(admin|user|consultant)$")
 
 
 class TenantSummary(BaseModel):
@@ -629,6 +717,72 @@ async def get_all_tenants_usage_summary(
     }
 
 
+@admin_router.post("/create-test-user")
+async def create_test_user(
+    request: CreateTestUserRequest,
+    admin_verified: bool = Depends(verify_admin_token)
+):
+    """
+    Create a test user for a tenant.
+
+    Creates both Supabase auth.users record and organization_users record.
+    Use this to quickly create a user that can login to the frontend dashboard.
+    """
+    from src.services.auth_service import AuthService
+    from config.loader import get_config
+
+    # Verify tenant config exists
+    try:
+        config = get_config(request.tenant_id)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant configuration not found: {request.tenant_id}"
+        )
+
+    # Get Supabase credentials
+    supabase_url = config.supabase_url or os.getenv("SUPABASE_URL")
+    supabase_key = config.supabase_service_key or os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY."
+        )
+
+    # Create auth service and user
+    auth_service = AuthService(
+        supabase_url=supabase_url,
+        supabase_key=supabase_key
+    )
+
+    success, result = await auth_service.create_auth_user(
+        email=request.email,
+        password=request.password,
+        name=request.name,
+        tenant_id=request.tenant_id,
+        role=request.role
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error", "Failed to create user")
+        )
+
+    return {
+        "success": True,
+        "message": f"User created successfully for tenant {request.tenant_id}",
+        "user": result.get("user"),
+        "already_existed": result.get("already_existed", False),
+        "login_info": {
+            "email": request.email,
+            "tenant_id": request.tenant_id,
+            "role": request.role
+        }
+    }
+
+
 @admin_router.get("/health")
 async def get_system_health(
     admin_verified: bool = Depends(verify_admin_token)
@@ -641,7 +795,8 @@ async def get_system_health(
     try:
         if tenants:
             from src.tools.supabase_tool import SupabaseTool
-            supabase = SupabaseTool(tenants[0])
+            config = ClientConfig(tenants[0])
+            supabase = SupabaseTool(config)
             supabase.client.table("quotes").select("id").limit(1).execute()
     except Exception as e:
         db_status = f"error: {str(e)[:100]}"
