@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 8 of 8 (Security and Fixes)
-Plan: 1 of 3 completed
-Status: In progress - JWT security fix applied
-Last activity: 2026-01-17 - Completed 08-01-PLAN.md (JWT Signature Verification)
+Plan: 3 of 3 completed
+Status: Phase 8 COMPLETE
+Last activity: 2026-01-17 - Completed 08-03-PLAN.md (Invoice Quote Dropdown and Password Reset)
 
-Progress: [########--] 80%
+Progress: [##########] 100%
 
 ## Milestones
 
@@ -83,6 +83,8 @@ Progress: [########--] 80%
 | D-06-01-02 | Force-add test files to git | Test files excluded by gitignore but needed | 2026-01-16 |
 | D-08-01-01 | Use HS256 algorithm for JWT verification | Matches Supabase JWT signing algorithm | 2026-01-17 |
 | D-08-01-02 | Fall back to service key with warning if JWT secret not set | Allows development without config, warns for production | 2026-01-17 |
+| D-08-03-01 | Filter quotes by status for invoice creation | Only show sent, approved, draft quotes in dropdown | 2026-01-17 |
+| D-08-03-02 | Document Supabase URL config in frontend and backend | Password reset requires Supabase Dashboard settings | 2026-01-17 |
 
 ### Blockers/Concerns
 
@@ -94,10 +96,27 @@ Progress: [########--] 80%
 ## Session Continuity
 
 Last session: 2026-01-17
-Stopped at: Completed 08-01-PLAN.md (JWT Signature Verification)
-Resume file: None - continue with 08-02-PLAN.md
+Stopped at: Phase 8 complete - all security and UX fixes applied
+Resume file: None - ready for next milestone planning
 
 ## Recent Completions
+
+### 08-03: Invoice Quote Dropdown and Password Reset (2026-01-17)
+
+**Summary:** Fixed quote dropdown in invoice creation modal and documented password reset URL configuration.
+
+**Key Changes:**
+- Fixed quote dropdown to show quotes with customer name, destination, and amount
+- Added debug logging to diagnose API response structure
+- Filtered quotes to only show convertible ones (sent, approved, draft)
+- Added helpful message when no quotes available
+- Created .env.example with environment variable documentation
+- Documented Supabase URL configuration for password reset
+
+**Commits:**
+- 7ca6f04: fix(08-03): improve quote dropdown with debug logging and helpful messaging
+- bcb3aac: docs(08-03): add .env.example with password reset configuration
+- 97e278a: docs(08-03): add Supabase URL configuration docs to password reset method
 
 ### 08-01: JWT Signature Verification Security Fix (2026-01-17)
 
