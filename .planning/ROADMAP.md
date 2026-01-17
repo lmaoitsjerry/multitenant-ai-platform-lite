@@ -12,6 +12,8 @@ Fix two critical systems: (1) Inbound email pipeline that should auto-generate a
 - [x] **Phase 4: Email Sending & Notifications** - Send quotes via SendGrid subuser, create notifications
 - [x] **Phase 5: Helpdesk RAG Enhancement** - Natural responses with context synthesis
 - [x] **Phase 6: Integration Testing** - End-to-end verification, production deployment
+- [x] **Phase 7: Login Fix** - Fix frontend dashboard login by creating test user
+- [x] **Phase 8: Security Hardening & Bug Fixes** - Fix critical security issues and invoice quote selection bug
 
 ## Phase Details
 
@@ -109,6 +111,39 @@ Plans:
 - [x] 06-01: Core integration test suite
 - [x] 06-02: Human verification and deployment readiness
 
+### Phase 7: Login Fix
+**Goal:** Enable login to frontend dashboard for tenant users
+**Depends on:** Phase 6 (complete system)
+**Requirements:** User can login with valid credentials
+**Success Criteria** (what must be TRUE):
+  1. Test user exists in Supabase auth.users
+  2. Test user has organization_users record linked to tenant
+  3. Frontend login succeeds with test credentials
+  4. Dashboard loads after login
+**Research:** None
+**Plans:** 1 plan
+
+Plans:
+- [x] 07-01: Create test user and admin endpoint for user creation
+
+### Phase 8: Security Hardening & Bug Fixes
+**Goal:** Fix critical security vulnerabilities and invoice creation bug
+**Depends on:** Phase 7 (complete login system)
+**Requirements:** SEC-01, SEC-02, SEC-03, BUG-01
+**Success Criteria** (what must be TRUE):
+  1. JWT signature verification enabled
+  2. Rate limiting on authentication endpoints
+  3. Admin token bypass removed or restricted
+  4. Invoice creation modal shows quotes in dropdown
+  5. Password reset redirect URL configurable
+**Research:** None
+**Plans:** 3 plans
+
+Plans:
+- [x] 08-01: Enable JWT signature verification
+- [x] 08-02: Add rate limiting and CSRF protection
+- [x] 08-03: Fix invoice quote selection and password reset
+
 ## Progress
 
 | Phase | Plans | Status |
@@ -119,6 +154,8 @@ Plans:
 | 4. Email Sending & Notifications | 1/1 | Complete |
 | 5. Helpdesk RAG Enhancement | 2/2 | Complete |
 | 6. Integration Testing | 2/2 | Complete |
+| 7. Login Fix | 1/1 | Complete |
+| 8. Security Hardening & Bug Fixes | 3/3 | Complete |
 
 ---
 *Created: 2026-01-16*
