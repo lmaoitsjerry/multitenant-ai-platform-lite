@@ -59,7 +59,16 @@ class AuthService:
         self.supabase_key = supabase_key
         # Use cached client to avoid reinitializing on every request
         self.client: Client = get_cached_auth_client(supabase_url, supabase_key)
-        self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET", supabase_key)
+
+        # JWT Secret: Found in Supabase Dashboard > Project Settings > API > JWT Secret
+        # Should be set as SUPABASE_JWT_SECRET environment variable
+        self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+        if not self.jwt_secret:
+            logger.warning(
+                "SUPABASE_JWT_SECRET not set - falling back to service key. "
+                "For production, set SUPABASE_JWT_SECRET from Supabase Dashboard > Project Settings > API"
+            )
+            self.jwt_secret = supabase_key
 
     async def login(
         self,
