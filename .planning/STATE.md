@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-01-16)
 ## Current Position
 
 Phase: 8 of 8 (Security and Fixes)
-Plan: 3 of 3 completed
+Plan: 4 of 4 completed (08-02 Rate Limiting & Admin Security added)
 Status: Phase 8 COMPLETE
-Last activity: 2026-01-17 - Completed 08-03-PLAN.md (Invoice Quote Dropdown and Password Reset)
+Last activity: 2026-01-17 - Completed 08-02-PLAN.md (Rate Limiting & Admin Security)
 
 Progress: [##########] 100%
 
@@ -85,6 +85,10 @@ Progress: [##########] 100%
 | D-08-01-02 | Fall back to service key with warning if JWT secret not set | Allows development without config, warns for production | 2026-01-17 |
 | D-08-03-01 | Filter quotes by status for invoice creation | Only show sent, approved, draft quotes in dropdown | 2026-01-17 |
 | D-08-03-02 | Document Supabase URL config in frontend and backend | Password reset requires Supabase Dashboard settings | 2026-01-17 |
+| D-08-02-01 | 5 requests/minute for login rate limiting | Standard anti-brute-force threshold | 2026-01-17 |
+| D-08-02-02 | 3 requests/minute for password reset | Stricter to prevent email enumeration | 2026-01-17 |
+| D-08-02-03 | 503 when ADMIN_API_TOKEN not configured | Fail-closed security, not open bypass | 2026-01-17 |
+| D-08-02-04 | 401 when X-Admin-Token header missing | Explicit authentication required | 2026-01-17 |
 
 ### Blockers/Concerns
 
@@ -96,10 +100,27 @@ Progress: [##########] 100%
 ## Session Continuity
 
 Last session: 2026-01-17
-Stopped at: Phase 8 complete - all security and UX fixes applied
+Stopped at: Phase 8 Plan 02 complete - rate limiting and admin security applied
 Resume file: None - ready for next milestone planning
 
 ## Recent Completions
+
+### 08-02: Rate Limiting & Admin Security (2026-01-17)
+
+**Summary:** Added rate limiting to auth endpoints and removed unsafe admin token bypass.
+
+**Key Changes:**
+- Login endpoint rate limited to 5 requests/minute per IP (prevents brute force)
+- Password reset rate limited to 3 requests/minute per IP (prevents email enumeration)
+- Password update rate limited to 5 requests/minute per IP (prevents token brute force)
+- Admin endpoints now return 503 if ADMIN_API_TOKEN not configured (fail-closed)
+- Admin endpoints return 401 if X-Admin-Token header missing (explicit auth required)
+- slowapi>=0.1.9 added to requirements.txt
+
+**Commits:**
+- bc5da9e: feat(08-02): add rate limiting to auth endpoints
+- aa331d6: fix(08-02): remove unsafe admin token bypass
+- f650227: feat(08-02): register rate limiter in FastAPI app
 
 ### 08-03: Invoice Quote Dropdown and Password Reset (2026-01-17)
 
