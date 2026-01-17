@@ -11,10 +11,18 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from src.services.auth_service import AuthService
 from config.loader import get_config, ClientConfig
 
 logger = logging.getLogger(__name__)
+
+# Initialize rate limiter for auth endpoints
+# Key function uses remote IP address for rate limiting
+limiter = Limiter(key_func=get_remote_address)
 
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -48,6 +56,11 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 
+class PasswordUpdateWithTokenRequest(BaseModel):
+    token: str
+    new_password: str
+
+
 class AcceptInviteRequest(BaseModel):
     password: str
     name: Optional[str] = None  # Can update name if desired
@@ -74,6 +87,26 @@ def get_auth_service(x_client_id: str = Header(None, alias="X-Client-ID")) -> Au
         raise HTTPException(status_code=400, detail=f"Unknown client: {client_id}")
 
 
+def get_platform_auth_service() -> AuthService:
+    """
+    Get platform-level AuthService for tenant-agnostic operations like login.
+
+    Uses environment variables directly since all tenants share the same Supabase instance.
+    This allows users to login without knowing their tenant ID - the system will
+    auto-detect their tenant from their organization membership.
+    """
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(status_code=500, detail="Platform auth not configured")
+
+    return AuthService(
+        supabase_url=supabase_url,
+        supabase_key=supabase_key
+    )
+
+
 def get_tenant_id(x_client_id: str = Header(None, alias="X-Client-ID")) -> str:
     """Get tenant ID from header"""
     return x_client_id or os.getenv("CLIENT_ID", "africastay")
@@ -82,23 +115,31 @@ def get_tenant_id(x_client_id: str = Header(None, alias="X-Client-ID")) -> str:
 # ==================== Auth Endpoints ====================
 
 @auth_router.post("/login", response_model=LoginResponse)
+@limiter.limit("5/minute")  # Prevent brute force: 5 login attempts per minute per IP
 async def login(
-    request: LoginRequest,
-    auth_service: AuthService = Depends(get_auth_service),
-    tenant_id: str = Depends(get_tenant_id)
+    request: Request,  # Required for rate limiter
+    login_data: LoginRequest,  # Renamed from 'request' to avoid conflict
+    auth_service: AuthService = Depends(get_platform_auth_service),
+    x_client_id: str = Header(None, alias="X-Client-ID")
 ):
     """
     Authenticate user with email and password.
 
+    TENANT-AGNOSTIC: If no tenant_id is provided (in request body or header),
+    the system will automatically determine the user's tenant from their
+    organization membership. This allows users to login without knowing their tenant ID.
+
     Returns JWT tokens and user information if successful.
-    User must be a member of the specified tenant organization.
+    The response includes the user's tenant_id which should be stored for future requests.
+
+    Rate limited to 5 requests per minute per IP to prevent brute force attacks.
     """
-    # Use tenant_id from request body if provided, otherwise from header
-    effective_tenant_id = request.tenant_id or tenant_id
+    # Use tenant_id from request body if provided, then header, otherwise None (auto-detect)
+    effective_tenant_id = login_data.tenant_id or x_client_id or None
 
     success, result = await auth_service.login(
-        email=request.email,
-        password=request.password,
+        email=login_data.email,
+        password=login_data.password,
         tenant_id=effective_tenant_id
     )
 
@@ -202,8 +243,10 @@ async def get_current_user(
 
 
 @auth_router.post("/password/reset")
+@limiter.limit("3/minute")  # Strict limit to prevent email enumeration abuse
 async def request_password_reset(
-    request: PasswordResetRequest,
+    request: Request,  # Required for rate limiter
+    reset_data: PasswordResetRequest,  # Renamed from 'request' to avoid conflict
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
@@ -211,12 +254,55 @@ async def request_password_reset(
 
     Sends a password reset link to the user's email if the account exists.
     Always returns success to prevent email enumeration.
+
+    Rate limited to 3 requests per minute per IP to prevent abuse.
     """
-    await auth_service.request_password_reset(request.email)
+    await auth_service.request_password_reset(reset_data.email)
     return {
         "success": True,
         "message": "If an account exists with this email, a password reset link has been sent"
     }
+
+
+@auth_router.post("/password/update")
+@limiter.limit("5/minute")  # Prevent token brute force attempts
+async def update_password_with_token(
+    request: Request,  # Required for rate limiter
+    update_data: PasswordUpdateWithTokenRequest,  # Renamed from 'request' to avoid conflict
+    auth_service: AuthService = Depends(get_platform_auth_service)
+):
+    """
+    Update password using a reset token from email.
+
+    This endpoint handles the password reset flow:
+    1. User clicks link in password reset email
+    2. Frontend extracts token from URL
+    3. Frontend calls this endpoint with token and new password
+    4. Backend verifies token with Supabase and updates password
+
+    Rate limited to 5 requests per minute per IP to prevent token brute force.
+    """
+    try:
+        # Use Supabase's verify OTP to exchange token for session
+        # Then update password with that session
+        result = auth_service.client.auth.verify_otp({
+            "token_hash": update_data.token,
+            "type": "recovery"
+        })
+
+        if result.user:
+            # Now update the password for this user
+            auth_service.client.auth.admin.update_user_by_id(
+                str(result.user.id),
+                {"password": update_data.new_password}
+            )
+            return {"success": True, "message": "Password updated successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    except Exception as e:
+        logger.error(f"Password update error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token. Please request a new reset link.")
 
 
 @auth_router.post("/password/change")
@@ -392,3 +478,21 @@ async def accept_invitation(
     except Exception as e:
         logger.error(f"Error accepting invitation: {e}")
         raise HTTPException(status_code=500, detail="An error occurred")
+
+
+# ==================== Rate Limiter Export ====================
+
+def get_auth_limiter():
+    """
+    Get the rate limiter instance for app state registration.
+
+    The limiter must be registered with FastAPI's app state for the
+    rate limiting decorators to work correctly.
+
+    Usage in main.py:
+        from src.api.auth_routes import get_auth_limiter
+        limiter = get_auth_limiter()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    """
+    return limiter
