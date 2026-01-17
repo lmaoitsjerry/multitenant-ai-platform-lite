@@ -32,6 +32,8 @@ from typing import Optional
 from datetime import datetime
 
 from config.loader import ClientConfig, get_config
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -46,6 +48,18 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     logger.info("Starting Multi-Tenant AI Platform...")
+
+    # Preload FAISS helpdesk index in background
+    try:
+        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
+        service = get_faiss_helpdesk_service()
+        if service.initialize():
+            logger.info("FAISS helpdesk index preloaded successfully")
+        else:
+            logger.warning("FAISS helpdesk index not available (will retry on first query)")
+    except Exception as e:
+        logger.warning(f"FAISS preload skipped: {e}")
+
     yield
     logger.info("Shutting down...")
 
@@ -57,6 +71,13 @@ app = FastAPI(
     version="1.0.0-lite",
     lifespan=lifespan
 )
+
+# ==================== Rate Limiter Setup ====================
+# Register rate limiter for auth endpoints (prevents brute force attacks)
+from src.api.auth_routes import get_auth_limiter
+auth_limiter = get_auth_limiter()
+app.state.limiter = auth_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ==================== Middleware Setup ====================
 # NOTE: FastAPI middleware runs in REVERSE order of addition.
@@ -88,14 +109,25 @@ def get_cors_origins() -> list:
         return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
 
     # Default origins for development and production
+    # Include multiple Vite ports since it auto-increments when ports are in use
     return [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
+        "http://localhost:5176",
+        "http://localhost:5177",
+        "http://localhost:5178",
+        "http://localhost:5179",
+        "http://localhost:5180",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
+        "http://127.0.0.1:5176",
+        "http://127.0.0.1:5177",
+        "http://127.0.0.1:5178",
+        "http://127.0.0.1:5179",
+        "http://127.0.0.1:5180",
         "http://127.0.0.1:3000",
         "https://*.zorahai.com",
         "https://*.holidaytoday.co.za",
@@ -282,7 +314,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "127.0.0.1")
     reload = os.getenv("RELOAD", "false").lower() == "true"
 
