@@ -4,7 +4,8 @@ FAISS Helpdesk Service - Shared Knowledge Base
 Connects to the global FAISS index stored in Google Cloud Storage.
 This index contains helpdesk documentation shared across all tenants.
 
-GCS Bucket: zorah-faiss-index
+GCS Bucket: zorah-475411-rag-documents
+Path: faiss_indexes/
 Files:
   - index.faiss (vector index)
   - index.pkl (document metadata/texts)
@@ -20,8 +21,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# GCS Configuration
-GCS_BUCKET_NAME = os.getenv("FAISS_BUCKET_NAME", "zorah-faiss-index")
+# GCS Configuration - using the leaner curated index
+GCS_BUCKET_NAME = os.getenv("FAISS_BUCKET_NAME", "zorah-475411-rag-documents")
+GCS_INDEX_PREFIX = os.getenv("FAISS_INDEX_PREFIX", "faiss_indexes/")
 GCS_INDEX_FILE = "index.faiss"
 GCS_METADATA_FILE = "index.pkl"
 
@@ -165,19 +167,22 @@ class FAISSHelpdeskService:
             return False
 
         try:
-            logger.info("Initializing FAISS Helpdesk Service...")
+            logger.info(f"Initializing FAISS Helpdesk Service from {GCS_BUCKET_NAME}/{GCS_INDEX_PREFIX}...")
 
             # Local file paths
             index_path = CACHE_DIR / GCS_INDEX_FILE
             metadata_path = CACHE_DIR / GCS_METADATA_FILE
 
-            # Download files from GCS
-            if not self._download_from_gcs(GCS_INDEX_FILE, index_path):
-                self._init_error = "Failed to download FAISS index"
+            # Download files from GCS (with prefix for subdirectory)
+            gcs_index_path = f"{GCS_INDEX_PREFIX}{GCS_INDEX_FILE}"
+            gcs_metadata_path = f"{GCS_INDEX_PREFIX}{GCS_METADATA_FILE}"
+
+            if not self._download_from_gcs(gcs_index_path, index_path):
+                self._init_error = f"Failed to download FAISS index from {gcs_index_path}"
                 return False
 
-            if not self._download_from_gcs(GCS_METADATA_FILE, metadata_path):
-                self._init_error = "Failed to download metadata file"
+            if not self._download_from_gcs(gcs_metadata_path, metadata_path):
+                self._init_error = f"Failed to download metadata file from {gcs_metadata_path}"
                 return False
 
             # Load FAISS index
@@ -519,6 +524,7 @@ class FAISSHelpdeskService:
             'vector_count': self.index.ntotal if self.index else 0,
             'document_count': doc_count,
             'bucket': GCS_BUCKET_NAME,
+            'index_path': f"{GCS_INDEX_PREFIX}{GCS_INDEX_FILE}",
             'cache_dir': str(CACHE_DIR)
         }
 
@@ -539,6 +545,31 @@ async def initialize_faiss_service():
     """Initialize the FAISS service (call on app startup)"""
     service = get_faiss_helpdesk_service()
     return service.initialize()
+
+
+def reset_faiss_service(clear_cache: bool = False):
+    """
+    Reset the FAISS service singleton for reinitialization.
+
+    Args:
+        clear_cache: If True, also delete cached index files to force re-download
+    """
+    global _faiss_service
+
+    if clear_cache:
+        import shutil
+        if CACHE_DIR.exists():
+            shutil.rmtree(CACHE_DIR)
+            logger.info(f"Cleared FAISS cache at {CACHE_DIR}")
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Reset the singleton
+    if _faiss_service is not None:
+        FAISSHelpdeskService._instance = None
+        _faiss_service = None
+        logger.info("FAISS service singleton reset")
+
+    return True
 
 
 if __name__ == "__main__":

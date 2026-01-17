@@ -652,6 +652,51 @@ async def helpdesk_health():
         }
 
 
+@helpdesk_router.post("/reinit")
+async def reinit_faiss_service(clear_cache: bool = False):
+    """
+    Reinitialize the FAISS service to pick up new bucket configuration.
+
+    Args:
+        clear_cache: If True, delete cached index files to force re-download from GCS
+
+    Use this after changing FAISS_BUCKET_NAME or FAISS_INDEX_PREFIX environment variables,
+    or to refresh the index from a new bucket.
+    """
+    try:
+        from src.services.faiss_helpdesk_service import (
+            get_faiss_helpdesk_service,
+            reset_faiss_service,
+            GCS_BUCKET_NAME,
+            GCS_INDEX_PREFIX
+        )
+
+        # Reset and reinitialize
+        reset_faiss_service(clear_cache=clear_cache)
+
+        # Get fresh service and initialize
+        service = get_faiss_helpdesk_service()
+        success = service.initialize()
+
+        status = service.get_status()
+
+        return {
+            "success": success,
+            "message": "FAISS service reinitialized" if success else "Reinitialization failed",
+            "cache_cleared": clear_cache,
+            "bucket": GCS_BUCKET_NAME,
+            "index_prefix": GCS_INDEX_PREFIX,
+            "status": status
+        }
+
+    except Exception as e:
+        logger.error(f"FAISS reinit failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 # ============================================================
 # ACCURACY TESTING
 # ============================================================
