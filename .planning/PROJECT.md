@@ -23,22 +23,20 @@ Automated inbound email processing that generates and sends quotes without manua
 - ✓ Helpdesk FAISS integration (public endpoints) — v1.0
 - ✓ Tenant dashboard instant loading (stale-while-revalidate) — v1.0
 - ✓ Admin platform instant loading (caching patterns) — v1.0
+- ✓ EMAIL-01: SendGrid Inbound Parse receives emails and triggers webhook — v2.0
+- ✓ EMAIL-02: Webhook endpoint parses email and finds tenant by TO address — v2.0
+- ✓ EMAIL-03: LLM-powered email parser extracts trip details (destination, dates, travelers, budget) — v2.0
+- ✓ EMAIL-04: Quote generator creates quote from parsed details with hotel/rate lookup — v2.0
+- ✓ EMAIL-05: Quote email sent via tenant's SendGrid subuser credentials — v2.0
+- ✓ EMAIL-06: Notification created in tenant dashboard ("New inquiry - Quote sent") — v2.0
+- ✓ RAG-01: Search returns 5-8 relevant documents for context — v2.0
+- ✓ RAG-02: LLM synthesizes natural, conversational response from context — v2.0
+- ✓ RAG-03: Response includes specific details (names, prices, features) from documents — v2.0
+- ✓ RAG-04: Handles unknown questions gracefully with honest acknowledgment — v2.0
 
 ### Active
 
-**System 1: Inbound Email Auto-Quote Pipeline**
-- [ ] EMAIL-01: SendGrid Inbound Parse receives emails and triggers webhook
-- [ ] EMAIL-02: Webhook endpoint parses email and finds tenant by TO address
-- [ ] EMAIL-03: LLM-powered email parser extracts trip details (destination, dates, travelers, budget)
-- [ ] EMAIL-04: Quote generator creates quote from parsed details with hotel/rate lookup
-- [ ] EMAIL-05: Quote email sent via tenant's SendGrid subuser credentials
-- [ ] EMAIL-06: Notification created in tenant dashboard ("New inquiry - Quote sent")
-
-**System 2: Helpdesk RAG Enhancement**
-- [ ] RAG-01: Search returns 5-8 relevant documents for context
-- [ ] RAG-02: LLM synthesizes natural, conversational response from context
-- [ ] RAG-03: Response includes specific details (names, prices, features) from documents
-- [ ] RAG-04: Handles unknown questions gracefully with honest acknowledgment
+None - v2.0 milestone complete.
 
 ### Out of Scope
 
@@ -93,4 +91,4 @@ Email Parser (LLM) → Quote Generator → Email Sender → Notification
 | Temperature 0.7 for helpdesk | Natural variation without hallucination | — Pending |
 
 ---
-*Last updated: 2026-01-16 after v2.0 milestone initialization*
+*Last updated: 2026-01-17 - v2.0 milestone complete*
