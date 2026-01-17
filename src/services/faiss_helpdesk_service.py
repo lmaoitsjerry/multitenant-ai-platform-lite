@@ -332,7 +332,15 @@ class FAISSHelpdeskService:
             logger.error(f"FAISS search failed: {e}", exc_info=True)
             return []
 
-    def search_with_context(self, query: str, top_k: int = 8, min_score: float = 0.3) -> List[Dict[str, Any]]:
+    def search_with_context(
+        self,
+        query: str,
+        top_k: int = 8,
+        min_score: float = 0.3,
+        use_mmr: bool = False,
+        lambda_mmr: float = 0.7,
+        fetch_k: int = 15
+    ) -> List[Dict[str, Any]]:
         """
         Search for documents with more context for RAG synthesis.
 
@@ -340,12 +348,17 @@ class FAISSHelpdeskService:
             query: The search query
             top_k: Number of results to return (default 8 for better RAG context)
             min_score: Minimum relevance score (0-1, filter out poor matches)
+            use_mmr: Whether to apply MMR for diversity
+            lambda_mmr: Balance between relevance and diversity (0=diversity, 1=relevance)
+            fetch_k: Number of candidates to fetch for MMR selection
 
         Returns:
             List of dicts with 'content', 'score', 'source', filtered by min_score
         """
-        # Get all results first
-        all_results = self.search(query, top_k=top_k)
+        if use_mmr:
+            all_results = self.search_with_mmr(query, top_k=top_k, fetch_k=fetch_k, lambda_mult=lambda_mmr)
+        else:
+            all_results = self.search(query, top_k=top_k)
 
         if not all_results:
             return []
@@ -364,8 +377,138 @@ class FAISSHelpdeskService:
             # Return whatever we have if fewer than 3 total results
             filtered_results = all_results
 
-        logger.info(f"FAISS search_with_context: {initial_count} results -> {len(filtered_results)} after filtering (min_score={min_score})")
+        logger.info(f"FAISS search_with_context: {initial_count} results -> {len(filtered_results)} after filtering (min_score={min_score}, mmr={use_mmr})")
         return filtered_results
+
+    def search_with_mmr(
+        self,
+        query: str,
+        top_k: int = 5,
+        fetch_k: int = 20,
+        lambda_mult: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """
+        Search with Maximal Marginal Relevance for diversity.
+
+        MMR balances relevance (how well a document matches the query) with
+        diversity (how different it is from already selected documents).
+
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            fetch_k: Number of candidates to fetch before MMR selection
+            lambda_mult: Diversity factor (0=max diversity, 1=max relevance)
+
+        Returns:
+            Diverse, relevant documents
+        """
+        if not self._initialized and not self.initialize():
+            logger.warning("FAISS service not initialized, returning empty results")
+            return []
+
+        try:
+            import numpy as np
+
+            # Generate embedding for the query
+            query_embedding = self.embeddings_model.embed_query(query)
+            query_vector = np.array([query_embedding]).astype('float32')
+
+            # Fetch more candidates than needed for MMR selection
+            distances, indices = self.index.search(query_vector, fetch_k)
+
+            # Collect candidates with their embeddings
+            candidates = []
+            for i, idx in enumerate(indices[0]):
+                if idx == -1:
+                    continue
+
+                doc = self._get_document(idx)
+                if doc is None:
+                    continue
+
+                # Get document content and metadata
+                if isinstance(doc, dict):
+                    content = doc.get('text', doc.get('content', doc.get('page_content', str(doc))))
+                    source = doc.get('source', doc.get('metadata', {}).get('source', 'Knowledge Base'))
+                elif hasattr(doc, 'page_content'):
+                    content = doc.page_content
+                    source = getattr(doc, 'metadata', {}).get('source', 'Knowledge Base')
+                else:
+                    content = str(doc)
+                    source = 'Knowledge Base'
+
+                # Get embedding for MMR calculation
+                # Note: We regenerate embeddings since we don't store them
+                doc_embedding = self.embeddings_model.embed_query(content[:500])
+
+                distance = float(distances[0][i])
+                score = 1 / (1 + distance)
+
+                candidates.append({
+                    'content': content,
+                    'source': source,
+                    'score': round(score, 3),
+                    'index': int(idx),
+                    'embedding': np.array(doc_embedding)
+                })
+
+            if not candidates:
+                return []
+
+            # Apply MMR selection
+            selected = []
+            selected_embeddings = []
+            query_emb = np.array(query_embedding)
+
+            while len(selected) < top_k and candidates:
+                if not selected:
+                    # First selection: most relevant (highest score)
+                    best = max(candidates, key=lambda x: x['score'])
+                else:
+                    # Subsequent: balance relevance and diversity
+                    best_mmr = -float('inf')
+                    best = None
+
+                    for candidate in candidates:
+                        # Relevance: similarity to query (use score)
+                        relevance = candidate['score']
+
+                        # Diversity: max similarity to already selected docs
+                        if selected_embeddings:
+                            similarities = []
+                            for sel_emb in selected_embeddings:
+                                # Cosine similarity
+                                dot = np.dot(candidate['embedding'], sel_emb)
+                                norm = np.linalg.norm(candidate['embedding']) * np.linalg.norm(sel_emb)
+                                if norm > 0:
+                                    similarities.append(dot / norm)
+                                else:
+                                    similarities.append(0)
+                            max_sim = max(similarities)
+                        else:
+                            max_sim = 0
+
+                        # MMR score: lambda * relevance - (1-lambda) * similarity_to_selected
+                        mmr_score = lambda_mult * relevance - (1 - lambda_mult) * max_sim
+
+                        if mmr_score > best_mmr:
+                            best_mmr = mmr_score
+                            best = candidate
+
+                if best:
+                    # Remove embedding before adding to results (not needed in output)
+                    selected_embeddings.append(best['embedding'])
+                    result = {k: v for k, v in best.items() if k != 'embedding'}
+                    selected.append(result)
+                    candidates.remove(best)
+
+            logger.info(f"FAISS MMR search for '{query[:50]}...' returned {len(selected)} diverse results")
+            return selected
+
+        except Exception as e:
+            logger.error(f"FAISS MMR search failed: {e}", exc_info=True)
+            # Fall back to regular search
+            return self.search(query, top_k=top_k)
 
     def get_status(self) -> Dict[str, Any]:
         """Get service status"""

@@ -4,6 +4,12 @@ Helpdesk API Routes - Internal Support (Lite Version)
 Provides AI-powered helpdesk support for travel agents.
 Connects to local FAISS knowledge base for contextual answers.
 Falls back to helpful static responses when no knowledge base results.
+
+Key features:
+- Query classification for optimized search and responses
+- MMR (Maximal Marginal Relevance) for diverse hotel options
+- Re-ranking for improved relevance
+- Natural conversational responses via GPT-4o-mini
 """
 
 import logging
@@ -15,7 +21,9 @@ from pydantic import BaseModel
 
 from config.loader import ClientConfig
 from src.middleware.auth_middleware import get_current_user_optional
-from src.services.rag_response_service import generate_rag_response
+from src.services.rag_response_service import generate_rag_response, get_rag_service
+from src.services.query_classifier import get_query_classifier, QueryType
+from src.services.reranker_service import get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +204,14 @@ Just ask me anything specific, like "How do I create a quote?" or "What do the p
 # KNOWLEDGE BASE SEARCH HELPER
 # ============================================================
 
-def search_shared_faiss_index(query: str):
+def search_shared_faiss_index(
+    query: str,
+    top_k: int = 8,
+    use_mmr: bool = False,
+    lambda_mmr: float = 0.7,
+    fetch_k: int = 15,
+    use_rerank: bool = False
+) -> List[Dict[str, Any]]:
     """
     Search the shared FAISS helpdesk index (stored in GCS).
     This is the primary knowledge base for helpdesk queries.
@@ -205,15 +220,33 @@ def search_shared_faiss_index(query: str):
     - Returns 5-8 documents (top_k=8)
     - Filters by relevance (min_score=0.3)
     - Ensures minimum 3 results for context
+    - Optional MMR for diverse results (great for hotel queries)
+    - Optional re-ranking for improved relevance
     """
     try:
         from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
 
         service = get_faiss_helpdesk_service()
-        results = service.search_with_context(query, top_k=8, min_score=0.3)
+
+        # Search with context, optionally using MMR for diversity
+        results = service.search_with_context(
+            query,
+            top_k=top_k if not use_rerank else top_k * 2,  # Fetch more for reranking
+            min_score=0.3,
+            use_mmr=use_mmr,
+            lambda_mmr=lambda_mmr,
+            fetch_k=fetch_k
+        )
+
+        if results and use_rerank:
+            # Apply re-ranking for improved relevance
+            reranker = get_reranker()
+            if reranker.is_available():
+                results = reranker.rerank(query, results, top_k=top_k)
+                logger.info(f"Re-ranked to top {len(results)} results")
 
         if results:
-            logger.info(f"Shared FAISS search returned {len(results)} results for RAG context")
+            logger.info(f"Shared FAISS search returned {len(results)} results (mmr={use_mmr}, rerank={use_rerank})")
             return results
 
     except Exception as e:
@@ -222,17 +255,34 @@ def search_shared_faiss_index(query: str):
     return []
 
 
-def search_knowledge_base(config: ClientConfig, query: str, top_k: int = 5):
+def search_knowledge_base(
+    config: ClientConfig,
+    query: str,
+    top_k: int = 5,
+    use_mmr: bool = False,
+    lambda_mmr: float = 0.7,
+    fetch_k: int = 15,
+    use_rerank: bool = False
+):
     """
     Search knowledge bases for relevant content.
 
     Priority:
     1. Shared FAISS helpdesk index (GCS bucket: zorah-faiss-index)
        - Uses search_with_context (8 docs, min_score 0.3)
+       - Optional MMR for diverse results
+       - Optional re-ranking for improved relevance
     2. Per-tenant local FAISS index (fallback)
     """
-    # First try the shared FAISS index (returns 5-8 docs with relevance filtering)
-    shared_results = search_shared_faiss_index(query)
+    # First try the shared FAISS index with enhanced search
+    shared_results = search_shared_faiss_index(
+        query,
+        top_k=top_k,
+        use_mmr=use_mmr,
+        lambda_mmr=lambda_mmr,
+        fetch_k=fetch_k,
+        use_rerank=use_rerank
+    )
     if shared_results:
         return shared_results
 
@@ -265,12 +315,17 @@ def search_knowledge_base(config: ClientConfig, query: str, top_k: int = 5):
         return []
 
 
-def format_knowledge_response(results: List[Dict], question: str) -> Dict[str, Any]:
+def format_knowledge_response(results: List[Dict], question: str, query_type: str = "general") -> Dict[str, Any]:
     """
     Format knowledge base results using RAG synthesis.
     Returns dict with 'answer', 'sources', 'method'.
+
+    Args:
+        results: Search results from knowledge base
+        question: User's question
+        query_type: Type of query for optimized prompts (hotel_info, pricing, etc.)
     """
-    return generate_rag_response(question, results)
+    return generate_rag_response(question, results, query_type)
 
 
 def get_smart_response(question: str) -> tuple:
@@ -342,6 +397,12 @@ async def ask_helpdesk(
     Ask a question to the helpdesk assistant.
     Searches knowledge base first, falls back to smart static responses.
 
+    Features:
+    - Query classification for optimized search parameters
+    - MMR (Maximal Marginal Relevance) for diverse hotel options
+    - Re-ranking for improved relevance
+    - Natural conversational responses via GPT-4o-mini
+
     Note: Authentication is optional - helpdesk works for all users.
     Returns timing data for performance monitoring.
     """
@@ -350,15 +411,30 @@ async def ask_helpdesk(
     try:
         question = request.question
 
-        # Step 1: Try knowledge base search
+        # Step 1: Classify query to determine optimal search strategy
+        classifier = get_query_classifier()
+        query_type, confidence = classifier.classify(question)
+        search_params = classifier.get_search_params(query_type)
+
+        logger.info(f"Query classified as {query_type.value} (confidence: {confidence:.2f})")
+
+        # Step 2: Search with optimized parameters
         search_start = time.time()
-        kb_results = search_knowledge_base(config, question)
+        kb_results = search_knowledge_base(
+            config,
+            question,
+            top_k=search_params.get('k', 5),
+            use_mmr=search_params.get('use_mmr', False),
+            lambda_mmr=search_params.get('lambda_mmr', 0.7),
+            fetch_k=search_params.get('fetch_k', 15),
+            use_rerank=search_params.get('use_rerank', False)
+        )
         search_time = time.time() - search_start
 
         if kb_results:
-            # Step 2: RAG synthesis
+            # Step 3: RAG synthesis with query type-specific prompts
             synth_start = time.time()
-            rag_response = format_knowledge_response(kb_results, question)
+            rag_response = format_knowledge_response(kb_results, question, query_type.value)
             synth_time = time.time() - synth_start
 
             total_time = time.time() - start_time
@@ -379,6 +455,7 @@ async def ask_helpdesk(
                     for s in rag_response.get('sources', [])
                 ],
                 "method": rag_response.get('method', 'rag'),
+                "query_type": query_type.value,
                 "timing": {
                     "search_ms": int(search_time * 1000),
                     "synthesis_ms": int(synth_time * 1000),
@@ -386,7 +463,7 @@ async def ask_helpdesk(
                 }
             }
 
-        # Step 2: Fall back to smart static responses
+        # Step 4: Fall back to smart static responses
         answer, topic, sources = get_smart_response(question)
         total_time = time.time() - start_time
         logger.info(f"Helpdesk fallback: search={search_time:.2f}s, total={total_time:.2f}s (no KB results)")
@@ -396,6 +473,7 @@ async def ask_helpdesk(
             "answer": answer,
             "sources": sources,
             "method": "static",
+            "query_type": query_type.value,
             "timing": {
                 "search_ms": int(search_time * 1000),
                 "synthesis_ms": 0,
@@ -405,7 +483,7 @@ async def ask_helpdesk(
 
     except Exception as e:
         total_time = time.time() - start_time
-        logger.error(f"Helpdesk error after {total_time:.2f}s: {e}")
+        logger.error(f"Helpdesk error after {total_time:.2f}s: {e}", exc_info=True)
         return {
             "success": False,
             "answer": "Hmm, I ran into a small hiccup processing that. Could you try rephrasing your question? If it keeps happening, feel free to reach out to support!",
@@ -522,6 +600,75 @@ async def test_faiss_search(q: str = "Maldives hotels"):
         return {
             "success": False,
             "error": str(e)
+        }
+
+
+@helpdesk_router.get("/health")
+async def helpdesk_health():
+    """
+    Health check endpoint for the helpdesk RAG system.
+
+    Verifies all components are working:
+    - FAISS index is loaded and has vectors
+    - OpenAI API key is configured
+    - RAG synthesis is available
+
+    Returns:
+        - status: "healthy" if all checks pass, "degraded" if some fail
+        - mode: "full_rag" if LLM available, "fallback_only" otherwise
+        - checks: Individual component status
+    """
+    try:
+        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
+
+        # Get FAISS status
+        faiss_service = get_faiss_helpdesk_service()
+        faiss_status = faiss_service.get_status()
+
+        # Get RAG service status
+        rag_service = get_rag_service()
+        rag_status = rag_service.get_status()
+
+        # Get reranker status
+        reranker = get_reranker()
+        reranker_status = reranker.get_status()
+
+        # Determine overall health
+        checks = {
+            "faiss_initialized": faiss_status.get("initialized", False),
+            "faiss_vector_count": faiss_status.get("vector_count", 0),
+            "faiss_document_count": faiss_status.get("document_count", 0),
+            "openai_api_key_configured": rag_status.get("api_key_configured", False),
+            "openai_api_key_valid": rag_status.get("api_key_valid", False),
+            "rag_synthesis_available": rag_status.get("synthesis_available", False),
+            "reranker_available": reranker_status.get("available", False),
+        }
+
+        # Health is "healthy" if core components work
+        all_healthy = all([
+            checks["faiss_initialized"],
+            checks["faiss_vector_count"] > 0,
+            checks["openai_api_key_configured"],
+            checks["rag_synthesis_available"]
+        ])
+
+        return {
+            "status": "healthy" if all_healthy else "degraded",
+            "mode": rag_status.get("mode", "unknown"),
+            "checks": checks,
+            "details": {
+                "faiss": faiss_status,
+                "rag": rag_status,
+                "reranker": reranker_status
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "checks": {}
         }
 
 
