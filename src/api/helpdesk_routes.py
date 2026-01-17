@@ -652,6 +652,80 @@ async def helpdesk_health():
         }
 
 
+# ============================================================
+# AI AGENT ENDPOINT
+# ============================================================
+
+@helpdesk_router.post("/agent/chat")
+async def agent_chat(
+    request: AskQuestion,
+    user: Optional[dict] = Depends(get_current_user_optional),
+    config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Chat with the AI helpdesk agent (Zara).
+
+    The agent uses OpenAI function calling to intelligently:
+    - Search the knowledge base for travel info
+    - Help start quote generation
+    - Answer platform questions
+    - Route to human support when needed
+
+    This is a more advanced alternative to /ask that maintains
+    conversation context and can take multi-step actions.
+    """
+    start_time = time.time()
+
+    try:
+        from src.agents.helpdesk_agent import get_helpdesk_agent
+
+        agent = get_helpdesk_agent(config)
+        result = agent.chat(request.question)
+
+        elapsed = time.time() - start_time
+
+        return {
+            "success": True,
+            "answer": result.get("response", ""),
+            "tool_used": result.get("tool_used"),
+            "sources": result.get("sources", []),
+            "method": "agent" if result.get("tool_used") else "direct",
+            "timing_ms": int(elapsed * 1000)
+        }
+
+    except Exception as e:
+        logger.error(f"Agent chat failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "answer": "Oops, hit a small snag! Could you try that again?",
+            "sources": [],
+            "timing_ms": int((time.time() - start_time) * 1000)
+        }
+
+
+@helpdesk_router.post("/agent/reset")
+async def agent_reset():
+    """Reset the agent's conversation history for a new session."""
+    try:
+        from src.agents.helpdesk_agent import get_helpdesk_agent
+        agent = get_helpdesk_agent()
+        agent.reset_conversation()
+        return {"success": True, "message": "Conversation reset"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@helpdesk_router.get("/agent/stats")
+async def agent_stats():
+    """Get agent statistics."""
+    try:
+        from src.agents.helpdesk_agent import get_helpdesk_agent
+        agent = get_helpdesk_agent()
+        return {"success": True, "stats": agent.get_stats()}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @helpdesk_router.post("/reinit")
 async def reinit_faiss_service(clear_cache: bool = False):
     """
