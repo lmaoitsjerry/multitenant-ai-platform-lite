@@ -330,34 +330,30 @@ async def resend_quote(
     quote_id: str,
     config: ClientConfig = Depends(get_client_config)
 ):
-    """Resend quote email"""
+    """
+    Resend an existing quote email to the customer.
+
+    Unlike /send (for drafts only), this works on quotes of any status.
+    Regenerates the PDF and resends the email without changing status.
+    """
     from src.agents.quote_agent import QuoteAgent
 
     try:
         agent = get_quote_agent(config)
-        quote = agent.get_quote(quote_id)
+        result = agent.resend_quote(quote_id)
 
-        if not quote:
-            raise HTTPException(status_code=404, detail="Quote not found")
-
-        # Regenerate and resend
-        result = agent.generate_quote(
-            customer_data={
-                'name': quote['customer_name'],
-                'email': quote['customer_email'],
-                'phone': quote.get('customer_phone'),
-                'destination': quote['destination'],
-                'check_in': quote['check_in_date'],
-                'check_out': quote['check_out_date'],
-                'adults': quote['adults'],
-                'children': quote.get('children', 0),
-                'children_ages': quote.get('children_ages', [])
-            },
-            send_email=True,
-            assign_consultant=False
-        )
-
-        return result
+        if result.get('success'):
+            return {
+                'success': True,
+                'quote_id': quote_id,
+                'sent_at': result.get('sent_at'),
+                'message': result.get('message', 'Quote resent successfully')
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=result.get('error', 'Failed to resend quote')
+            )
 
     except HTTPException:
         raise

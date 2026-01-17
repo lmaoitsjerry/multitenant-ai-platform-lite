@@ -841,3 +841,112 @@ class QuoteAgent:
                 'quote_id': quote_id,
                 'error': str(e)
             }
+
+    def resend_quote(self, quote_id: str) -> Dict[str, Any]:
+        """
+        Resend an existing quote to the customer.
+
+        Unlike send_draft_quote, this works on quotes of any status.
+        It regenerates the PDF and sends the email, but does NOT change the status.
+
+        Args:
+            quote_id: The quote ID to resend
+
+        Returns:
+            Dict with success, quote_id, sent_at, customer_email, error (if any)
+        """
+        try:
+            logger.info(f"Resending quote: {quote_id}")
+
+            # 1. Retrieve the quote
+            quote = self.get_quote(quote_id)
+            if not quote:
+                logger.error(f"Quote not found: {quote_id}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'Quote not found'
+                }
+
+            # 2. Extract quote data
+            customer_email = quote.get('customer_email')
+            customer_name = quote.get('customer_name', 'Valued Customer')
+            destination = quote.get('destination', 'your destination')
+            hotels = quote.get('hotels', [])
+
+            if not customer_email:
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'Quote has no customer email'
+                }
+
+            # Build customer data for PDF generation
+            customer_data = {
+                'name': customer_name,
+                'email': customer_email,
+                'phone': quote.get('customer_phone'),
+                'destination': destination,
+                'check_in': quote.get('check_in_date', ''),
+                'check_out': quote.get('check_out_date', ''),
+                'nights': quote.get('nights', 7),
+                'adults': quote.get('adults', 2),
+                'children': quote.get('children', 0),
+                'children_ages': quote.get('children_ages', [])
+            }
+
+            # 3. Regenerate PDF
+            pdf_bytes = None
+            try:
+                pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
+                logger.info(f"PDF regenerated for quote {quote_id}")
+            except Exception as e:
+                logger.error(f"PDF generation failed for quote {quote_id}: {e}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': f'PDF generation failed: {str(e)}'
+                }
+
+            if not pdf_bytes:
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': 'PDF generation returned no data'
+                }
+
+            # 4. Send email via tenant's SendGrid
+            try:
+                self.email_sender.send_quote_email(
+                    customer_email=customer_email,
+                    customer_name=customer_name,
+                    quote_pdf_data=pdf_bytes,
+                    destination=destination,
+                    quote_id=quote_id
+                )
+                logger.info(f"Quote {quote_id} resent to {customer_email}")
+            except Exception as e:
+                logger.error(f"Email send failed for quote {quote_id}: {e}")
+                return {
+                    'success': False,
+                    'quote_id': quote_id,
+                    'error': f'Email send failed: {str(e)}'
+                }
+
+            sent_at = datetime.now().isoformat()
+
+            return {
+                'success': True,
+                'quote_id': quote_id,
+                'sent_at': sent_at,
+                'customer_email': customer_email,
+                'message': f'Quote resent to {customer_email}'
+            }
+
+        except Exception as e:
+            logger.error(f"Error resending quote {quote_id}: {e}")
+            return {
+                'success': False,
+                'quote_id': quote_id,
+                'error': str(e)
+            }
