@@ -107,96 +107,76 @@ HELPDESK_TOPICS = [
 # ============================================================
 
 HELP_RESPONSES = {
-    "quote_create": """Great question! Creating a quote is straightforward:
+    "quote_create": """Easy! Here's how to create a quote:
 
-**Here's how to do it:**
-1. Head over to **Quotes** in the sidebar, then click **Generate Quote**
-2. Fill in your client's details and what they're looking for
-3. Pick the hotels and accommodations that fit their needs
-4. Add any extras or special requests
-5. Hit **Generate Quote** and you're done!
+Head to **Quotes** in the sidebar and click **Generate Quote**. Fill in your client's details, pick the hotels and dates that work for them, and hit generate. Takes about 2 minutes once you get the hang of it.
 
-The quote gets saved automatically, and you can email it directly to your client or download it as a PDF. Let me know if you need help with any specific part!""",
+The quote saves automatically, and you can email it straight to your client or grab the PDF. Need help with a specific step?""",
 
-    "quote_send": """Sending a quote to your client is super easy:
+    "quote_send": """Sending a quote is quick:
 
-1. Go to **Quotes** and find the one you want to send
-2. Click on it to open the details
-3. Look for the **Send Quote** button
-4. Double-check the email address and add a personal note if you'd like
-5. Hit send!
+Go to **Quotes**, find the one you want, and click to open it. You'll see a **Send Quote** button - just check the email address, add a personal note if you'd like, and hit send.
 
-Your client will receive a professional email with the quote PDF attached. They can view it right in their browser or download it.""",
+Your client gets a professional email with the PDF attached. They can view it right in their browser or download it.""",
 
-    "invoice": """Need to create an invoice? Here's the quick way:
+    "invoice": """Sure! You can create an invoice two ways:
 
-**From an existing quote:**
-1. Open the quote in your quotes list
-2. Click **Convert to Invoice** — this pulls in all the details automatically!
+**From an existing quote:** Open the quote and click **Convert to Invoice** - pulls in all the details automatically.
 
-**Or create one from scratch:**
-1. Go to **Invoices** in the sidebar
-2. Click **Create Invoice**
-3. Add your line items, set the due date, and you're set
+**From scratch:** Go to **Invoices** → **Create Invoice**, add your line items and due date, and you're set.
 
-Once created, you can send it directly to your client and track when they've viewed or paid it.""",
+Once it's created, you can send it to your client and track when they've viewed or paid it.""",
 
-    "client_add": """Adding a new client to your CRM is quick:
+    "client_add": """Adding a client is straightforward:
 
-1. Go to **CRM** → **All Clients**
-2. Click the **Add Client** button
-3. Fill in their details (name, email, phone)
-4. Pick how they found you (website, referral, etc.)
-5. Save it!
+Go to **CRM** → **All Clients** and click **Add Client**. Fill in their name, email, and phone, pick how they found you, and save.
 
-From there, you can create quotes for them, track their status in the pipeline, and keep all your notes in one place.""",
+From there you can create quotes for them, track their pipeline status, and keep all your notes in one place. Anything specific you're trying to set up?""",
 
-    "pipeline": """The Pipeline is your visual sales tracker — think of it as a bird's-eye view of where all your clients are in their journey:
+    "pipeline": """The Pipeline is your visual sales tracker - a bird's-eye view of where all your clients are:
 
-📋 **Quoted** — They've received a quote
-💬 **Negotiating** — You're working out the details
-✅ **Booked** — Trip confirmed!
-💰 **Paid** — Payment received
-✈️ **Travelled** — They're on their trip or just got back
-❌ **Lost** — Didn't work out this time
+**Quoted** → They've got a quote
+**Negotiating** → Working out the details
+**Booked** → Trip confirmed!
+**Paid** → Payment received
+**Travelled** → On their trip or just got back
+**Lost** → Didn't work out this time
 
-**Pro tip:** Just drag and drop clients between stages to update their status. It's that easy!""",
+Just drag and drop clients between stages to update their status. Super handy for keeping track of everything!""",
 
-    "hotel": """Looking for hotel info? Here's where to find it:
+    "hotel": """For hotel info, head to **Pricing Guide** → **Hotels**. You can search and filter by location, star rating, or amenities.
 
-1. Go to **Pricing Guide** → **Hotels**
-2. Use the search and filters to narrow things down by location, star rating, or amenities
-3. Click on any hotel to see its full details and current rates
+Click any hotel to see full details and current rates. When you're building a quote, you can add hotels directly from this list - rates update automatically based on travel dates.
 
-When you're building a quote, you can add hotels directly from this list. The rates update automatically based on the travel dates.""",
+Looking for something specific? I can help you narrow it down.""",
 
-    "pricing": """Managing your pricing is all in the **Pricing Guide** section:
+    "pricing": """All your pricing lives in **Pricing Guide**:
 
-- **Rates** — View and update accommodation pricing by date range
-- **Hotels** — Browse properties and see their rate structures
+**Rates** - View and update pricing by date range
+**Hotels** - Browse properties and their rate structures
 
-Any changes you make here will automatically show up when you create new quotes. You can also import rates from spreadsheets if you've got bulk updates.""",
+Any changes show up automatically in new quotes. You can also import rates from spreadsheets if you've got bulk updates to make.""",
 
-    "settings": """Want to customize things? Head to **Settings** — you'll find everything there:
+    "settings": """Everything's in **Settings**:
 
-- **Profile** — Your personal details
-- **Company** — Business info, banking details for invoices
-- **Branding** — Your logo, colors, and theme
-- **Notifications** — What emails you receive
-- **Integrations** — Connected services
+**Profile** - Your personal details
+**Company** - Business info, banking for invoices
+**Branding** - Logo, colors, theme
+**Notifications** - Email preferences
+**Integrations** - Connected services
 
-Changes save automatically in most cases, but look for the Save button when you're editing sections.""",
+Most changes save automatically, but watch for the Save button when editing. Anything specific you want to set up?""",
 
-    "default": """Hey there! I'm your platform assistant, here to help you get the most out of the system.
+    "default": """Hey! I'm Zara, your Zorah Travel assistant. I'm here to help you get the most out of the platform.
 
-**I can help you with:**
-- 📄 **Quotes** — Creating, sending, and managing travel quotes
-- 👥 **CRM** — Adding clients and tracking them through your pipeline
-- 💰 **Invoices** — Generating invoices and tracking payments
-- 🏨 **Hotels & Rates** — Finding properties and managing pricing
-- ⚙️ **Settings** — Customizing your platform
+**I can help with:**
+- **Quotes** - Creating, sending, and managing travel quotes
+- **CRM** - Adding clients and tracking your pipeline
+- **Invoices** - Generating and tracking payments
+- **Hotels & Rates** - Finding properties and pricing
+- **Settings** - Customizing your platform
 
-Just ask me anything specific, like "How do I create a quote?" or "What do the pipeline stages mean?" and I'll walk you through it!"""
+Just ask me anything - like "How do I create a quote?" or "What are the pipeline stages?" and I'll walk you through it!"""
 }
 
 
@@ -486,7 +466,7 @@ async def ask_helpdesk(
         logger.error(f"Helpdesk error after {total_time:.2f}s: {e}", exc_info=True)
         return {
             "success": False,
-            "answer": "Hmm, I ran into a small hiccup processing that. Could you try rephrasing your question? If it keeps happening, feel free to reach out to support!",
+            "answer": "Oops, hit a small snag there! Could you try asking that a different way? If it keeps happening, our support team can help sort it out.",
             "sources": [],
             "timing": {
                 "search_ms": 0,
@@ -670,6 +650,316 @@ async def helpdesk_health():
             "error": str(e),
             "checks": {}
         }
+
+
+# ============================================================
+# ACCURACY TESTING
+# ============================================================
+
+# Test cases for accuracy validation
+# Each case has a question, expected keywords, and quality criteria
+ACCURACY_TEST_CASES = [
+    # Hotel Information Tests
+    {
+        "id": "hotel_mauritius_luxury",
+        "question": "What luxury hotels do you have in Mauritius?",
+        "query_type": "hotel_info",
+        "expected_keywords": ["mauritius", "hotel", "resort", "luxury", "5-star", "beach"],
+        "must_not_contain": ["I don't know", "I'm not sure", "no information"],
+        "criteria": "Should mention specific hotel names with features"
+    },
+    {
+        "id": "hotel_maldives_honeymoon",
+        "question": "Best honeymoon resorts in the Maldives?",
+        "query_type": "hotel_info",
+        "expected_keywords": ["maldives", "resort", "honeymoon", "romantic", "overwater", "villa"],
+        "must_not_contain": ["I don't know", "I'm not sure"],
+        "criteria": "Should recommend romantic properties with specifics"
+    },
+    {
+        "id": "hotel_zanzibar_budget",
+        "question": "Any affordable options in Zanzibar?",
+        "query_type": "hotel_info",
+        "expected_keywords": ["zanzibar", "budget", "affordable"],
+        "must_not_contain": [],
+        "criteria": "Should list budget-friendly options or explain pricing"
+    },
+    # Platform Help Tests
+    {
+        "id": "platform_create_quote",
+        "question": "How do I create a quote?",
+        "query_type": "platform_help",
+        "expected_keywords": ["quote", "create", "click", "select"],
+        "must_not_contain": ["I don't know"],
+        "criteria": "Should provide step-by-step instructions"
+    },
+    {
+        "id": "platform_send_invoice",
+        "question": "How can I send an invoice to a client?",
+        "query_type": "platform_help",
+        "expected_keywords": ["invoice", "send", "client", "email"],
+        "must_not_contain": ["I don't know"],
+        "criteria": "Should explain invoice sending process"
+    },
+    # Pricing Tests
+    {
+        "id": "pricing_seychelles",
+        "question": "What are the rates for Seychelles resorts?",
+        "query_type": "pricing",
+        "expected_keywords": ["seychelles", "rate", "price"],
+        "must_not_contain": [],
+        "criteria": "Should provide pricing info or explain where to find it"
+    },
+    # Destination Tests
+    {
+        "id": "destination_kenya_safari",
+        "question": "Tell me about Kenya safari options",
+        "query_type": "destination",
+        "expected_keywords": ["kenya", "safari"],
+        "must_not_contain": [],
+        "criteria": "Should describe Kenya safari experiences"
+    },
+    # Comparison Tests
+    {
+        "id": "compare_mauritius_maldives",
+        "question": "Compare Mauritius vs Maldives for a honeymoon",
+        "query_type": "comparison",
+        "expected_keywords": ["mauritius", "maldives"],
+        "must_not_contain": [],
+        "criteria": "Should compare both destinations with pros/cons"
+    },
+    # Edge Cases
+    {
+        "id": "unknown_topic",
+        "question": "What's the weather like on Mars?",
+        "query_type": "general",
+        "expected_keywords": [],
+        "must_contain_any": ["don't have", "not sure", "can't find", "knowledge base", "try", "help"],
+        "must_not_contain": ["Mars has", "The weather on Mars"],
+        "criteria": "Should gracefully decline with helpful suggestions"
+    },
+    {
+        "id": "greeting",
+        "question": "Hi, how are you?",
+        "query_type": "general",
+        "expected_keywords": [],
+        "must_not_contain": ["I don't know"],
+        "criteria": "Should respond warmly and offer help"
+    }
+]
+
+
+def score_response(response: dict, test_case: dict) -> dict:
+    """
+    Score a response against test case criteria.
+
+    Returns scoring breakdown:
+    - keyword_score: Percentage of expected keywords found
+    - forbidden_score: 1.0 if no forbidden phrases, 0.0 otherwise
+    - response_quality: Based on method used (rag=1.0, fallback=0.7, static=0.5)
+    - overall_score: Weighted average
+    """
+    answer = response.get('answer', '').lower()
+    method = response.get('method', 'unknown')
+
+    # Keyword matching
+    expected_keywords = test_case.get('expected_keywords', [])
+    if expected_keywords:
+        found_keywords = sum(1 for kw in expected_keywords if kw.lower() in answer)
+        keyword_score = found_keywords / len(expected_keywords)
+    else:
+        keyword_score = 1.0  # No keywords required
+
+    # Must contain any (for edge cases)
+    must_contain_any = test_case.get('must_contain_any', [])
+    if must_contain_any:
+        if any(phrase.lower() in answer for phrase in must_contain_any):
+            contain_any_score = 1.0
+        else:
+            contain_any_score = 0.0
+    else:
+        contain_any_score = 1.0
+
+    # Forbidden phrases
+    forbidden = test_case.get('must_not_contain', [])
+    if forbidden:
+        has_forbidden = any(phrase.lower() in answer for phrase in forbidden)
+        forbidden_score = 0.0 if has_forbidden else 1.0
+    else:
+        forbidden_score = 1.0
+
+    # Response quality based on method
+    method_scores = {
+        'rag': 1.0,
+        'fallback': 0.7,
+        'static': 0.5,
+        'no_results': 0.6,  # Graceful handling is okay
+        'unknown': 0.3
+    }
+    quality_score = method_scores.get(method, 0.3)
+
+    # Overall score (weighted)
+    overall = (
+        keyword_score * 0.35 +
+        contain_any_score * 0.15 +
+        forbidden_score * 0.25 +
+        quality_score * 0.25
+    )
+
+    return {
+        "keyword_score": round(keyword_score, 2),
+        "contain_any_score": round(contain_any_score, 2),
+        "forbidden_score": round(forbidden_score, 2),
+        "quality_score": round(quality_score, 2),
+        "overall_score": round(overall, 2),
+        "passed": overall >= 0.7  # 70% threshold
+    }
+
+
+@helpdesk_router.get("/accuracy-test")
+async def run_accuracy_tests(
+    test_id: Optional[str] = None,
+    verbose: bool = False
+):
+    """
+    Run accuracy tests on the helpdesk RAG system.
+
+    Tests cover:
+    - Hotel information queries (various destinations)
+    - Platform help queries
+    - Pricing queries
+    - Destination information
+    - Comparison queries
+    - Edge cases (unknown topics, greetings)
+
+    Args:
+        test_id: Run a specific test by ID, or all if not specified
+        verbose: Include full responses in output
+
+    Returns:
+        - overall_accuracy: Percentage of tests passed
+        - tests: Individual test results with scores
+    """
+    results = []
+    test_cases = ACCURACY_TEST_CASES
+
+    # Filter to specific test if requested
+    if test_id:
+        test_cases = [t for t in test_cases if t['id'] == test_id]
+        if not test_cases:
+            return {
+                "success": False,
+                "error": f"Test '{test_id}' not found",
+                "available_tests": [t['id'] for t in ACCURACY_TEST_CASES]
+            }
+
+    for test_case in test_cases:
+        try:
+            # Get search params for this query type
+            classifier = get_query_classifier()
+            query_type, _ = classifier.classify(test_case['question'])
+            search_params = classifier.get_search_params(query_type)
+
+            # Run the search
+            start_time = time.time()
+            kb_results = search_shared_faiss_index(
+                test_case['question'],
+                top_k=search_params.get('k', 5),
+                use_mmr=search_params.get('use_mmr', False),
+                lambda_mmr=search_params.get('lambda_mmr', 0.7),
+                use_rerank=search_params.get('use_rerank', False)
+            )
+
+            # Generate response
+            if kb_results:
+                response = generate_rag_response(
+                    test_case['question'],
+                    kb_results,
+                    query_type.value
+                )
+            else:
+                # Use static response
+                answer, _, sources = get_smart_response(test_case['question'])
+                response = {
+                    'answer': answer,
+                    'sources': sources,
+                    'method': 'static'
+                }
+
+            elapsed = time.time() - start_time
+
+            # Score the response
+            scores = score_response(response, test_case)
+
+            result = {
+                "test_id": test_case['id'],
+                "question": test_case['question'],
+                "expected_type": test_case['query_type'],
+                "actual_type": query_type.value,
+                "method": response.get('method', 'unknown'),
+                "scores": scores,
+                "passed": scores['passed'],
+                "time_ms": int(elapsed * 1000),
+                "criteria": test_case['criteria']
+            }
+
+            if verbose:
+                result["answer_preview"] = response['answer'][:300] + "..." if len(response['answer']) > 300 else response['answer']
+                result["sources_count"] = len(response.get('sources', []))
+
+            results.append(result)
+
+        except Exception as e:
+            results.append({
+                "test_id": test_case['id'],
+                "question": test_case['question'],
+                "passed": False,
+                "error": str(e)
+            })
+
+    # Calculate overall accuracy
+    passed_count = sum(1 for r in results if r.get('passed', False))
+    total_count = len(results)
+    accuracy = (passed_count / total_count * 100) if total_count > 0 else 0
+
+    # Categorize by quality
+    excellent = sum(1 for r in results if r.get('scores', {}).get('overall_score', 0) >= 0.85)
+    good = sum(1 for r in results if 0.7 <= r.get('scores', {}).get('overall_score', 0) < 0.85)
+    needs_work = sum(1 for r in results if r.get('scores', {}).get('overall_score', 0) < 0.7)
+
+    return {
+        "success": True,
+        "summary": {
+            "total_tests": total_count,
+            "passed": passed_count,
+            "failed": total_count - passed_count,
+            "accuracy_percent": round(accuracy, 1),
+            "quality_breakdown": {
+                "excellent": excellent,
+                "good": good,
+                "needs_improvement": needs_work
+            }
+        },
+        "tests": results,
+        "target": "80-100% accuracy for production readiness"
+    }
+
+
+@helpdesk_router.get("/accuracy-test/cases")
+async def list_accuracy_test_cases():
+    """List all available accuracy test cases."""
+    return {
+        "success": True,
+        "test_cases": [
+            {
+                "id": t['id'],
+                "question": t['question'],
+                "query_type": t['query_type'],
+                "criteria": t['criteria']
+            }
+            for t in ACCURACY_TEST_CASES
+        ]
+    }
 
 
 # ============================================================
