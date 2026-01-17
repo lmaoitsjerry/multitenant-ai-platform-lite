@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-16)
 
 **Core value:** Automated inbound email -> quote pipeline + natural helpdesk RAG responses
-**Current focus:** Phase 6 - Integration Testing
+**Current focus:** Phase 8 - Security and Fixes
 
 ## Current Position
 
-Phase: 6 of 6 (Integration Testing)
-Plan: 2 of 2 completed
-Status: COMPLETE - v2.0 Milestone Finished
-Last activity: 2026-01-17 - Completed 06-02-PLAN.md (E2E Testing & Verification)
+Phase: 8 of 8 (Security and Fixes)
+Plan: 1 of 3 completed
+Status: In progress - JWT security fix applied
+Last activity: 2026-01-17 - Completed 08-01-PLAN.md (JWT Signature Verification)
 
-Progress: [##########] 100%
+Progress: [########--] 80%
 
 ## Milestones
 
@@ -81,6 +81,8 @@ Progress: [##########] 100%
 | D-05-02-03 | Include timing data in API response | Frontend debugging and performance monitoring | 2026-01-16 |
 | D-06-01-01 | Mock-based testing over FastAPI dependency injection | Simpler test isolation for integration tests | 2026-01-16 |
 | D-06-01-02 | Force-add test files to git | Test files excluded by gitignore but needed | 2026-01-16 |
+| D-08-01-01 | Use HS256 algorithm for JWT verification | Matches Supabase JWT signing algorithm | 2026-01-17 |
+| D-08-01-02 | Fall back to service key with warning if JWT secret not set | Allows development without config, warns for production | 2026-01-17 |
 
 ### Blockers/Concerns
 
@@ -92,10 +94,45 @@ Progress: [##########] 100%
 ## Session Continuity
 
 Last session: 2026-01-17
-Stopped at: v2.0 milestone complete - Phase 06-02 finished
-Resume file: None - ready for next milestone planning
+Stopped at: Completed 08-01-PLAN.md (JWT Signature Verification)
+Resume file: None - continue with 08-02-PLAN.md
 
 ## Recent Completions
+
+### 08-01: JWT Signature Verification Security Fix (2026-01-17)
+
+**Summary:** Fixed critical security vulnerability - JWT tokens now cryptographically verified using HS256 algorithm.
+
+**Root Cause:** JWT verification had `verify_signature=False`, allowing anyone to forge valid-looking JWTs without the secret.
+
+**Key Changes:**
+- Changed `verify_signature` from `False` to `True`
+- Added `jwt_secret` as key parameter with `algorithms=["HS256"]`
+- Added `InvalidSignatureError` handler with tampering warning log
+- Added `SUPABASE_JWT_SECRET` environment variable with fallback warning
+
+**Commits:**
+- 2711cb4: fix(08-01): enable JWT signature verification
+- 85b93ad: fix(08-01): add JWT secret configuration with fallback warning
+
+### 07-01: Fix Frontend Dashboard Login (2026-01-17)
+
+**Summary:** Created test user and admin endpoint to enable login to frontend dashboard.
+
+**Root Cause:** Login requires both Supabase auth.users record AND organization_users record. 52 tenants had YAML configs but no database user records.
+
+**Key Changes:**
+- Added `POST /api/v1/admin/create-test-user` endpoint to admin_routes.py
+- Created `scripts/create_test_user.py` CLI tool for user creation
+- Created test user for tenant `tn_6bc9d287_84ce19011671`:
+  - Email: admin@test.com
+  - Password: Test123!
+  - Role: admin
+
+**Login Credentials:**
+- URL: http://localhost:5173
+- Email: admin@test.com
+- Password: Test123!
 
 ### 06-02: E2E Testing & Verification (2026-01-17)
 
