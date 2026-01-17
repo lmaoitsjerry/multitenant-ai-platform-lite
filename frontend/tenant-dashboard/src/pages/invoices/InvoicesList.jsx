@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { invoicesApi, quotesApi } from '../../services/api';
+import { invoicesApi, quotesApi, pricingApi } from '../../services/api';
 import { SkeletonTable } from '../../components/ui/Skeleton';
 import {
   DocumentTextIcon,
@@ -273,49 +273,182 @@ function TravelerForm({ index, traveler, onChange, onRemove, isLead }) {
   );
 }
 
-// Line Item Component for Manual Invoice
-function LineItemRow({ item, index, onChange, onRemove, canRemove }) {
+// Line Item Component for Manual Invoice with Hotel/Rate Autocomplete
+function LineItemRow({ item, index, onChange, onRemove, canRemove, hotels, rates }) {
+  const [showHotelDropdown, setShowHotelDropdown] = useState(false);
+  const [hotelSearch, setHotelSearch] = useState(item.hotel_name || '');
+
+  // Filter hotels based on search
+  const filteredHotels = useMemo(() => {
+    if (!hotels || hotels.length === 0) return [];
+    if (!hotelSearch) return hotels.slice(0, 10);
+    const search = hotelSearch.toLowerCase();
+    return hotels.filter(h =>
+      h.hotel_name?.toLowerCase().includes(search) ||
+      h.destination?.toLowerCase().includes(search)
+    ).slice(0, 10);
+  }, [hotels, hotelSearch]);
+
+  // Get rates for selected hotel
+  const hotelRates = useMemo(() => {
+    if (!rates || !item.hotel_name) return [];
+    return rates.filter(r =>
+      r.hotel_name?.toLowerCase() === item.hotel_name?.toLowerCase()
+    );
+  }, [rates, item.hotel_name]);
+
+  // Handle hotel selection
+  const selectHotel = (hotel) => {
+    setHotelSearch(hotel.hotel_name);
+    setShowHotelDropdown(false);
+
+    // Find best rate for this hotel
+    const hotelRate = rates?.find(r =>
+      r.hotel_name?.toLowerCase() === hotel.hotel_name?.toLowerCase()
+    );
+
+    const price = hotelRate?.total_7nights_pps || 0;
+    const roomType = hotelRate?.room_type || '';
+    const mealPlan = hotelRate?.meal_plan || '';
+    const nights = hotelRate?.nights || 7;
+
+    // Build description
+    const desc = roomType
+      ? `${hotel.hotel_name} - ${roomType}${mealPlan ? ` (${mealPlan})` : ''} - ${nights} nights`
+      : `${hotel.hotel_name} - ${hotel.destination}`;
+
+    onChange({
+      ...item,
+      hotel_name: hotel.hotel_name,
+      destination: hotel.destination,
+      room_type: roomType,
+      meal_plan: mealPlan,
+      nights: nights,
+      description: desc,
+      unit_price: price,
+    });
+  };
+
+  // Handle rate selection
+  const selectRate = (rate) => {
+    const desc = `${rate.hotel_name} - ${rate.room_type}${rate.meal_plan ? ` (${rate.meal_plan})` : ''} - ${rate.nights} nights`;
+    onChange({
+      ...item,
+      room_type: rate.room_type,
+      meal_plan: rate.meal_plan,
+      nights: rate.nights,
+      description: desc,
+      unit_price: rate.total_7nights_pps || 0,
+    });
+  };
+
   return (
-    <div className="flex gap-2 items-start">
-      <div className="flex-1">
-        <input
-          type="text"
-          value={item.description || ''}
-          onChange={(e) => onChange({ ...item, description: e.target.value })}
-          placeholder="Description"
-          className="input text-sm w-full"
-        />
+    <div className="space-y-2">
+      <div className="flex gap-2 items-start">
+        {/* Hotel/Description with Autocomplete */}
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={item.description || hotelSearch}
+            onChange={(e) => {
+              setHotelSearch(e.target.value);
+              onChange({ ...item, description: e.target.value });
+              if (hotels && hotels.length > 0) {
+                setShowHotelDropdown(true);
+              }
+            }}
+            onFocus={() => hotels && hotels.length > 0 && setShowHotelDropdown(true)}
+            onBlur={() => setTimeout(() => setShowHotelDropdown(false), 200)}
+            placeholder="Type hotel name or description..."
+            className="input text-sm w-full"
+          />
+          {/* Hotel Dropdown */}
+          {showHotelDropdown && filteredHotels.length > 0 && (
+            <div className="absolute z-50 w-full mt-1 bg-theme-surface border border-theme-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {filteredHotels.map((hotel, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-theme-surface-elevated flex justify-between items-center"
+                  onMouseDown={() => selectHotel(hotel)}
+                >
+                  <span className="text-theme font-medium">{hotel.hotel_name}</span>
+                  <span className="text-theme-muted text-xs">{hotel.destination}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Quantity */}
+        <div className="w-20">
+          <input
+            type="number"
+            value={item.quantity || 1}
+            onChange={(e) => onChange({ ...item, quantity: parseInt(e.target.value) || 1 })}
+            placeholder="Qty"
+            min="1"
+            className="input text-sm w-full"
+          />
+        </div>
+
+        {/* Unit Price */}
+        <div className="w-28">
+          <input
+            type="number"
+            value={item.unit_price || ''}
+            onChange={(e) => onChange({ ...item, unit_price: parseFloat(e.target.value) || 0 })}
+            placeholder="Price"
+            min="0"
+            step="0.01"
+            className="input text-sm w-full"
+          />
+        </div>
+
+        {/* Total */}
+        <div className="w-28 flex items-center">
+          <span className="text-sm font-medium text-theme">
+            R {((item.quantity || 1) * (item.unit_price || 0)).toLocaleString()}
+          </span>
+        </div>
+
+        {/* Remove Button */}
+        {canRemove && (
+          <button type="button" onClick={onRemove} className="p-2 text-red-500 hover:bg-red-50 rounded">
+            <XMarkIcon className="w-4 h-4" />
+          </button>
+        )}
       </div>
-      <div className="w-20">
-        <input
-          type="number"
-          value={item.quantity || 1}
-          onChange={(e) => onChange({ ...item, quantity: parseInt(e.target.value) || 1 })}
-          placeholder="Qty"
-          min="1"
-          className="input text-sm w-full"
-        />
-      </div>
-      <div className="w-28">
-        <input
-          type="number"
-          value={item.unit_price || ''}
-          onChange={(e) => onChange({ ...item, unit_price: parseFloat(e.target.value) || 0 })}
-          placeholder="Unit Price"
-          min="0"
-          step="0.01"
-          className="input text-sm w-full"
-        />
-      </div>
-      <div className="w-28 flex items-center">
-        <span className="text-sm font-medium text-gray-700">
-          R {((item.quantity || 1) * (item.unit_price || 0)).toLocaleString()}
-        </span>
-      </div>
-      {canRemove && (
-        <button type="button" onClick={onRemove} className="p-2 text-red-500 hover:bg-red-50 rounded">
-          <XMarkIcon className="w-4 h-4" />
-        </button>
+
+      {/* Rate Selection (if hotel selected and has rates) */}
+      {item.hotel_name && hotelRates.length > 1 && (
+        <div className="ml-4 flex flex-wrap gap-2 items-center">
+          <span className="text-xs text-theme-muted font-medium">Select rate:</span>
+          {hotelRates.slice(0, 5).map((rate, idx) => {
+            const isSelected = item.room_type === rate.room_type && item.meal_plan === rate.meal_plan;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => selectRate(rate)}
+                className={`text-xs px-3 py-1.5 rounded-lg border-2 transition-all duration-200 flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)] shadow-md scale-105 ring-2 ring-[var(--color-primary)]/30'
+                    : 'border-theme-border text-theme-muted hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5'
+                }`}
+              >
+                {isSelected && (
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+                <span className="font-medium">{rate.room_type}</span>
+                {rate.meal_plan && <span className="opacity-75">({rate.meal_plan})</span>}
+                <span className="font-bold">R{rate.total_7nights_pps?.toLocaleString()}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -345,6 +478,29 @@ function CreateInvoiceModal({ isOpen, onClose, onCreated, quotes, preSelectedQuo
     { description: '', quantity: 1, unit_price: 0 }
   ]);
   const [destination, setDestination] = useState('');
+
+  // Hotels and rates for autocomplete
+  const [hotels, setHotels] = useState([]);
+  const [rates, setRates] = useState([]);
+
+  // Fetch hotels and rates when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const loadPricingData = async () => {
+        try {
+          const [hotelsRes, ratesRes] = await Promise.all([
+            pricingApi.listHotels(),
+            pricingApi.listRates({ limit: 500 })
+          ]);
+          setHotels(hotelsRes.data?.data || []);
+          setRates(ratesRes.data?.data || []);
+        } catch (err) {
+          console.log('Could not load pricing data:', err);
+        }
+      };
+      loadPricingData();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -620,33 +776,68 @@ function CreateInvoiceModal({ isOpen, onClose, onCreated, quotes, preSelectedQuo
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Select Quote *</label>
                     <select value={selectedQuoteId} onChange={(e) => setSelectedQuoteId(e.target.value)} className="input">
-                      <option value="">Choose a quote...</option>
+                      <option value="">
+                        {quotes.length === 0 ? 'No quotes available - create a quote first' : 'Choose a quote...'}
+                      </option>
                       {quotes.map((quote) => (
                         <option key={quote.quote_id} value={quote.quote_id}>
                           {quote.customer_name} - {quote.destination} (R {(quote.total_price || 0).toLocaleString()})
                         </option>
                       ))}
                     </select>
+                    {quotes.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Generate a quote first, then you can convert it to an invoice.
+                      </p>
+                    )}
                   </div>
 
                   {selectedQuote?.hotels?.length > 0 && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Select Hotel Package *</label>
                       <div className="space-y-2">
-                        {selectedQuote.hotels.map((h, idx) => (
-                          <label key={idx} className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${
-                            selectedHotelIndex === idx ? 'border-purple-500 bg-purple-50' : 'border-gray-200'
-                          }`}>
-                            <div className="flex items-center gap-3">
-                              <input type="radio" checked={selectedHotelIndex === idx} onChange={() => setSelectedHotelIndex(idx)} className="w-4 h-4 text-purple-600" />
-                              <div>
-                                <p className="font-medium">{h.name || h.hotel_name}</p>
-                                <p className="text-sm text-gray-500">{h.room_type} • {h.meal_plan}</p>
+                        {selectedQuote.hotels.map((h, idx) => {
+                          const isSelected = selectedHotelIndex === idx;
+                          return (
+                            <label
+                              key={idx}
+                              className={`flex items-center justify-between p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                                isSelected
+                                  ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5 shadow-md ring-2 ring-[var(--color-primary)]/20'
+                                  : 'border-theme-border hover:border-[var(--color-primary)]/50 hover:bg-theme-surface-elevated'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                  isSelected
+                                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]'
+                                    : 'border-theme-border'
+                                }`}>
+                                  {isSelected && (
+                                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  )}
+                                </div>
+                                <input type="radio" checked={isSelected} onChange={() => setSelectedHotelIndex(idx)} className="sr-only" />
+                                <div>
+                                  <p className={`font-medium ${isSelected ? 'text-[var(--color-primary)]' : 'text-theme'}`}>
+                                    {h.name || h.hotel_name}
+                                  </p>
+                                  <p className="text-sm text-theme-muted">{h.room_type} • {h.meal_plan}</p>
+                                </div>
                               </div>
-                            </div>
-                            <span className="font-semibold text-purple-600">R {(h.total_price || 0).toLocaleString()}</span>
-                          </label>
-                        ))}
+                              <div className="text-right">
+                                <span className={`font-bold text-lg ${isSelected ? 'text-[var(--color-primary)]' : 'text-theme'}`}>
+                                  R {(h.total_price || 0).toLocaleString()}
+                                </span>
+                                {isSelected && (
+                                  <p className="text-xs text-[var(--color-primary)] mt-0.5">Selected</p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -733,6 +924,8 @@ function CreateInvoiceModal({ isOpen, onClose, onCreated, quotes, preSelectedQuo
                           onChange={(data) => updateLineItem(idx, data)}
                           onRemove={() => removeLineItem(idx)}
                           canRemove={lineItems.length > 1}
+                          hotels={hotels}
+                          rates={rates}
                         />
                       ))}
                     </div>
@@ -879,12 +1072,24 @@ export default function InvoicesList() {
       setLoading(true);
       const [invoicesRes, quotesRes] = await Promise.all([
         invoicesApi.list({ status: statusFilter || undefined, limit: 50 }),
-        quotesApi.list({ limit: 50 }),
+        quotesApi.list({ limit: 100 }),  // Increased limit to ensure we get all quotes
       ]);
-      
+
+      console.log('[InvoicesList] Quotes API response:', quotesRes);
+
       const invoiceData = invoicesRes.data?.data || invoicesRes.data || [];
       setInvoices(Array.isArray(invoiceData) ? invoiceData : []);
-      setQuotes(quotesRes.data?.data || []);
+
+      // Handle both response structures: { data: [...] } or direct array
+      const quotesData = quotesRes.data?.data || quotesRes.data || [];
+      console.log('[InvoicesList] Extracted quotes:', Array.isArray(quotesData) ? quotesData.length : 0);
+
+      // Filter to only show quotes that can be converted to invoices
+      const convertibleQuotes = (Array.isArray(quotesData) ? quotesData : []).filter(q =>
+        ['sent', 'approved', 'draft'].includes(q.status)
+      );
+      console.log('[InvoicesList] Convertible quotes:', convertibleQuotes.length);
+      setQuotes(convertibleQuotes);
       
       const invoiceList = Array.isArray(invoiceData) ? invoiceData : [];
       setStats({
@@ -911,6 +1116,10 @@ export default function InvoicesList() {
     setActionLoading(invoiceId + '-download');
     try {
       const response = await invoicesApi.download(invoiceId);
+      // Check for valid response
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Empty PDF response');
+      }
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -922,7 +1131,8 @@ export default function InvoicesList() {
       document.body.removeChild(a);
       showToast('Invoice downloaded!', 'success');
     } catch (error) {
-      showToast('Download not available', 'warning');
+      console.error('Download failed:', error);
+      showToast('Failed to download invoice', 'error');
     } finally {
       setActionLoading(null);
     }
@@ -964,6 +1174,10 @@ export default function InvoicesList() {
   const handleModalDownload = async (invoiceId) => {
     try {
       const response = await invoicesApi.download(invoiceId);
+      // Check for valid response
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Empty PDF response');
+      }
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -975,7 +1189,8 @@ export default function InvoicesList() {
       document.body.removeChild(a);
       showToast('Invoice downloaded!', 'success');
     } catch (error) {
-      showToast('Download not available', 'warning');
+      console.error('Download failed:', error);
+      showToast('Failed to download invoice', 'error');
     }
   };
 
