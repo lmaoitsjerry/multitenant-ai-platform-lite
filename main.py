@@ -22,7 +22,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file BEFORE other imports
 load_dotenv()
 
-import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,13 +34,12 @@ from config.loader import ClientConfig, get_config
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-# Configure logging
+# Configure structured JSON logging (must be before any logger usage)
+from src.utils.structured_logger import setup_structured_logging, get_logger
 log_level = os.getenv("LOG_LEVEL", "INFO")
-logging.basicConfig(
-    level=getattr(logging, log_level),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+json_logs = os.getenv("JSON_LOGS", "true").lower() == "true"
+setup_structured_logging(level=log_level, json_output=json_logs)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -145,6 +143,11 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
 )
+
+# 7. Request ID middleware - generates unique request IDs for tracing
+# MUST be added LAST so it runs FIRST (generates ID before other middleware logs)
+from src.middleware.request_id_middleware import RequestIdMiddleware
+app.add_middleware(RequestIdMiddleware)
 
 
 # ==================== Dependency ====================
