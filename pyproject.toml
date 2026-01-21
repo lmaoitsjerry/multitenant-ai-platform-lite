@@ -1,0 +1,41 @@
+[project]
+name = "multitenant-ai-platform-lite"
+version = "1.0.0"
+description = "Multi-Tenant AI Travel Platform Lite - CRM, Quotes, and Invoices for travel agencies"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src", "main.py", "config"]
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "venv/*",
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+fail_under = 70
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
