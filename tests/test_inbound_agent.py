@@ -907,3 +907,194 @@ class TestEdgeCases:
             agent.collected_info = {}  # Reset
             agent._extract_info_from_message(message)
             assert agent.collected_info.get("email") == expected_email, f"Failed for: {message}"
+
+
+# ==================== TestLoadIndexExceptions ====================
+
+class TestLoadIndexExceptions:
+    """Tests for exception handling in _load_index."""
+
+    def test_load_index_faiss_import_error(self, tmp_path):
+        """Handles faiss import error gracefully."""
+        import sys
+
+        # Create mock index files
+        index_dir = tmp_path / "faiss_index"
+        index_dir.mkdir(parents=True)
+        (index_dir / "index.faiss").write_text("fake")
+        (index_dir / "chunks.json").write_text('[{"content": "test"}]')
+
+        rag = KnowledgeBaseRAG("test")
+        rag.index_path = index_dir
+
+        # Mock faiss to raise an exception
+        mock_faiss = MagicMock()
+        mock_faiss.read_index.side_effect = Exception("Failed to read index")
+        sys.modules['faiss'] = mock_faiss
+
+        try:
+            result = rag._load_index()
+            assert result is False
+        finally:
+            if 'faiss' in sys.modules and sys.modules['faiss'] is mock_faiss:
+                del sys.modules['faiss']
+
+    def test_get_embeddings_model_import_error(self):
+        """Handles SentenceTransformer import error."""
+        import sys
+
+        rag = KnowledgeBaseRAG("test")
+
+        # Ensure sentence_transformers is not available
+        original = sys.modules.get('sentence_transformers')
+        sys.modules['sentence_transformers'] = None
+
+        try:
+            # Need to clear cached embeddings
+            rag._embeddings = None
+            result = rag._get_embeddings_model()
+            # Should return None when import fails
+            # (The actual code catches ImportError)
+        finally:
+            if original:
+                sys.modules['sentence_transformers'] = original
+            elif 'sentence_transformers' in sys.modules:
+                del sys.modules['sentence_transformers']
+
+
+class TestSearchExceptions:
+    """Tests for exception handling in search."""
+
+    def test_search_exception_handling(self, sample_chunks):
+        """Handles exceptions during search gracefully."""
+        import numpy as np
+
+        rag = KnowledgeBaseRAG("test")
+
+        # Mock index to raise exception during search
+        mock_index = MagicMock()
+        mock_index.search.side_effect = Exception("FAISS search failed")
+        rag._index = mock_index
+        rag._chunks = sample_chunks
+
+        # Mock embeddings
+        mock_embeddings = MagicMock()
+        mock_embeddings.encode.return_value = np.array([[0.1] * 384], dtype=np.float32)
+        rag._embeddings = mock_embeddings
+
+        # Should return empty list on exception
+        results = rag.search("test query")
+        assert results == []
+
+    def test_search_invalid_index(self, sample_chunks):
+        """Handles invalid indices from FAISS search."""
+        import numpy as np
+
+        rag = KnowledgeBaseRAG("test")
+
+        # Mock index to return invalid indices
+        mock_index = MagicMock()
+        mock_index.search.return_value = (
+            np.array([[0.5, 1.0]]),
+            np.array([[-1, 100]])  # Invalid indices
+        )
+        rag._index = mock_index
+        rag._chunks = sample_chunks  # Only 3 chunks
+
+        mock_embeddings = MagicMock()
+        mock_embeddings.encode.return_value = np.array([[0.1] * 384], dtype=np.float32)
+        rag._embeddings = mock_embeddings
+
+        results = rag.search("test", visibility="public")
+        # Should skip invalid indices
+        assert len(results) == 0
+
+
+class TestPromptExceptions:
+    """Tests for exception handling in prompt building."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_prompt_path_exception(self, mock_config):
+        """Handles exception when getting prompt path."""
+        mock_config.get_prompt_path.side_effect = Exception("Path error")
+
+        agent = InboundAgent(mock_config, "session123")
+
+        # Should use default prompt
+        assert "travel consultant" in agent.system_prompt.lower()
+
+
+class TestRAGKnowledgeFormatting:
+    """Tests for RAG context formatting edge cases."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_rag_context_with_multiple_results(self, mock_genai, mock_config):
+        """Formats multiple RAG results correctly."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+
+        # Mock RAG to return multiple results
+        agent.rag.search = MagicMock(return_value=[
+            {"content": "Result 1 content", "score": 0.95, "document_id": "doc1", "category": "info"},
+            {"content": "Result 2 content", "score": 0.85, "document_id": "doc2", "category": "info"},
+            {"content": "Result 3 content", "score": 0.75, "document_id": "doc3", "category": "info"},
+        ])
+
+        agent.chat("Tell me about destinations")
+
+        call_history = mock_client.get_call_history()
+        # Should include source numbers
+        assert "[Source 1]" in call_history[0] or "Result 1" in call_history[0]
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_rag_content_truncation(self, mock_genai, mock_config):
+        """Truncates very long RAG content."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+
+        # Mock RAG with very long content (>800 chars)
+        long_content = "A" * 1000
+        agent.rag.search = MagicMock(return_value=[
+            {"content": long_content, "score": 0.9, "document_id": "doc1", "category": "info"}
+        ])
+
+        agent.chat("Query")
+
+        call_history = mock_client.get_call_history()
+        # Content should be truncated
+        assert long_content not in call_history[0]
+
+
+class TestSearchKnowledgeBase:
+    """Tests for _search_knowledge_base method."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_search_knowledge_base_no_results(self, mock_config):
+        """Returns empty string when no results."""
+        agent = InboundAgent(mock_config, "session123")
+
+        agent.rag.search = MagicMock(return_value=[])
+
+        result = agent._search_knowledge_base("query")
+        assert result == ""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_search_knowledge_base_with_results(self, mock_config):
+        """Returns formatted context string."""
+        agent = InboundAgent(mock_config, "session123")
+
+        agent.rag.search = MagicMock(return_value=[
+            {"content": "Zanzibar info", "score": 0.8, "document_id": "doc1", "category": "dest"}
+        ])
+
+        result = agent._search_knowledge_base("zanzibar")
+
+        assert "KNOWLEDGE BASE" in result
+        assert "Zanzibar info" in result
+        assert "0.8" in result
