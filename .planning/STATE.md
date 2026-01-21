@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 10 of 12 (Security Hardening)
-Plan: 03 of 05 complete
+Plan: 04 of 05 complete
 Status: In progress
-Last activity: 2026-01-21 — Completed 10-03-PLAN.md (Redis Rate Limit Backend)
+Last activity: 2026-01-21 — Completed 10-01-PLAN.md (Error Response Sanitization)
 
-Progress: [#########░] 92% (v3.0 Phase 10: 3/5 plans complete)
+Progress: [#########░] 94% (v3.0 Phase 10: 4/5 plans complete)
 
 ## Milestones
 
@@ -74,6 +74,8 @@ Progress: [#########░] 92% (v3.0 Phase 10: 3/5 plans complete)
 | D-10-02-02 | Default CSP restrictive with env var override | 2026-01-21 |
 | D-10-03-01 | Use redis>=5.0.0 for async support and stability | 2026-01-21 |
 | D-10-03-02 | Graceful fallback to in-memory when Redis unavailable | 2026-01-21 |
+| D-10-01-01 | Generic 500 error messages for server errors | 2026-01-21 |
+| D-10-01-02 | Full exception logged with exc_info=True for traceback | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -96,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 10-03-PLAN.md (Redis Rate Limit Backend)
+Stopped at: Completed 10-01-PLAN.md (Error Response Sanitization)
 Resume file: None - continue with Phase 10 plans
