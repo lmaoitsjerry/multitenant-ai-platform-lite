@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 11 of 12 (Database-Backed Tenant Registry)
-Plan: 02 of 04 complete
+Plan: 03 of 04 complete
 Status: In progress
-Last activity: 2026-01-21 — Completed 11-02-PLAN.md (Dual-Mode Config Loader)
+Last activity: 2026-01-21 — Completed 11-03-PLAN.md (YAML Migration Script)
 
-Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
+Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 
 ## Milestones
 
@@ -34,9 +34,9 @@ Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15 (v2.0: 13, v3.0: 2)
+- Total plans completed: 16 (v2.0: 13, v3.0: 3)
 - Average duration: ~30 min
-- Total execution time: ~6.6 hours
+- Total execution time: ~6.8 hours
 
 **By Phase (v3.0):**
 
@@ -44,7 +44,7 @@ Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
 |-------|-------|--------|
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
-| 11 | 2/4 | In progress |
+| 11 | 3/4 | In progress |
 | 12 | 0/3 | Pending |
 
 ## Accumulated Context
@@ -84,6 +84,9 @@ Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
 | D-11-02-01 | Skip tn_* auto-generated test tenants (garbage data) | 2026-01-21 |
 | D-11-02-02 | Use lazy imports in config/loader.py for TenantConfigService | 2026-01-21 |
 | D-11-02-03 | Add config_source property to ClientConfig | 2026-01-21 |
+| D-11-03-01 | Only migrate 4 real tenants, delete 63 tn_* test directories | 2026-01-21 |
+| D-11-03-02 | Keep 'example' directory as template for new tenant setup | 2026-01-21 |
+| D-11-03-03 | Database migration requires SQL migration to be run first | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -95,16 +98,17 @@ Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
 
 ### Pending Todos
 
-None yet.
+- Run 014_tenant_config.sql in Supabase SQL Editor
+- Re-run migration: `python scripts/migrate_tenants_to_db.py --force`
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
-- ~~Migration strategy for 60+ existing tenant YAML files~~ Addressed: Only 4 real tenants to migrate
+- ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
 - Test coverage improving: 19 auth middleware tests added (09-03), 44 rate limiter tests added (10-04)
 
 ## Session Continuity
 
-Last session: 2026-01-21 14:32 UTC
-Stopped at: Completed 11-02-PLAN.md (Dual-Mode Config Loader)
-Resume file: None - continue with 11-03-PLAN.md (YAML Migration Script)
+Last session: 2026-01-21 16:40 UTC
+Stopped at: Completed 11-03-PLAN.md (YAML Migration Script)
+Resume file: None - continue with 11-04-PLAN.md (Admin API for Tenant CRUD)
