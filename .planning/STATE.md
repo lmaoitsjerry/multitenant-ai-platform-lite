@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 01 of 04 complete
+Plan: 02 of 04 complete
 Status: In progress
-Last activity: 2026-01-21 — Completed 12-01-PLAN.md (Dockerfile Non-Root Hardening)
+Last activity: 2026-01-21 — Completed 12-02-PLAN.md (Structured Logging & Request ID Tracing)
 
-Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progress)
+Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progress)
 
 ## Milestones
 
@@ -45,7 +45,7 @@ Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progres
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 1/4 | In Progress |
+| 12 | 2/4 | In Progress |
 
 ## Accumulated Context
 
@@ -64,7 +64,7 @@ Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progres
 **DevOps Gaps:**
 1. No CI/CD pipeline
 2. ~~Dockerfile runs as root~~ FIXED (12-01: Non-root user uid 1000)
-3. No structured logging/tracing
+3. ~~No structured logging/tracing~~ FIXED (12-02: JSON logging with request ID)
 
 ### Decisions (v3.0 - Current)
 
@@ -93,6 +93,9 @@ Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progres
 | D-12-01-01 | Use uid/gid 1000 for appuser/appgroup | 2026-01-21 |
 | D-12-01-02 | Install curl for health checks instead of Python | 2026-01-21 |
 | D-12-01-03 | Use COPY --chown for application files | 2026-01-21 |
+| D-12-02-01 | Use contextvars for request ID propagation | 2026-01-21 |
+| D-12-02-02 | Add JSON_LOGS env var toggle (default true) | 2026-01-21 |
+| D-12-02-03 | RequestIdMiddleware added last in chain (runs first) | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -116,6 +119,6 @@ Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progres
 
 ## Session Continuity
 
-Last session: 2026-01-21 15:18 UTC
-Stopped at: Completed 12-01-PLAN.md (Dockerfile Non-Root Hardening)
-Resume file: None - Ready for 12-02-PLAN.md
+Last session: 2026-01-21 15:23 UTC
+Stopped at: Completed 12-02-PLAN.md (Structured Logging & Request ID Tracing)
+Resume file: None - Ready for 12-03-PLAN.md
