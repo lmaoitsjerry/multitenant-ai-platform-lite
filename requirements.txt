@@ -73,6 +73,7 @@ pytest-cov==6.0.0
 
 # Rate Limiting
 slowapi>=0.1.9
+redis>=5.0.0
 
 # Code Quality (Development)
 black==24.8.0
