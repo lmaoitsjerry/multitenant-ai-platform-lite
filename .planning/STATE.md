@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 07 of 08 complete (05 and 06 executed in parallel)
+Plan: 08 of 08 pending (07 complete)
 Status: In Progress - Test Coverage Expansion
-Last activity: 2026-01-21 - Completed 12-05-PLAN.md (SupabaseTool & Routes Tests)
+Last activity: 2026-01-21 - Completed 12-07-PLAN.md (Pricing, Knowledge & CRM Tests)
 
-Progress: [================] 100% (v3.0) + 3/4 extended tests
+Progress: [================] 100% (v3.0) + 3.5/4 extended tests
 
 ## Milestones
 
@@ -41,9 +41,9 @@ Progress: [================] 100% (v3.0) + 3/4 extended tests
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22 (v2.0: 13, v3.0: 6, v3.1: 3)
-- Average duration: ~18 min
-- Total execution time: ~9.2 hours
+- Total plans completed: 23 (v2.0: 13, v3.0: 6, v3.1: 4)
+- Average duration: ~17 min
+- Total execution time: ~9.5 hours
 
 **By Phase (v3.0 + v3.1):**
 
@@ -114,6 +114,8 @@ Progress: [================] 100% (v3.0) + 3/4 extended tests
 | D-12-06-02 | Reset singleton _instance in each test for isolation | 2026-01-21 |
 | D-12-05-01 | Focus route tests on auth requirement verification | 2026-01-21 |
 | D-12-05-02 | Create chainable mock pattern for Supabase queries | 2026-01-21 |
+| D-12-07-01 | Mock SupabaseTool via __init__ patching for CRM tests | 2026-01-21 |
+| D-12-07-02 | Use tmp_path fixture for FAISSIndexManager file tests | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -144,19 +146,22 @@ Progress: [================] 100% (v3.0) + 3/4 extended tests
 | test_helpdesk_service.py | 29 | Passing |
 | test_supabase_tool.py | 53 | Passing |
 | test_core_routes.py | 47 | Passing |
-| **Total** | **297+** | **Passing** |
+| test_pricing_routes.py | 32 | Passing |
+| test_knowledge_routes.py | 35 | Passing |
+| test_crm_service.py | 31 | Passing |
+| **Total** | **395+** | **Passing** |
 
-Current coverage: ~30% (baseline threshold: 25%)
+Current coverage: ~37% (baseline threshold: 25%)
 Target coverage: 70% (aspirational)
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage at 30% - improved from 27%, needs ongoing improvement
+- Test coverage at 37% - improved from 30%, needs ongoing improvement
 
 ## Session Continuity
 
-Last session: 2026-01-21 16:07 UTC
-Stopped at: Completed 12-05-PLAN.md (SupabaseTool & Routes Tests)
-Resume file: .planning/phases/12-devops-tests/12-07-PLAN.md
+Last session: 2026-01-21 17:15 UTC
+Stopped at: Completed 12-07-PLAN.md (Pricing, Knowledge & CRM Tests)
+Resume file: .planning/phases/12-devops-tests/12-08-PLAN.md
