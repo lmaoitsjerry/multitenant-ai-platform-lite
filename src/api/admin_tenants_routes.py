@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from config.loader import ClientConfig, list_clients
 from src.api.admin_routes import verify_admin_token
 from src.utils.error_handler import log_and_raise
+from src.services.tenant_config_service import get_service as get_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,24 @@ class TenantStats(BaseModel):
 class SuspendRequest(BaseModel):
     """Request to suspend a tenant"""
     reason: str = Field(..., min_length=5, max_length=500)
+
+
+class CreateTenantRequest(BaseModel):
+    """Request to create a new tenant"""
+    tenant_id: str = Field(..., min_length=3, max_length=50, pattern=r'^[a-z0-9_-]+$')
+    company_name: str = Field(..., min_length=2, max_length=100)
+    admin_email: str = Field(..., description="Primary admin email")
+    timezone: str = Field(default="Africa/Johannesburg")
+    currency: str = Field(default="ZAR")
+    plan: str = Field(default="lite", description="Subscription plan: lite, standard, premium")
+
+    # Optional branding
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = Field(default="#1a73e8")
+
+    # Optional infrastructure
+    gcp_project_id: Optional[str] = None
+    gcp_dataset: Optional[str] = None
 
 
 class TenantListResponse(BaseModel):
@@ -232,6 +251,112 @@ async def list_tenants(
 
     except Exception as e:
         log_and_raise(500, "listing tenants", e, logger)
+
+
+@admin_tenants_router.post("", status_code=201)
+async def create_tenant(
+    request: CreateTenantRequest,
+    admin_verified: bool = Depends(verify_admin_token)
+):
+    """
+    Create a new tenant in the database.
+
+    This endpoint provisions a new tenant without requiring YAML file deployment.
+    The tenant configuration is stored directly in the database.
+
+    Returns the created tenant details.
+    """
+    try:
+        # Check if tenant already exists
+        service = get_config_service()
+        existing = service.get_config(request.tenant_id)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Tenant {request.tenant_id} already exists"
+            )
+
+        # Build tenant configuration
+        config = {
+            'client': {
+                'id': request.tenant_id,
+                'name': request.company_name,
+                'short_name': request.tenant_id[:10].upper().replace('-', '_'),
+                'timezone': request.timezone,
+                'currency': request.currency,
+            },
+            'branding': {
+                'company_name': request.company_name,
+                'logo_url': request.logo_url,
+                'primary_color': request.primary_color or '#1a73e8',
+            },
+            'email': {
+                'primary': request.admin_email,
+            },
+            'infrastructure': {
+                'gcp': {
+                    'project_id': request.gcp_project_id or '',
+                    'dataset': request.gcp_dataset or '',
+                },
+            },
+            'destinations': [],
+            'consultants': [],
+            'agents': {
+                'inbound': {'enabled': False},
+                'helpdesk': {'enabled': True},
+                'outbound': {'enabled': False},
+            },
+        }
+
+        # Save to database
+        success = service.save_config(request.tenant_id, config)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save tenant configuration to database"
+            )
+
+        # Also update with additional fields not in tenant_config
+        client = get_supabase_admin_client()
+        if client:
+            try:
+                # Update with additional fields
+                client.table("tenants").update({
+                    'admin_email': request.admin_email,
+                    'support_email': request.admin_email,
+                    'status': 'active',
+                    'plan': request.plan,
+                    'max_users': 5 if request.plan == 'lite' else 20,
+                    'max_monthly_quotes': 100 if request.plan == 'lite' else 1000,
+                    'max_storage_gb': 1 if request.plan == 'lite' else 10,
+                    'features_enabled': {
+                        'ai_helpdesk': True,
+                        'email_quotes': True,
+                        'voice_calls': request.plan != 'lite',
+                    },
+                }).eq('id', request.tenant_id).execute()
+            except Exception as e:
+                logger.warning(f"Could not update additional tenant fields: {e}")
+
+        logger.info(f"[ADMIN] Created new tenant: {request.tenant_id}")
+
+        return {
+            "success": True,
+            "message": f"Tenant {request.tenant_id} created successfully",
+            "data": {
+                "tenant_id": request.tenant_id,
+                "company_name": request.company_name,
+                "admin_email": request.admin_email,
+                "plan": request.plan,
+                "status": "active",
+                "config_source": "database",
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, f"creating tenant {request.tenant_id}", e, logger)
 
 
 @admin_tenants_router.get("/{tenant_id}")
