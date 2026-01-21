@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 14 of 15 (AI Agent Test Suite)
-Plan: 03 of 04 (Twilio/VAPI Provisioner Tests)
+Plan: 01 of 04 (OpenAI Mock Infrastructure & Helpdesk Agent Tests)
 Status: In progress
-Last activity: 2026-01-21 — Completed 14-03-PLAN.md (58 tests, 93.7% provisioner coverage)
+Last activity: 2026-01-21 — Completed 14-01-PLAN.md (58 tests, 99.4% helpdesk_agent coverage)
 
-Progress: [========------------] 40% (v4.0: Phase 14 plan 03 complete, 14-04 and 15 remaining)
+Progress: [========------------] 40% (v4.0: Phase 14 plan 01 complete, 02-04 and 15 remaining)
 
 ## Milestones
 
@@ -144,6 +144,9 @@ Progress: [========------------] 40% (v4.0: Phase 14 plan 03 complete, 14-04 and
 | D-14-03-01 | Use MockHTTPResponse class matching requests.Response interface | 2026-01-21 |
 | D-14-03-02 | Create factory classes for Twilio and VAPI response generation | 2026-01-21 |
 | D-14-03-03 | Support pattern-based URL matching for flexible mock configuration | 2026-01-21 |
+| D-14-01-01 | Use direct _client injection instead of patching inline imports | 2026-01-21 |
+| D-14-01-02 | Create MockConversationClient for sequential response testing | 2026-01-21 |
+| D-14-01-03 | Patch FAISS service at source module for inline imports | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -199,7 +202,8 @@ Progress: [========------------] 40% (v4.0: Phase 14 plan 03 complete, 14-04 and
 | test_sendgrid_admin.py | 29 | Passing |
 | test_admin_sendgrid_routes.py | 34 | Passing |
 | test_twilio_vapi_provisioner.py | 58 | Passing (93.7% coverage) |
-| **Total** | **1264** | **Passing** |
+| test_helpdesk_agent.py | 58 | Passing (99.4% coverage) |
+| **Total** | **1322** | **Passing** |
 
 Current coverage: ~50% (measured with pytest-cov)
 Target coverage: 70% (aspirational - requires continued mocking work)
@@ -216,12 +220,12 @@ Target coverage: 70% (aspirational - requires continued mocking work)
 |--------|----------|-------------------|
 | analytics_routes.py | 66% | BigQuery/Supabase mocked via direct handler tests |
 | admin_knowledge_routes.py | 17.9% | RAG/file handling |
-| helpdesk_agent.py | 0.0% | LLM orchestration |
+| helpdesk_agent.py | 99.4% | Fully mocked with OpenAI fixtures |
 | inbound_agent.py | 0.0% | Email processing |
 | twilio_vapi_provisioner.py | 93.7% | Fully mocked with fixtures |
 
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 14-03-PLAN.md
-Resume file: None — ready for 14-04-PLAN.md
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None — ready for 14-02-PLAN.md
