@@ -115,10 +115,10 @@ Production hardening, security fixes, scalability improvements, and comprehensiv
 | TEST-02 | Phase 10 | ✓ Complete |
 | TEST-03 | Phase 11 | ✓ Complete |
 | TEST-04 | Phase 12 | ✓ Partial (45%, 70% deferred to v4) |
-| COVER-01 | Phase 13 | Pending |
+| COVER-01 | Phase 13 | ✓ Complete |
 | COVER-02 | Phase 14 | Pending |
 | COVER-03 | Phase 14 | Pending |
-| COVER-04 | Phase 13 | Pending |
+| COVER-04 | Phase 13 | ✓ Complete |
 | COVER-05 | Phase 15 | Pending |
 | TEST-04 | Phase 15 | Pending (completion to 70%) |
 
