@@ -5,49 +5,32 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
-**Current focus:** v3.0 Milestone COMPLETE — Ready for v4.0 planning
+**Current focus:** v4.0 Test Coverage Push — 70% coverage target
 
 ## Current Position
 
-Phase: 12 of 12 (DevOps & Test Coverage) - COMPLETE
-Plan: 13 of 13 complete
-Status: v3.0 Milestone COMPLETE
-Last activity: 2026-01-21 — All 4 phases complete, 45% coverage baseline established
+Phase: Not started (run /gsd:define-requirements or /gsd:create-roadmap)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-01-21 — Milestone v4.0 started
 
-Progress: [====================] 100% (v3.0: Phases 9-12 complete)
+Progress: [--------------------] 0% (v4.0: Not started)
 
 ## Milestones
 
-### v3.4: Coverage Target Push (COMPLETE)
-- Final coverage plan (12-13) for pushing toward 70% coverage
-- Focus: Leaderboard routes, middleware integration, quote agent, performance service
-- Completed: 2026-01-21
-- Tests added: 159
-- Coverage: 44.9% (70% target aspirational - requires ~20-25 hours additional work)
-
-### v3.3: Admin, Notifications, Settings & Users Tests (COMPLETE)
-- 1 extended plan (12-11) for admin and user management coverage
-- Focus: Admin routes, notification endpoints, tenant settings, user management
-- Completed: 2026-01-21
-- Tests added: 98
-
-### v3.2: Additional Specialized Tests (COMPLETE)
-- 2 extended plans (12-12, 12-13) for specialized service coverage
-- Focus: Inbound routes, templates, RAG services, BigQuery tool tests
-- Completed: 2026-01-21
-- Tests added: 172
-
-### v3.1: Extended Test Coverage (COMPLETE)
-- 6 extended plans (12-05 to 12-10) for additional coverage
-- Focus: Analytics, helpdesk, crm, webhook, email, pdf, onboarding, privacy, branding, provisioning tests
-- Completed: 2026-01-21
-- Coverage achieved: 37.4%
+### v4.0: Test Coverage Push (ACTIVE)
+- Goal: Achieve 70% test coverage
+- Focus: External API mocking (BigQuery, Twilio, SendGrid, LLM agents)
+- Started: 2026-01-21
+- Current coverage: 44.9%
+- Target coverage: 70%
 
 ### v3.0: Production Hardening (COMPLETE)
-- 4 phases (9-12), 15 plans executed
+- 4 phases (9-12), 24 plans executed
 - Focus: Security vulnerabilities, scalability blockers, DevOps readiness
 - Completed: 2026-01-21
-- Source: Comprehensive code review findings
+- Coverage achieved: 44.9% (1,104 tests)
+- Audit: .planning/milestones/v3.0-MILESTONE-AUDIT.md
 
 ### v2.0: Inbound Email & Helpdesk RAG (COMPLETE)
 - 8 phases, 13 plans executed
@@ -226,6 +209,6 @@ Target coverage: 70% (aspirational - requires ~20-25 hours additional work)
 
 ## Session Continuity
 
-Last session: 2026-01-21 20:00 UTC
-Stopped at: v3.0 milestone COMPLETE
-Resume file: None — ready for `/gsd:audit-milestone` or `/gsd:new-milestone`
+Last session: 2026-01-21
+Stopped at: v4.0 milestone initialized
+Resume file: None — ready for `/gsd:define-requirements` or `/gsd:create-roadmap`

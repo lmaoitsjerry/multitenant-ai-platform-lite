@@ -1,12 +1,34 @@
-# Multi-Tenant AI Travel Platform - Inbound Email & Helpdesk RAG
+# Multi-Tenant AI Travel Platform
 
 ## What This Is
 
-A multi-tenant AI-powered travel platform for property management companies, featuring helpdesk AI with RAG (FAISS), quote generation, invoicing, CRM, and email processing. The platform has two frontends: tenant dashboard for daily operations and internal admin for Zorah team management.
+A multi-tenant AI-powered travel platform for property management companies, featuring helpdesk AI with RAG (FAISS), quote generation, invoicing, CRM, and email processing. The platform has two frontends: tenant dashboard for daily operations and internal admin for Zorah team management. Production-hardened with security controls, scalable infrastructure, and CI/CD automation.
 
 ## Core Value
 
-Automated inbound email processing that generates and sends quotes without manual intervention, backed by a helpdesk that provides natural, helpful responses using RAG over 98K+ documents.
+Production-ready multi-tenant AI travel platform with secure tenant isolation, automated email-to-quote pipeline, and natural helpdesk responses.
+
+## Current Milestone: v4.0 Test Coverage Push
+
+**Goal:** Achieve 70% test coverage by adding comprehensive mocks for external APIs (BigQuery, Twilio, SendGrid, LLM agents).
+
+**Target features:**
+- COVER-01: BigQuery analytics mock infrastructure
+- COVER-02: LLM agent testing (helpdesk, inbound, quote agents)
+- COVER-03: Twilio VAPI provisioner tests with API mocking
+- COVER-04: SendGrid advanced scenarios (templates, subusers)
+- COVER-05: File upload and RAG service integration tests
+
+**Coverage gaps to close:**
+| Module | Current | Target |
+|--------|---------|--------|
+| analytics_routes.py | 9.4% | 70%+ |
+| admin_knowledge_routes.py | 17.9% | 70%+ |
+| helpdesk_agent.py | 0% | 70%+ |
+| inbound_agent.py | 0% | 70%+ |
+| twilio_vapi_provisioner.py | 0% | 70%+ |
+
+**Estimated effort:** 20-25 hours
 
 ## Requirements
 
@@ -33,10 +55,19 @@ Automated inbound email processing that generates and sends quotes without manua
 - ✓ RAG-02: LLM synthesizes natural, conversational response from context — v2.0
 - ✓ RAG-03: Response includes specific details (names, prices, features) from documents — v2.0
 - ✓ RAG-04: Handles unknown questions gracefully with honest acknowledgment — v2.0
+- ✓ SEC-01 to SEC-05: Security hardening (tenant validation, headers, error sanitization) — v3.0
+- ✓ SCALE-01 to SCALE-03: Scalability (DB tenant registry, Redis rate limiting/caching) — v3.0
+- ✓ DEVOPS-01 to DEVOPS-03: CI/CD, non-root Docker, structured logging — v3.0
+- ✓ TEST-01 to TEST-03: Auth, rate limiting, tenant isolation tests — v3.0
 
 ### Active
 
-None - v2.0 milestone complete.
+- [ ] COVER-01: BigQuery analytics mock infrastructure with realistic query responses
+- [ ] COVER-02: LLM agent test suite with OpenAI response mocking
+- [ ] COVER-03: Twilio VAPI provisioner tests with API mocking
+- [ ] COVER-04: SendGrid advanced scenarios (templates, dynamic content, subusers)
+- [ ] COVER-05: File upload and RAG service integration tests
+- [ ] TEST-04: Achieve 70% test coverage threshold (currently 45%)
 
 ### Out of Scope
 
@@ -44,6 +75,9 @@ None - v2.0 milestone complete.
 - Adding new destinations/hotels — focus on pipeline, not data
 - Major refactoring of multi-tenant architecture — working fine
 - Real-time chat/WebSocket — async email pipeline is sufficient
+- Full TypeScript migration for frontends — deferred to v5.0
+- Distributed tracing (OpenTelemetry) — deferred to v5.0
+- Multi-GCP project consolidation — enterprise scale feature
 
 ## Context
 
@@ -88,7 +122,10 @@ Email Parser (LLM) → Quote Generator → Email Sender → Notification
 | Fallback rule-based parser | Handles cases where LLM fails | — Pending |
 | Send via tenant SendGrid subuser | Maintains tenant branding and deliverability | — Pending |
 | Return 5-8 documents for RAG context | More context = better synthesis | — Pending |
-| Temperature 0.7 for helpdesk | Natural variation without hallucination | — Pending |
+| Temperature 0.7 for helpdesk | Natural variation without hallucination | ✓ Good |
+| 45% coverage baseline for v3.0 | 70% requires 20-25hrs for external API mocking | ✓ Good |
+| Database-backed tenant config | Scalability over file-based YAML | ✓ Good |
+| Redis rate limiting with fallback | Production resilience | ✓ Good |
 
 ---
-*Last updated: 2026-01-17 - v2.0 milestone complete*
+*Last updated: 2026-01-21 — v4.0 milestone started*
