@@ -29,6 +29,7 @@ from src.constants.theme_presets import (
     apply_dark_mode
 )
 from src.tools.supabase_tool import SupabaseTool
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -457,9 +458,7 @@ async def upload_logo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Logo upload failed: {e}")
-        # Return the actual error message to the client
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "uploading logo", e, logger)
 
 
 @branding_router.post("/upload/background")
@@ -526,8 +525,7 @@ async def upload_login_background(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Background upload failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "uploading login background", e, logger)
 
 
 @branding_router.post("/reset")

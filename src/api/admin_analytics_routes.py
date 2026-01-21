@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from config.loader import list_clients, ClientConfig
 from src.api.admin_routes import verify_admin_token
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -326,8 +327,7 @@ async def get_platform_overview(
         return result
 
     except Exception as e:
-        logger.error(f"Error getting platform overview: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting platform overview", e, logger)
 
 
 @admin_analytics_router.get("/usage")
@@ -392,8 +392,7 @@ async def get_usage_analytics(
         }
 
     except Exception as e:
-        logger.error(f"Error getting usage analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting usage analytics", e, logger)
 
 
 @admin_analytics_router.get("/tenants/top")
@@ -503,8 +502,7 @@ async def get_top_tenants(
         }
 
     except Exception as e:
-        logger.error(f"Error getting top tenants: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting top tenants", e, logger)
 
 
 @admin_analytics_router.get("/growth")
@@ -531,8 +529,7 @@ async def get_growth_metrics(
         }
 
     except Exception as e:
-        logger.error(f"Error getting growth metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting growth metrics", e, logger)
 
 
 # ==================== Router Registration ====================

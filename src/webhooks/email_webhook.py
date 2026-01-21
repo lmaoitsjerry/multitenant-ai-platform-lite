@@ -36,6 +36,7 @@ from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from config.loader import ClientConfig, get_config, list_clients
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -579,7 +580,7 @@ async def receive_inbound_email(
             'elapsed_ms': round(elapsed * 1000, 2)
         })
         logger.exception(f"[{diagnostic_id}] Error receiving inbound email")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "receiving inbound email", e, logger)
 
 
 async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
@@ -989,7 +990,7 @@ async def receive_tenant_email(
     except Exception as e:
         diagnostic_log(diagnostic_id, 0, f"EXCEPTION: {str(e)}")
         logger.exception(f"[{diagnostic_id}] Error receiving email for {tenant_id}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, f"receiving email for tenant {tenant_id}", e, logger)
 
 
 @router.get("/email/test/{tenant_id}")

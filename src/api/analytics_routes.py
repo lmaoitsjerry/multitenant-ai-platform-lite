@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 
 from config.loader import ClientConfig
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,7 @@ async def get_dashboard_stats(
         return {"success": True, "data": stats}
 
     except Exception as e:
-        logger.error(f"Failed to get dashboard stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting dashboard stats", e, logger)
 
 
 @dashboard_router.get("/activity")
@@ -311,8 +311,7 @@ async def get_recent_activity(
         return {"success": True, "data": activities[:limit]}
 
     except Exception as e:
-        logger.error(f"Failed to get recent activity: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting recent activity", e, logger)
 
 
 # ==================== Quote Analytics ====================
@@ -405,24 +404,25 @@ async def get_quote_analytics(
             for dest, stats in sorted(dest_stats.items(), key=lambda x: x[1]["count"], reverse=True)
         ][:10]
 
-        # By hotel (from option_1_json)
+        # By hotel (from 'hotels' array field)
         import json
         hotel_stats = {}
         for q in quotes:
-            for opt_key in ['option_1_json', 'option_2_json', 'option_3_json']:
-                opt_data = q.get(opt_key)
-                if opt_data:
-                    try:
-                        opt = json.loads(opt_data) if isinstance(opt_data, str) else opt_data
-                        hotel_name = opt.get('name') or opt.get('hotel_name')
-                        if hotel_name:
-                            if hotel_name not in hotel_stats:
-                                hotel_stats[hotel_name] = {"count": 0, "value": 0}
-                            hotel_stats[hotel_name]["count"] += 1
-                            hotel_stats[hotel_name]["value"] += opt.get('total_price', 0) or 0
-                            break
-                    except:
-                        pass
+            # The 'hotels' field contains an array of hotel objects
+            hotels_data = q.get('hotels')
+            if hotels_data:
+                try:
+                    hotels = json.loads(hotels_data) if isinstance(hotels_data, str) else hotels_data
+                    if isinstance(hotels, list):
+                        for hotel in hotels:
+                            hotel_name = hotel.get('name') or hotel.get('hotel_name')
+                            if hotel_name:
+                                if hotel_name not in hotel_stats:
+                                    hotel_stats[hotel_name] = {"count": 0, "value": 0}
+                                hotel_stats[hotel_name]["count"] += 1
+                                hotel_stats[hotel_name]["value"] += hotel.get('total_price', 0) or 0
+                except Exception as e:
+                    logger.debug(f"Could not parse hotels data: {e}")
 
         result["by_hotel"] = [
             {"hotel": hotel, **stats}
@@ -455,8 +455,7 @@ async def get_quote_analytics(
         return {"success": True, "data": result}
 
     except Exception as e:
-        logger.error(f"Failed to get quote analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting quote analytics", e, logger)
 
 
 # ==================== Invoice Analytics ====================
@@ -608,8 +607,7 @@ async def get_invoice_analytics(
         return {"success": True, "data": result}
 
     except Exception as e:
-        logger.error(f"Failed to get invoice analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting invoice analytics", e, logger)
 
 
 # ==================== Call Analytics ====================
@@ -655,7 +653,7 @@ async def get_call_analytics(
         if not supabase.client:
             return {"success": True, "data": result}
 
-        # Get call records
+        # Get call records - handle both 'call_status' and 'status' column names
         try:
             records_result = supabase.client.table('call_records')\
                 .select("*")\
@@ -671,16 +669,18 @@ async def get_call_analytics(
             outcome_counts = {}
 
             for rec in records:
-                status = rec.get('call_status', 'unknown')
+                # Support both 'call_status' and 'status' column names
+                status = rec.get('call_status') or rec.get('status', 'unknown')
                 outcome = rec.get('outcome', status)
 
                 outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
 
                 if status == 'completed':
                     result["summary"]["completed"] += 1
-                    duration = rec.get('duration_seconds', 0) or 0
+                    # Support both 'duration_seconds' and 'duration'
+                    duration = rec.get('duration_seconds') or rec.get('duration', 0) or 0
                     total_duration += duration
-                elif status in ('failed', 'no_answer', 'busy'):
+                elif status in ('failed', 'no_answer', 'busy', 'error'):
                     result["summary"]["failed"] += 1
 
             if result["summary"]["completed"] > 0:
@@ -698,17 +698,17 @@ async def get_call_analytics(
         except Exception as e:
             logger.warning(f"Could not get call records: {e}")
 
-        # Get queue status
+        # Get queue status - handle table/column variations
         try:
             queue_result = supabase.client.table('outbound_call_queue')\
-                .select("call_status")\
+                .select("*")\
                 .eq('tenant_id', config.client_id)\
-                .in_('call_status', ['queued', 'scheduled', 'in_progress'])\
                 .execute()
 
             for item in (queue_result.data or []):
-                status = item.get('call_status', '')
-                if status == 'queued':
+                # Support both 'call_status' and 'status' column names
+                status = item.get('call_status') or item.get('status', '')
+                if status in ('queued', 'pending'):
                     result["queue"]["pending"] += 1
                 elif status == 'scheduled':
                     result["queue"]["scheduled"] += 1
@@ -750,8 +750,7 @@ async def get_call_analytics(
         return {"success": True, "data": result}
 
     except Exception as e:
-        logger.error(f"Failed to get call analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting call analytics", e, logger)
 
 
 # ==================== Pipeline Analytics ====================
@@ -775,6 +774,9 @@ async def get_pipeline_analytics(
 
         summary = crm.get_pipeline_summary()
         stats = crm.get_client_stats()
+
+        logger.info(f"Pipeline analytics - Summary: {summary}")
+        logger.info(f"Pipeline analytics - Stats total_value: {stats.get('total_value', 0)}")
 
         # Calculate funnel conversion rates
         stages = ['QUOTED', 'NEGOTIATING', 'BOOKED', 'PAID', 'TRAVELLED']
@@ -811,8 +813,7 @@ async def get_pipeline_analytics(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get pipeline analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting pipeline analytics", e, logger)
 
 
 # ==================== Aggregated Dashboard Endpoint ====================
@@ -826,50 +827,18 @@ _stale_ttl = 1800  # seconds (30 minutes) - stale but usable, refresh in backgro
 _pricing_stats_cache = {}
 _pricing_stats_ttl = 14400  # seconds (4 hours) - pricing data doesn't change often
 
-# BigQuery client cache (same pattern as pricing_routes.py)
-_bigquery_clients = {}
-_bigquery_available = None
 
-
+# Import BigQuery client from pricing_routes to share the same client and availability flag
 async def get_bigquery_client_async(config: ClientConfig):
-    """Get BigQuery client - cached per project, async-safe (same as pricing_routes.py)"""
-    import asyncio
-    from google.cloud import bigquery
-
-    global _bigquery_available
-
-    # If we already know BigQuery is unavailable, skip
-    if _bigquery_available is False:
-        return None
-
-    project_id = config.gcp_project_id
-
-    # Return cached client if available
-    if project_id in _bigquery_clients:
-        return _bigquery_clients[project_id]
-
+    """Get BigQuery client - uses shared client from pricing_routes.py"""
     try:
-        logger.info(f"[Dashboard] Creating BigQuery client for project: {project_id}")
-
-        def _create_client():
-            return bigquery.Client(project=project_id)
-
-        # Use 15s timeout for cold start (same as pricing_routes.py)
-        client = await asyncio.wait_for(
-            asyncio.to_thread(_create_client),
-            timeout=15.0
-        )
-        _bigquery_clients[project_id] = client
-        _bigquery_available = True
-        logger.info(f"[Dashboard] BigQuery client created successfully for {project_id}")
-        return client
-    except asyncio.TimeoutError:
-        logger.error("[Dashboard] BigQuery client creation timed out - credentials may be missing")
-        _bigquery_available = False
+        from src.api.pricing_routes import get_bigquery_client_async as pricing_get_bq_client
+        return await pricing_get_bq_client(config)
+    except ImportError as e:
+        logger.warning(f"[Dashboard] Could not import pricing BigQuery client: {e}")
         return None
     except Exception as e:
-        logger.error(f"[Dashboard] Failed to create BigQuery client: {e}")
-        _bigquery_available = False
+        logger.warning(f"[Dashboard] Failed to get BigQuery client: {e}")
         return None
 
 
@@ -924,26 +893,34 @@ async def _refresh_dashboard_cache(config: ClientConfig, cache_key: str):
             try:
                 client = await get_bigquery_client_async(config)
                 if not client:
+                    if pricing_cache_key in _pricing_stats_cache:
+                        return _pricing_stats_cache[pricing_cache_key]['data']
                     return {"hotels": 0, "destinations": 0}
 
                 def _query():
+                    # Count all hotels and destinations (no is_active filter for overview)
                     hotel_query = f"""
-                    SELECT COUNT(DISTINCT hotel_name) as hotel_count,
-                           COUNT(DISTINCT destination) as dest_count
-                    FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
-                    WHERE is_active = TRUE
+                    SELECT
+                        COUNT(DISTINCT hotel_name) as hotel_count,
+                        COUNT(DISTINCT destination) as dest_count
+                    FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
                     """
-                    return list(client.query(hotel_query).result())
+                    result = client.query(hotel_query).result()
+                    rows = list(result)
+                    return rows[0] if rows else None
 
-                result = await asyncio.to_thread(_query)
-                row = result[0] if result else None
+                row = await asyncio.to_thread(_query)
                 if row:
-                    stats = {"hotels": row.hotel_count, "destinations": row.dest_count}
+                    hotel_count = row.hotel_count if row.hotel_count is not None else 0
+                    dest_count = row.dest_count if row.dest_count is not None else 0
+                    stats = {"hotels": int(hotel_count), "destinations": int(dest_count)}
                     _pricing_stats_cache[pricing_cache_key] = {'data': stats, 'timestamp': now}
                     return stats
                 return {"hotels": 0, "destinations": 0}
             except Exception as e:
                 logger.warning(f"Background refresh - pricing stats failed: {e}")
+                if pricing_cache_key in _pricing_stats_cache:
+                    return _pricing_stats_cache[pricing_cache_key]['data']
                 return {"hotels": 0, "destinations": 0}
 
         quote_count, client_count = await fetch_counts()
@@ -1060,7 +1037,7 @@ async def get_dashboard_all(
                 return 0
 
         async def fetch_pricing_stats():
-            # Check pricing stats cache first (1 hour TTL)
+            # Check pricing stats cache first (4 hour TTL - pricing data rarely changes)
             pricing_cache_key = f"pricing_{config.client_id}"
             if pricing_cache_key in _pricing_stats_cache:
                 cached = _pricing_stats_cache[pricing_cache_key]
@@ -1072,26 +1049,31 @@ async def get_dashboard_all(
                 # Use cached BigQuery client (same pattern as working pricing_routes.py)
                 client = await get_bigquery_client_async(config)
                 if not client:
+                    logger.warning(f"BigQuery client not available for {config.client_id}")
                     # Return cached value if available, else 0
                     if pricing_cache_key in _pricing_stats_cache:
                         return _pricing_stats_cache[pricing_cache_key]['data']
                     return {"hotels": 0, "destinations": 0}
 
                 def _query():
+                    # Count all hotels and destinations (don't filter by is_active for overview stats)
                     hotel_query = f"""
-                    SELECT COUNT(DISTINCT hotel_name) as hotel_count,
-                           COUNT(DISTINCT destination) as dest_count
-                    FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
-                    WHERE is_active = TRUE
+                    SELECT
+                        COUNT(DISTINCT hotel_name) as hotel_count,
+                        COUNT(DISTINCT destination) as dest_count
+                    FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
                     """
-                    return list(client.query(hotel_query).result())
+                    result = client.query(hotel_query).result()
+                    rows = list(result)
+                    return rows[0] if rows else None
 
                 # No timeout needed - client init already handles cold start
-                # BigQuery queries are typically fast once client is ready
-                result = await asyncio.to_thread(_query)
-                row = result[0] if result else None
+                row = await asyncio.to_thread(_query)
                 if row:
-                    stats = {"hotels": row.hotel_count, "destinations": row.dest_count}
+                    hotel_count = row.hotel_count if row.hotel_count is not None else 0
+                    dest_count = row.dest_count if row.dest_count is not None else 0
+                    stats = {"hotels": int(hotel_count), "destinations": int(dest_count)}
+                    logger.info(f"Fetched pricing stats for {config.client_id}: {stats}")
                     # Cache the result
                     _pricing_stats_cache[pricing_cache_key] = {
                         'data': stats,
@@ -1100,7 +1082,7 @@ async def get_dashboard_all(
                     return stats
                 return {"hotels": 0, "destinations": 0}
             except Exception as e:
-                logger.warning(f"Failed to fetch pricing stats: {e}")
+                logger.warning(f"Failed to fetch pricing stats for {config.client_id}: {e}")
                 # Return cached value if available
                 if pricing_cache_key in _pricing_stats_cache:
                     return _pricing_stats_cache[pricing_cache_key]['data']

@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +348,7 @@ class FAISSIndexManager:
             doc["status"] = "error"
             doc["error_message"] = str(e)
             self._save_metadata()
-            raise HTTPException(status_code=500, detail=str(e))
+            log_and_raise(500, f"indexing document {document_id}", e, logger)
 
     def search(
         self,

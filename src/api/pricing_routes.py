@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from google.cloud import bigquery
 
 from config.loader import ClientConfig
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +244,7 @@ async def list_rates(
             total_7nights_single,
             total_7nights_child,
             is_active
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE 1=1
         """
         
@@ -311,7 +312,13 @@ async def list_rates(
         
     except Exception as e:
         logger.error(f"Failed to list rates: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty data instead of 500 for BigQuery errors
+        return {
+            "success": True,
+            "data": [],
+            "count": 0,
+            "message": f"Pricing data unavailable: {str(e)[:100]}"
+        }
 
 
 @pricing_router.post("/rates")
@@ -322,7 +329,7 @@ async def create_rate(
     """Create a new rate"""
     try:
         client = await get_bigquery_client_async(config)
-        table_id = f"{config.gcp_project_id}.{config.dataset_name}.hotel_rates"
+        table_id = f"{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates"
         
         rate_id = f"RATE-{uuid.uuid4().hex[:8].upper()}"
         now = datetime.utcnow()
@@ -362,8 +369,7 @@ async def create_rate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create rate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "creating rate", e, logger)
 
 
 @pricing_router.get("/rates/{rate_id}")
@@ -376,7 +382,7 @@ async def get_rate(
         client = await get_bigquery_client_async(config)
         
         query = f"""
-        SELECT * FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        SELECT * FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE rate_id = @rate_id
         LIMIT 1
         """
@@ -407,8 +413,7 @@ async def get_rate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get rate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting rate", e, logger)
 
 
 @pricing_router.put("/rates/{rate_id}")
@@ -449,7 +454,7 @@ async def update_rate(
         updates.append("updated_at = CURRENT_TIMESTAMP()")
         
         query = f"""
-        UPDATE `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        UPDATE `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         SET {', '.join(updates)}
         WHERE rate_id = @rate_id
         """
@@ -463,8 +468,7 @@ async def update_rate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update rate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating rate", e, logger)
 
 
 @pricing_router.delete("/rates/{rate_id}")
@@ -479,12 +483,12 @@ async def delete_rate(
         
         if hard_delete:
             query = f"""
-            DELETE FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+            DELETE FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
             WHERE rate_id = @rate_id
             """
         else:
             query = f"""
-            UPDATE `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+            UPDATE `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
             SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP()
             WHERE rate_id = @rate_id
             """
@@ -503,8 +507,7 @@ async def delete_rate(
         }
         
     except Exception as e:
-        logger.error(f"Failed to delete rate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "deleting rate", e, logger)
 
 
 # ==================== Bulk Import ====================
@@ -529,7 +532,7 @@ async def import_rates(
         reader = csv.DictReader(io.StringIO(text))
         
         client = await get_bigquery_client_async(config)
-        table_id = f"{config.gcp_project_id}.{config.dataset_name}.hotel_rates"
+        table_id = f"{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates"
         
         rows = []
         errors = []
@@ -594,8 +597,7 @@ async def import_rates(
         }
         
     except Exception as e:
-        logger.error(f"Failed to import rates: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "importing rates", e, logger)
 
 
 @pricing_router.get("/rates/export")
@@ -613,7 +615,7 @@ async def export_rates(
             check_in_date, check_out_date, nights,
             total_7nights_pps, total_7nights_single, total_7nights_child,
             flights_adult, flights_child, transfers_adult, transfers_child
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE is_active = TRUE
         """
         
@@ -654,8 +656,7 @@ async def export_rates(
         )
         
     except Exception as e:
-        logger.error(f"Failed to export rates: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "exporting rates", e, logger)
 
 
 # ==================== Hotel Endpoints ====================
@@ -679,7 +680,7 @@ async def list_hotels(
             destination,
             hotel_rating as star_rating,
             MAX(is_active) as is_active
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE 1=1
         """
         
@@ -709,7 +710,13 @@ async def list_hotels(
 
     except Exception as e:
         logger.error(f"Failed to list hotels: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty data instead of 500 for BigQuery errors
+        return {
+            "success": True,
+            "data": [],
+            "count": 0,
+            "message": f"Hotels data unavailable: {str(e)[:100]}"
+        }
 
 
 @pricing_router.get("/hotels/{hotel_name}/rates")
@@ -726,7 +733,7 @@ async def get_hotel_rates(
 
         query = f"""
         SELECT *
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE LOWER(hotel_name) = LOWER(@hotel_name)
         AND is_active = TRUE
         ORDER BY check_in_date, room_type, meal_plan
@@ -762,7 +769,14 @@ async def get_hotel_rates(
 
     except Exception as e:
         logger.error(f"Failed to get hotel rates: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty data instead of 500 for BigQuery errors
+        return {
+            "success": True,
+            "hotel_name": hotel_name,
+            "data": [],
+            "count": 0,
+            "message": f"Hotel rates unavailable: {str(e)[:100]}"
+        }
 
 
 # ==================== Destinations & Seasons ====================
@@ -785,7 +799,7 @@ async def list_destinations(
             COUNT(*) as rate_count,
             MIN(total_7nights_pps) as min_price,
             MAX(total_7nights_pps) as max_price
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         WHERE is_active = TRUE
         GROUP BY destination
         ORDER BY destination
@@ -807,7 +821,13 @@ async def list_destinations(
 
     except Exception as e:
         logger.error(f"Failed to list destinations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty data instead of 500 for BigQuery errors
+        return {
+            "success": True,
+            "data": [],
+            "count": 0,
+            "message": f"Destinations data unavailable: {str(e)[:100]}"
+        }
 
 
 @pricing_router.get("/stats")
@@ -830,7 +850,7 @@ async def get_pricing_stats(
             AVG(total_7nights_pps) as avg_price,
             MIN(total_7nights_pps) as min_price,
             MAX(total_7nights_pps) as max_price
-        FROM `{config.gcp_project_id}.{config.dataset_name}.hotel_rates`
+        FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
         """
 
         # Run BigQuery in thread pool to avoid blocking
@@ -847,4 +867,14 @@ async def get_pricing_stats(
 
     except Exception as e:
         logger.error(f"Failed to get pricing stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty stats instead of 500 for BigQuery errors
+        return {
+            "success": True,
+            "data": {
+                "total_rates": 0,
+                "total_hotels": 0,
+                "total_destinations": 0,
+                "active_rates": 0
+            },
+            "message": f"Stats unavailable: {str(e)[:100]}"
+        }

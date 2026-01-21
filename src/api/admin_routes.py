@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig, list_clients, get_client_config
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +209,7 @@ async def provision_vapi_for_tenant(
         return response
 
     except Exception as e:
-        logger.error(f"VAPI provisioning failed for {request.tenant_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, f"provisioning VAPI for {request.tenant_id}", e, logger)
 
 
 @admin_router.get("/provision/vapi/{tenant_id}")
@@ -808,6 +808,59 @@ async def get_system_health(
         database_status=db_status,
         timestamp=datetime.utcnow().isoformat()
     )
+
+
+# ==================== Diagnostic Endpoints ====================
+
+@admin_router.get("/diagnostics/quotes")
+async def diagnose_quotes(
+    tenant_id: Optional[str] = None,
+    limit: int = 20,
+    admin_verified: bool = Depends(verify_admin_token)
+):
+    """
+    Diagnostic endpoint to inspect quotes in the database.
+
+    Returns quotes for a specific tenant or all tenants if not specified.
+    Use this to debug why quotes might not be showing in the frontend.
+    """
+    from src.services.supabase_service import SupabaseService
+
+    supabase = SupabaseService()
+    if not supabase.client:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    try:
+        query = supabase.client.table('quotes')\
+            .select("quote_id, tenant_id, customer_name, customer_email, status, created_at")\
+            .order('created_at', desc=True)\
+            .limit(limit)
+
+        if tenant_id:
+            query = query.eq('tenant_id', tenant_id)
+
+        result = query.execute()
+        quotes = result.data or []
+
+        # Group by tenant for easier analysis
+        by_tenant = {}
+        for q in quotes:
+            t = q.get('tenant_id', 'unknown')
+            if t not in by_tenant:
+                by_tenant[t] = []
+            by_tenant[t].append(q)
+
+        return {
+            "success": True,
+            "total_quotes": len(quotes),
+            "filter_tenant_id": tenant_id,
+            "tenants_with_quotes": list(by_tenant.keys()),
+            "quotes_by_tenant": {t: len(qs) for t, qs in by_tenant.items()},
+            "quotes": quotes
+        }
+
+    except Exception as e:
+        log_and_raise(500, "diagnosing quotes", e, logger)
 
 
 # ==================== Include Router ====================

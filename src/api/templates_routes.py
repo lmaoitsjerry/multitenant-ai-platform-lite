@@ -17,6 +17,7 @@ import os
 
 from config.loader import ClientConfig
 from src.tools.supabase_tool import SupabaseTool
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +185,7 @@ async def update_template_settings(
             "message": "Template settings updated"
         }
     except Exception as e:
-        logger.error(f"Failed to update template settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating template settings", e, logger)
 
 
 @templates_router.get("/quote")
@@ -244,8 +244,7 @@ async def reset_template_settings(config: ClientConfig = Depends(get_client_conf
             "message": "Template settings reset to defaults"
         }
     except Exception as e:
-        logger.error(f"Failed to reset template settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "resetting template settings", e, logger)
 
 
 @templates_router.get("/layouts")

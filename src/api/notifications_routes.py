@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 from config.loader import ClientConfig
 from src.tools.supabase_tool import SupabaseTool
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -178,8 +179,7 @@ async def list_notifications(
         }
 
     except Exception as e:
-        logger.error(f"Error listing notifications: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing notifications", e, logger)
 
 
 @notifications_router.get("/unread-count")
@@ -231,8 +231,7 @@ async def mark_notification_read(
         }
 
     except Exception as e:
-        logger.error(f"Error marking notification read: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "marking notification read", e, logger)
 
 
 @notifications_router.post("/mark-all-read")
@@ -266,8 +265,7 @@ async def mark_all_read(
         }
 
     except Exception as e:
-        logger.error(f"Error marking all read: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "marking all notifications read", e, logger)
 
 
 @notifications_router.get("/preferences")
@@ -311,8 +309,7 @@ async def get_notification_preferences(
         }
 
     except Exception as e:
-        logger.error(f"Error getting preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting notification preferences", e, logger)
 
 
 @notifications_router.put("/preferences")
@@ -349,8 +346,7 @@ async def update_notification_preferences(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating notification preferences", e, logger)
 
 
 # ==================== Helper Functions ====================

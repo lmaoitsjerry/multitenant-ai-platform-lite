@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query, Body
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,7 @@ async def list_tickets(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list tickets: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing tickets", e, logger)
 
 
 @inbound_router.get("/tickets/{ticket_id}")
@@ -140,8 +140,7 @@ async def get_ticket(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get ticket: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting ticket details", e, logger)
 
 
 @inbound_router.patch("/tickets/{ticket_id}")
@@ -182,8 +181,7 @@ async def update_ticket(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update ticket: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating ticket", e, logger)
 
 
 @inbound_router.post("/tickets/{ticket_id}/reply")
@@ -244,8 +242,7 @@ async def reply_to_ticket(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to add reply: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "adding reply to ticket", e, logger)
 
 
 @inbound_router.get("/stats")
@@ -285,5 +282,4 @@ async def get_inbound_stats(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get inbound stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "getting inbound stats", e, logger)
