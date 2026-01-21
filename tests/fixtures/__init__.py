@@ -4,12 +4,13 @@ Test Fixtures Package
 Reusable mock infrastructure for external API dependencies:
 - BigQuery client mocks and data generators
 - SendGrid API mocks and response generators
-- (Future) Twilio API mocks
+- Twilio/VAPI API mocks and response generators
 - (Future) LLM/OpenAI mocks
 
 Usage:
     from tests.fixtures.bigquery_fixtures import create_mock_bigquery_client, generate_quotes
     from tests.fixtures.sendgrid_fixtures import create_mock_sendgrid_service, generate_subusers
+    from tests.fixtures.twilio_vapi_fixtures import create_mock_provisioner, generate_available_numbers
 """
 
 # BigQuery fixtures
@@ -42,6 +43,22 @@ from tests.fixtures.sendgrid_fixtures import (
     GLOBAL_STATS_RESPONSE,
 )
 
+# Twilio/VAPI fixtures
+from tests.fixtures.twilio_vapi_fixtures import (
+    MockHTTPResponse,
+    TwilioResponseFactory,
+    VAPIResponseFactory,
+    MockRequestsSession,
+    create_mock_provisioner,
+    generate_available_numbers,
+    generate_twilio_number,
+    generate_address,
+    AVAILABLE_NUMBERS_ZA,
+    AVAILABLE_NUMBERS_US,
+    TWILIO_NUMBERS_LIST,
+    ADDRESSES_LIST,
+)
+
 __all__ = [
     # BigQuery mocks
     "MockBigQueryRow",
@@ -70,4 +87,19 @@ __all__ = [
     "SUBUSER_LIST_RESPONSE",
     "SUBUSER_STATS_RESPONSE",
     "GLOBAL_STATS_RESPONSE",
+    # Twilio/VAPI mocks
+    "MockHTTPResponse",
+    "TwilioResponseFactory",
+    "VAPIResponseFactory",
+    "MockRequestsSession",
+    "create_mock_provisioner",
+    # Twilio/VAPI data generators
+    "generate_available_numbers",
+    "generate_twilio_number",
+    "generate_address",
+    # Twilio/VAPI response templates
+    "AVAILABLE_NUMBERS_ZA",
+    "AVAILABLE_NUMBERS_US",
+    "TWILIO_NUMBERS_LIST",
+    "ADDRESSES_LIST",
 ]
