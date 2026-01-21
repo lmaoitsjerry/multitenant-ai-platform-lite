@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 11 of 12 (Database-Backed Tenant Registry)
-Plan: 01 of 04 complete
+Plan: 02 of 04 complete
 Status: In progress
-Last activity: 2026-01-21 — Completed 11-01-PLAN.md (Tenant Config JSONB Schema)
+Last activity: 2026-01-21 — Completed 11-02-PLAN.md (Dual-Mode Config Loader)
 
-Progress: [===========] 55% (v3.0: Phases 9-10 complete, 11 in progress)
+Progress: [============] 60% (v3.0: Phases 9-10 complete, 11 in progress)
 
 ## Milestones
 
@@ -34,9 +34,9 @@ Progress: [===========] 55% (v3.0: Phases 9-10 complete, 11 in progress)
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14 (v2.0: 13, v3.0: 1)
+- Total plans completed: 15 (v2.0: 13, v3.0: 2)
 - Average duration: ~30 min
-- Total execution time: ~6.5 hours
+- Total execution time: ~6.6 hours
 
 **By Phase (v3.0):**
 
@@ -44,7 +44,7 @@ Progress: [===========] 55% (v3.0: Phases 9-10 complete, 11 in progress)
 |-------|-------|--------|
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
-| 11 | 1/4 | In progress |
+| 11 | 2/4 | In progress |
 | 12 | 0/3 | Pending |
 
 ## Accumulated Context
@@ -57,7 +57,7 @@ Progress: [===========] 55% (v3.0: Phases 9-10 complete, 11 in progress)
 3. ~~Hardcoded admin token in frontend (zorah-internal-admin-2024)~~ FIXED (09-02)
 
 **Scalability Blockers:**
-1. ~~File-based tenant config (YAML per tenant) won't scale~~ IN PROGRESS (11-01: schema ready)
+1. ~~File-based tenant config (YAML per tenant) won't scale~~ FIXED (11-02: TenantConfigService with DB backend)
 2. ~~In-memory rate limiting won't work across instances~~ FIXED (10-03)
 3. No Redis caching
 
@@ -81,6 +81,9 @@ Progress: [===========] 55% (v3.0: Phases 9-10 complete, 11 in progress)
 | D-10-01-02 | Full exception logged with exc_info=True for traceback | 2026-01-21 |
 | D-10-04-01 | Skip Redis tests when module unavailable | 2026-01-21 |
 | D-11-01-01 | Use 014_tenant_config.sql (migrations 012-013 already exist) | 2026-01-21 |
+| D-11-02-01 | Skip tn_* auto-generated test tenants (garbage data) | 2026-01-21 |
+| D-11-02-02 | Use lazy imports in config/loader.py for TenantConfigService | 2026-01-21 |
+| D-11-02-03 | Add config_source property to ClientConfig | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -97,11 +100,11 @@ None yet.
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
-- ~~Migration strategy for 60+ existing tenant YAML files~~ Addressed: config_source enables dual-mode
+- ~~Migration strategy for 60+ existing tenant YAML files~~ Addressed: Only 4 real tenants to migrate
 - Test coverage improving: 19 auth middleware tests added (09-03), 44 rate limiter tests added (10-04)
 
 ## Session Continuity
 
-Last session: 2026-01-21 14:23 UTC
-Stopped at: Completed 11-01-PLAN.md (Tenant Config JSONB Schema)
-Resume file: None - continue with 11-02-PLAN.md (Dual-Mode Config Loader)
+Last session: 2026-01-21 14:32 UTC
+Stopped at: Completed 11-02-PLAN.md (Dual-Mode Config Loader)
+Resume file: None - continue with 11-03-PLAN.md (YAML Migration Script)
