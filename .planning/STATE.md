@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 9 of 12 (Critical Security Fixes)
-Plan: 2 of ? (Remove Hardcoded Admin Token)
+Plan: 1 of 3 complete (Tenant Spoofing Prevention)
 Status: In progress
-Last activity: 2026-01-21 — Completed 09-02-PLAN.md
+Last activity: 2026-01-21 — Completed 09-01-PLAN.md (Tenant Spoofing Prevention)
 
-Progress: [########░░] 81% (v3.0 Phase 9 in progress)
+Progress: [########░░] 82% (v3.0 Phase 9: 1/3 plans complete)
 
 ## Milestones
 
@@ -50,7 +50,7 @@ Progress: [########░░] 81% (v3.0 Phase 9 in progress)
 
 **Critical Security Issues:**
 1. ADMIN_API_TOKEN bypass when not set (admin_routes.py)
-2. X-Client-ID not validated against user's actual tenant (auth_middleware.py)
+2. ~~X-Client-ID not validated against user's actual tenant~~ FIXED (09-01)
 3. ~~Hardcoded admin token in frontend (zorah-internal-admin-2024)~~ FIXED (09-02)
 
 **Scalability Blockers:**
@@ -67,6 +67,7 @@ Progress: [########░░] 81% (v3.0 Phase 9 in progress)
 
 | ID | Decision | Date |
 |----|----------|------|
+| D-09-01-01 | Validate X-Client-ID only when explicitly provided | 2026-01-21 |
 | D-09-02-01 | Warn on missing token instead of throwing error | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
@@ -90,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 09-02-PLAN.md (Remove Hardcoded Admin Token)
-Resume file: None - continue with next plan in Phase 9
+Stopped at: Completed 09-01-PLAN.md (Tenant Spoofing Prevention)
+Resume file: None - continue with 09-03-PLAN.md
