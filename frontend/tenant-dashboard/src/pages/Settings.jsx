@@ -22,8 +22,6 @@ import {
   CheckCircleIcon,
   SwatchIcon,
   PhotoIcon,
-  SunIcon,
-  MoonIcon,
   ArrowUpTrayIcon,
   XMarkIcon,
   EyeIcon,
@@ -326,7 +324,6 @@ export default function Settings() {
     branding,
     presets,
     fonts,
-    darkMode,
     loading: themeLoading,
     updateBranding,
     applyPreset,
@@ -334,7 +331,6 @@ export default function Settings() {
     resetBranding,
     setPreview,
     clearPreview,
-    toggleDarkMode,
   } = useTheme();
 
   // Filter tabs based on user role
@@ -1140,32 +1136,15 @@ export default function Settings() {
                   <h2 className="text-lg font-semibold text-gray-900">Branding & Appearance</h2>
                   <p className="text-sm text-gray-500">Customize your platform's look and feel</p>
                 </div>
-                <div className="flex items-center gap-3">
-                  {/* Dark Mode Toggle */}
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-theme bg-theme-surface">
-                    {darkMode ? (
-                      <MoonIcon className="w-5 h-5 text-indigo-600" />
-                    ) : (
-                      <SunIcon className="w-5 h-5 text-amber-500" />
-                    )}
-                    <span className="text-sm text-theme-secondary">{darkMode ? 'Dark' : 'Light'}</span>
-                    <Toggle
-                      checked={darkMode}
-                      onChange={toggleDarkMode}
-                      size="sm"
-                    />
-                  </div>
-
-                  {/* Reset Button */}
-                  <button
-                    onClick={handleResetBranding}
-                    disabled={saving}
-                    className="btn-secondary text-sm flex items-center gap-2"
-                  >
-                    <ArrowPathIcon className="w-4 h-4" />
-                    Reset
-                  </button>
-                </div>
+                {/* Reset Button */}
+                <button
+                  onClick={handleResetBranding}
+                  disabled={saving}
+                  className="btn-secondary text-sm flex items-center gap-2"
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                  Reset
+                </button>
               </div>
 
               {/* Branding Sub-tabs */}
@@ -1688,67 +1667,47 @@ export default function Settings() {
           {/* Notification Settings */}
           {activeTab === 'notifications' && (
             <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Notification Settings</h2>
+              <h2 className="text-lg font-semibold text-theme mb-6">Notification Settings</h2>
               <div className="space-y-4 max-w-lg">
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-theme-border">
                   <div>
-                    <p className="font-medium text-gray-900">New quote requests</p>
-                    <p className="text-sm text-gray-500">Get notified when a new quote is requested</p>
+                    <p className="font-medium text-theme">New quote requests</p>
+                    <p className="text-sm text-theme-muted">Get notified when a new quote is requested</p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifications.emailNewQuote}
-                      onChange={(e) => setNotifications({ ...notifications, emailNewQuote: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-primary-500 rounded-full peer peer-checked:bg-primary-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                  </label>
+                  <Toggle
+                    checked={notifications.emailNewQuote}
+                    onChange={(checked) => setNotifications({ ...notifications, emailNewQuote: checked })}
+                  />
                 </div>
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-theme-border">
                   <div>
-                    <p className="font-medium text-gray-900">Quote accepted</p>
-                    <p className="text-sm text-gray-500">Get notified when a customer accepts a quote</p>
+                    <p className="font-medium text-theme">Quote accepted</p>
+                    <p className="text-sm text-theme-muted">Get notified when a customer accepts a quote</p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifications.emailQuoteAccepted}
-                      onChange={(e) => setNotifications({ ...notifications, emailQuoteAccepted: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-primary-500 rounded-full peer peer-checked:bg-primary-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                  </label>
+                  <Toggle
+                    checked={notifications.emailQuoteAccepted}
+                    onChange={(checked) => setNotifications({ ...notifications, emailQuoteAccepted: checked })}
+                  />
                 </div>
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-theme-border">
                   <div>
-                    <p className="font-medium text-gray-900">New customer inquiries</p>
-                    <p className="text-sm text-gray-500">Get notified for new email inquiries</p>
+                    <p className="font-medium text-theme">New customer inquiries</p>
+                    <p className="text-sm text-theme-muted">Get notified for new email inquiries</p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifications.emailNewInquiry}
-                      onChange={(e) => setNotifications({ ...notifications, emailNewInquiry: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-primary-500 rounded-full peer peer-checked:bg-primary-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                  </label>
+                  <Toggle
+                    checked={notifications.emailNewInquiry}
+                    onChange={(checked) => setNotifications({ ...notifications, emailNewInquiry: checked })}
+                  />
                 </div>
                 <div className="flex items-center justify-between py-3">
                   <div>
-                    <p className="font-medium text-gray-900">Daily digest</p>
-                    <p className="text-sm text-gray-500">Receive a daily summary email</p>
+                    <p className="font-medium text-theme">Daily digest</p>
+                    <p className="text-sm text-theme-muted">Receive a daily summary email</p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifications.dailyDigest}
-                      onChange={(e) => setNotifications({ ...notifications, dailyDigest: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-primary-500 rounded-full peer peer-checked:bg-primary-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                  </label>
+                  <Toggle
+                    checked={notifications.dailyDigest}
+                    onChange={(checked) => setNotifications({ ...notifications, dailyDigest: checked })}
+                  />
                 </div>
                 <button onClick={handleSave} disabled={saving} className="btn-primary mt-4">
                   {saving ? 'Saving...' : 'Save Changes'}

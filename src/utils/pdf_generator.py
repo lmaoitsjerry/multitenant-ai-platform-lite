@@ -291,6 +291,21 @@ class PDFGenerator:
             pdf.set_auto_page_break(auto=True, margin=25)
             pdf.add_page()
 
+            def sanitize_text(text):
+                """Remove or replace unicode characters not supported by Helvetica"""
+                if not text:
+                    return ''
+                text = str(text)
+                # Replace unicode stars with asterisks
+                text = text.replace('★', '*').replace('☆', '*')
+                # Replace other common unicode characters
+                text = text.replace('✓', 'v').replace('✗', 'x').replace('•', '-')
+                text = text.replace('–', '-').replace('—', '-')
+                text = text.replace('"', '"').replace('"', '"')
+                text = text.replace(''', "'").replace(''', "'")
+                # Remove any remaining non-ASCII characters
+                return ''.join(c if ord(c) < 128 else '' for c in text)
+
             def hex_to_rgb(hex_color):
                 hex_color = hex_color.lstrip('#')
                 return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
@@ -302,19 +317,19 @@ class PDFGenerator:
             pdf.set_font('Helvetica', 'B', 16)
             pdf.set_text_color(*primary_rgb)
             pdf.set_xy(100, 10)
-            pdf.cell(100, 8, self.company_name, align='R')
+            pdf.cell(100, 8, sanitize_text(self.company_name), align='R')
 
             # Company details
             pdf.set_font('Helvetica', '', 9)
             pdf.set_text_color(80, 80, 80)
 
-            company_address = getattr(self.config, 'company_address', '')
-            company_city = getattr(self.config, 'company_city', '')
-            company_country = getattr(self.config, 'company_country', 'South Africa')
-            vat_number = getattr(self.config, 'vat_number', '')
-            reg_number = getattr(self.config, 'registration_number', '')
-            company_phone = getattr(self.config, 'support_phone', '')
-            company_website = getattr(self.config, 'website', '')
+            company_address = getattr(self.config, 'company_address', None) or ''
+            company_city = getattr(self.config, 'company_city', None) or ''
+            company_country = getattr(self.config, 'company_country', None) or 'South Africa'
+            vat_number = getattr(self.config, 'vat_number', None) or ''
+            reg_number = getattr(self.config, 'registration_number', None) or ''
+            company_phone = getattr(self.config, 'support_phone', None) or ''
+            company_website = getattr(self.config, 'website', None) or ''
 
             y_header = 20
             if company_address:
@@ -421,8 +436,8 @@ class PDFGenerator:
                 else:
                     pdf.set_fill_color(255, 255, 255)
 
-                destination = str(item.get('destination', ''))[:20]
-                description = str(item.get('description', ''))[:40]
+                destination = sanitize_text(str(item.get('destination', '')))[:20]
+                description = sanitize_text(str(item.get('description', '')))[:40]
                 unit_price = float(item.get('unit_price', item.get('amount', 0)))
                 quantity = int(item.get('quantity', 1))
                 amount = float(item.get('amount', unit_price * quantity))
@@ -463,11 +478,11 @@ class PDFGenerator:
                     y_pos += 5
                 if room_type:
                     pdf.set_xy(15, y_pos)
-                    pdf.cell(180, 5, f"Room Type: {room_type}")
+                    pdf.cell(180, 5, f"Room Type: {sanitize_text(room_type)}")
                     y_pos += 5
                 if meal_plan:
                     pdf.set_xy(15, y_pos)
-                    pdf.cell(180, 5, f"Meal Basis: {meal_plan}")
+                    pdf.cell(180, 5, f"Meal Basis: {sanitize_text(meal_plan)}")
                     y_pos += 5
 
                 # Price Includes
@@ -480,7 +495,7 @@ class PDFGenerator:
                     pdf.set_font('Helvetica', '', 9)
                     for inclusion in price_includes:
                         pdf.set_xy(20, y_pos)
-                        pdf.cell(175, 5, f"- {inclusion}")
+                        pdf.cell(175, 5, f"- {sanitize_text(inclusion)}")
                         y_pos += 5
 
             pdf.set_text_color(0, 0, 0)
@@ -507,11 +522,11 @@ class PDFGenerator:
                         pdf.add_page()
                         y_pos = 20
 
-                    name = traveler.get('name', f'Traveler {i}')
-                    traveler_type = traveler.get('type', 'Adult')
-                    passport = traveler.get('passport_number', '')
-                    dob = traveler.get('date_of_birth', '')
-                    nationality = traveler.get('nationality', '')
+                    name = sanitize_text(traveler.get('name', f'Traveler {i}'))
+                    traveler_type = sanitize_text(traveler.get('type', 'Adult'))
+                    passport = sanitize_text(traveler.get('passport_number', ''))
+                    dob = sanitize_text(traveler.get('date_of_birth', ''))
+                    nationality = sanitize_text(traveler.get('nationality', ''))
 
                     info = f"{i}. {name} ({traveler_type})"
                     if dob:
@@ -583,7 +598,7 @@ class PDFGenerator:
 
             if notes:
                 pdf.set_xy(10, y_pos)
-                pdf.multi_cell(190, 4, f"Notes: {notes}")
+                pdf.multi_cell(190, 4, f"Notes: {sanitize_text(notes)}")
                 y_pos += 10
 
             # ==================== BANKING DETAILS (Nova Template Layout) ====================
@@ -596,18 +611,18 @@ class PDFGenerator:
             pdf.set_draw_color(200, 200, 200)
             pdf.line(10, y_pos - 2, 200, y_pos - 2)
 
-            # Get banking configuration
-            bank_name = getattr(self.config, 'bank_name', 'First National Bank')
-            bank_zar_account = getattr(self.config, 'bank_account_number', '')
-            bank_zar_branch = getattr(self.config, 'bank_branch_code', '')
-            bank_usd_account = getattr(self.config, 'bank_usd_account', '')
-            bank_usd_branch = getattr(self.config, 'bank_usd_branch', '')
-            bank_eur_account = getattr(self.config, 'bank_eur_account', '')
-            bank_eur_branch = getattr(self.config, 'bank_eur_branch', '')
-            swift_code = getattr(self.config, 'bank_swift_code', '')
-            ref_prefix = getattr(self.config, 'payment_reference_prefix', 'AFS')
-            fax_number = getattr(self.config, 'fax_number', '')
-            primary_email = getattr(self.config, 'primary_email', '')
+            # Get banking configuration (use 'or' to handle None values)
+            bank_name = getattr(self.config, 'bank_name', None) or 'First National Bank'
+            bank_zar_account = getattr(self.config, 'bank_account_number', None) or ''
+            bank_zar_branch = getattr(self.config, 'bank_branch_code', None) or ''
+            bank_usd_account = getattr(self.config, 'bank_usd_account', None) or ''
+            bank_usd_branch = getattr(self.config, 'bank_usd_branch', None) or ''
+            bank_eur_account = getattr(self.config, 'bank_eur_account', None) or ''
+            bank_eur_branch = getattr(self.config, 'bank_eur_branch', None) or ''
+            swift_code = getattr(self.config, 'bank_swift_code', None) or ''
+            ref_prefix = getattr(self.config, 'payment_reference_prefix', None) or 'AFS'
+            fax_number = getattr(self.config, 'fax_number', None) or ''
+            primary_email = getattr(self.config, 'primary_email', None) or ''
 
             # Row 1: Company name (left) | Bank name (right)
             pdf.set_font('Helvetica', 'B', 8)

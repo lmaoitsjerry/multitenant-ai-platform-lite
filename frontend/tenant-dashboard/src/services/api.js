@@ -356,10 +356,15 @@ export const prefetchForRoute = (route) => {
 
 // ==================== Quotes API ====================
 export const quotesApi = {
-  list: async (params = {}) => {
+  list: async (params = {}, options = {}) => {
+    const { skipCache = false } = options;
     const cacheKey = `quotes-list-${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
+
+    // Skip cache if requested (useful for debugging tenant issues)
+    if (!skipCache) {
+      const cached = getCached(cacheKey);
+      if (cached) return { data: cached };
+    }
 
     const response = await api.get('/api/v1/quotes', { params });
     setCached(cacheKey, response.data, LIST_CACHE_TTL);

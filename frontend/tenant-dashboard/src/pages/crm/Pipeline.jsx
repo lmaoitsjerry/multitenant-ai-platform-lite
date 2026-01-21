@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { useApp } from '../../context/AppContext';
 import { crmApi } from '../../services/api';
 import {
   PlusIcon,
@@ -29,7 +30,7 @@ const STAGES = [
 const ClientCard = memo(function ClientCard({ client }) {
   return (
     <Link
-      to={`/crm/clients/${client.client_id}`}
+      to={`/crm/clients/${client.client_id || client.id}`}
       className="block bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
     >
       <div className="flex items-start justify-between mb-2">
@@ -199,6 +200,7 @@ function PipelineTable({ clients, stages, onStageChange }) {
 }
 
 export default function Pipeline() {
+  const { clientInfo } = useApp();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
@@ -209,22 +211,37 @@ export default function Pipeline() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // Currency formatting
+  const currencySymbols = { ZAR: 'R', USD: '$', EUR: '€', GBP: '£' };
+  const currencyCode = clientInfo?.currency || 'ZAR';
+  const currencySymbol = currencySymbols[currencyCode] || currencyCode;
+
+  const formatCurrency = (amount) => {
+    if (!amount) return `${currencySymbol} 0`;
+    if (amount >= 1000) return `${currencySymbol} ${(amount/1000).toFixed(0)}K`;
+    return `${currencySymbol} ${amount.toLocaleString()}`;
+  };
+
   // Memoized loadData to prevent recreation
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
+      console.log('[Pipeline] Fetching clients, forceRefresh:', forceRefresh);
       const [clientsRes, statsRes] = await Promise.all([
         crmApi.listClients({ limit: 100 }, forceRefresh),
         crmApi.getPipeline().catch(() => null),
       ]);
 
+      console.log('[Pipeline] API response:', clientsRes.data);
       // Use clients data directly - backend now returns enriched data
-      setClients(clientsRes.data?.data || []);
+      const clientsData = clientsRes.data?.data || [];
+      console.log('[Pipeline] Setting clients:', clientsData.length, 'clients');
+      setClients(clientsData);
       if (statsRes) {
         setStats(statsRes.data?.data);
       }
     } catch (error) {
-      console.error('Failed to load pipeline data:', error);
+      console.error('[Pipeline] Failed to load pipeline data:', error);
     } finally {
       setLoading(false);
     }
@@ -262,7 +279,11 @@ export default function Pipeline() {
 
       if (response.data?.success) {
         setShowAddModal(false);
-        setToast({ type: 'success', message: 'Client created successfully!' });
+        // Show different message if client already existed
+        const message = response.data.created === false
+          ? 'Client already exists - showing existing record'
+          : 'Client created successfully!';
+        setToast({ type: 'success', message });
         loadData(true); // Force refresh the list (bypass cache)
       } else {
         setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
@@ -368,7 +389,7 @@ export default function Pipeline() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pipeline</h1>
           <p className="text-gray-500 mt-1">
-            {clients.length} clients • Total value: R {totalValue.toLocaleString()}
+            {clients.length} clients • Total value: {formatCurrency(totalValue)}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -416,22 +437,24 @@ export default function Pipeline() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-6 gap-4">
-        {STAGES.map((stage) => (
-          <div key={stage.id} className="card p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <div className={`w-2 h-2 rounded-full ${stage.color}`}></div>
-              <span className="text-sm text-gray-500">{stage.label}</span>
+      {/* Circular Stats */}
+      <div className="flex justify-center gap-4 flex-wrap">
+        {STAGES.map((stage) => {
+          const count = clientsByStage[stage.id]?.length || 0;
+          const value = stageValues[stage.id] || 0;
+          return (
+            <div key={stage.id} className="flex flex-col items-center">
+              <div
+                className={`w-20 h-20 rounded-full flex flex-col items-center justify-center ${stage.color} text-white shadow-lg transition-transform hover:scale-105 cursor-pointer`}
+                title={`${stage.label}: ${formatCurrency(value)}`}
+              >
+                <span className="text-2xl font-bold">{count}</span>
+              </div>
+              <span className="text-sm text-theme-secondary mt-2 font-medium">{stage.label}</span>
+              <span className="text-xs text-theme-muted">{formatCurrency(value)}</span>
             </div>
-            <p className="text-lg font-bold text-gray-900">
-              R {(stageValues[stage.id] || 0).toLocaleString()}
-            </p>
-            <p className="text-xs text-gray-400">
-              {clientsByStage[stage.id]?.length || 0} clients
-            </p>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Kanban Board */}
@@ -465,22 +488,22 @@ export default function Pipeline() {
       {/* Add Client Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-[9999] overflow-y-auto">
-          {/* Backdrop */}
+          {/* Backdrop with blur */}
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
             onClick={() => setShowAddModal(false)}
           />
 
           {/* Modal Container */}
           <div className="flex min-h-full items-center justify-center p-4">
-            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md transform transition-all">
+            <div className="relative bg-theme-surface rounded-xl shadow-2xl w-full max-w-md transform transition-all border border-theme-border">
               {/* Header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Add New Client</h3>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-theme-border">
+                <h3 className="text-lg font-semibold text-theme">Add New Client</h3>
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                  className="p-1.5 rounded-lg hover:bg-theme-surface-elevated text-theme-muted hover:text-theme"
                 >
                   <XMarkIcon className="w-5 h-5" />
                 </button>
@@ -489,42 +512,42 @@ export default function Pipeline() {
               {/* Form */}
               <form onSubmit={handleCreateClient} className="p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">Name *</label>
                   <input
                     type="text"
                     name="name"
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="Client name"
                     autoFocus
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">Email *</label>
                   <input
                     type="email"
                     name="email"
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="client@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">Phone</label>
                   <input
                     type="tel"
                     name="phone"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="+27 82 123 4567"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">Source</label>
                   <select
                     name="source"
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none cursor-pointer"
+                    className="input appearance-none cursor-pointer"
                     style={{
-                      backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+                      backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239CA3AF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
                       backgroundPosition: 'right 0.5rem center',
                       backgroundRepeat: 'no-repeat',
                       backgroundSize: '1.5em 1.5em',
@@ -541,14 +564,14 @@ export default function Pipeline() {
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                    className="flex-1 px-4 py-2 border border-theme-border rounded-lg text-theme-secondary hover:bg-theme-surface-elevated font-medium transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={creating}
-                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="btn-primary flex-1 flex items-center justify-center gap-2"
                   >
                     {creating ? (
                       <>

@@ -3,7 +3,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { notificationsApi } from '../../services/api';
+import { notificationsApi, quotesApi, crmApi } from '../../services/api';
 import {
   MagnifyingGlassIcon,
   BellIcon,
@@ -17,6 +17,10 @@ import {
   CurrencyDollarIcon,
   CheckCircleIcon,
   ExclamationCircleIcon,
+  SunIcon,
+  MoonIcon,
+  UserIcon,
+  MapPinIcon,
 } from '@heroicons/react/24/outline';
 
 const pageTitles = {
@@ -253,22 +257,189 @@ function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, 
   );
 }
 
+// Search dropdown component
+function SearchDropdown({ isOpen, onClose, searchQuery, results, loading, onResultClick }) {
+  const dropdownRef = useRef(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !searchQuery) return null;
+
+  const handleClick = (type, id) => {
+    const routes = {
+      quote: `/quotes/${id}`,
+      client: `/crm/clients/${id}`,
+    };
+    navigate(routes[type] || '/');
+    onClose();
+  };
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="absolute left-0 top-full mt-2 w-80 bg-theme-surface rounded-xl shadow-lg border-theme overflow-hidden z-50 animate-dropdown"
+    >
+      {loading ? (
+        <div className="text-center py-6">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-theme-primary mx-auto mb-2"></div>
+          <p className="text-sm text-theme-muted">Searching...</p>
+        </div>
+      ) : results.length === 0 ? (
+        <div className="text-center py-6">
+          <MagnifyingGlassIcon className="w-8 h-8 text-theme-muted mx-auto mb-2" />
+          <p className="text-sm text-theme-muted">No results for "{searchQuery}"</p>
+        </div>
+      ) : (
+        <div className="max-h-80 overflow-y-auto">
+          {/* Clients Section */}
+          {results.filter(r => r.type === 'client').length > 0 && (
+            <>
+              <div className="px-4 py-2 bg-theme-surface-elevated text-xs font-semibold text-theme-muted uppercase">
+                Clients
+              </div>
+              {results.filter(r => r.type === 'client').map((result) => (
+                <div
+                  key={`client-${result.id}`}
+                  onClick={() => handleClick('client', result.id)}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-theme-border-light cursor-pointer border-b border-theme-light"
+                >
+                  <div className="p-2 rounded-lg bg-[var(--color-primary)]/10">
+                    <UserIcon className="w-4 h-4 text-theme-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-theme truncate">{result.name}</p>
+                    <p className="text-xs text-theme-muted truncate">{result.email}</p>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Quotes Section */}
+          {results.filter(r => r.type === 'quote').length > 0 && (
+            <>
+              <div className="px-4 py-2 bg-theme-surface-elevated text-xs font-semibold text-theme-muted uppercase">
+                Quotes
+              </div>
+              {results.filter(r => r.type === 'quote').map((result) => (
+                <div
+                  key={`quote-${result.id}`}
+                  onClick={() => handleClick('quote', result.id)}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-theme-border-light cursor-pointer border-b border-theme-light"
+                >
+                  <div className="p-2 rounded-lg bg-[var(--color-secondary)]/10">
+                    <DocumentTextIcon className="w-4 h-4 text-[var(--color-secondary)]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-theme truncate">{result.name}</p>
+                    <p className="text-xs text-theme-muted truncate">
+                      {result.destination && <span className="inline-flex items-center gap-1"><MapPinIcon className="w-3 h-3" />{result.destination}</span>}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Header() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { clientInfo } = useApp();
   const { user, isAdmin, isConsultant, logout } = useAuth();
-  const { branding, darkMode } = useTheme();
+  const { branding, darkMode, toggleDarkMode } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Get the appropriate logo based on dark mode
-  // Priority: branding logo (uploaded) > clientInfo logo (config file)
-  const logoUrl = darkMode
-    ? (branding?.logos?.dark || branding?.logos?.primary || clientInfo?.logo_url)
-    : (branding?.logos?.primary || clientInfo?.logo_url);
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchTimeoutRef = useRef(null);
+
+  // Debounced search function
+  const performSearch = useCallback(async (query) => {
+    if (!query || query.length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    setShowSearchResults(true);
+
+    try {
+      const [clientsRes, quotesRes] = await Promise.all([
+        crmApi.listClients({ limit: 10 }).catch(() => ({ data: { data: [] } })),
+        quotesApi.list({ limit: 10 }).catch(() => ({ data: { data: [] } })),
+      ]);
+
+      const clients = clientsRes.data?.data || [];
+      const quotes = quotesRes.data?.data || [];
+      const queryLower = query.toLowerCase();
+
+      // Filter clients by name or email
+      const matchedClients = clients
+        .filter(c =>
+          c.name?.toLowerCase().includes(queryLower) ||
+          c.email?.toLowerCase().includes(queryLower)
+        )
+        .slice(0, 5)
+        .map(c => ({ type: 'client', id: c.client_id || c.id, name: c.name, email: c.email }));
+
+      // Filter quotes by customer name or destination
+      const matchedQuotes = quotes
+        .filter(q =>
+          q.customer_name?.toLowerCase().includes(queryLower) ||
+          q.destination?.toLowerCase().includes(queryLower) ||
+          q.quote_id?.toLowerCase().includes(queryLower)
+        )
+        .slice(0, 5)
+        .map(q => ({ type: 'quote', id: q.quote_id, name: q.customer_name, destination: q.destination }));
+
+      setSearchResults([...matchedClients, ...matchedQuotes]);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  // Handle search input change with debounce
+  const handleSearchChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(query);
+    }, 300);
+  };
 
   // Fetch notifications when dropdown opens
   const fetchNotifications = useCallback(async () => {
@@ -347,25 +518,24 @@ export default function Header() {
 
   return (
     <header className="h-16 bg-theme-surface border-b border-theme flex items-center justify-between px-6">
-      {/* Left Side - Tenant Branding & Page Title */}
+      {/* Left Side - Theme Toggle & Page Title */}
       <div className="flex items-center gap-4">
-        {/* Tenant Logo & Name */}
-        <Link to="/" className="flex items-center gap-3 pr-4 border-r border-theme">
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt={clientInfo?.client_name || 'Logo'}
-              className="h-8 w-auto object-contain"
-            />
+        {/* Dark Mode Toggle */}
+        <button
+          onClick={toggleDarkMode}
+          className={`p-2 rounded-lg transition-all duration-200 ${
+            darkMode
+              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200'
+              : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
+          }`}
+          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {darkMode ? (
+            <SunIcon className="w-5 h-5" />
           ) : (
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm bg-theme-primary">
-              {clientInfo?.client_name?.charAt(0)?.toUpperCase() || 'T'}
-            </div>
+            <MoonIcon className="w-5 h-5" />
           )}
-          <span className="font-semibold text-theme-primary hidden sm:block">
-            {clientInfo?.client_name || 'Dashboard'}
-          </span>
-        </Link>
+        </button>
 
         {/* Page Title */}
         <h1 className="text-lg font-medium text-theme-secondary">{getPageTitle()}</h1>
@@ -375,11 +545,21 @@ export default function Header() {
       <div className="flex items-center gap-2">
         {/* Search */}
         <div className="relative hidden md:block">
-          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted" />
+          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-theme-muted z-10" />
           <input
             type="text"
-            placeholder="Search..."
-            className="pl-10 pr-4 py-2 bg-theme-surface-elevated rounded-lg text-sm text-theme focus:outline-none focus:ring-2 focus:ring-primary-500 w-64"
+            placeholder="Search clients, quotes..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onFocus={() => searchQuery.length >= 2 && setShowSearchResults(true)}
+            className="pl-10 pr-4 py-2 bg-theme-surface-elevated rounded-lg text-sm text-theme focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] w-72 border border-transparent focus:border-[var(--color-primary)]/30"
+          />
+          <SearchDropdown
+            isOpen={showSearchResults}
+            onClose={() => setShowSearchResults(false)}
+            searchQuery={searchQuery}
+            results={searchResults}
+            loading={searchLoading}
           />
         </div>
 

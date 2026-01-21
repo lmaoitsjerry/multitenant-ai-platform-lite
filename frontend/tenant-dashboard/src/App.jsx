@@ -182,6 +182,7 @@ function RoutePrefetcher() {
 // Auth pages (public)
 const Login = lazy(() => import('./pages/Login'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'));
 
 // Admin pages (public - uses admin token auth)
@@ -234,6 +235,11 @@ function App() {
               <Route path="/forgot-password" element={
                 <Suspense fallback={<PageLoader />}>
                   <ForgotPassword />
+                </Suspense>
+              } />
+              <Route path="/reset-password" element={
+                <Suspense fallback={<PageLoader />}>
+                  <ResetPassword />
                 </Suspense>
               } />
               <Route path="/accept-invite" element={

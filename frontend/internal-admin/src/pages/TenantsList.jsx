@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom';
 import {
   MagnifyingGlassIcon,
   ArrowPathIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   EyeIcon,
 } from '@heroicons/react/24/outline';
 import { tenantsApi } from '../services/api';
@@ -22,7 +20,7 @@ export default function TenantsList() {
     try {
       setLoading(true);
       const response = await tenantsApi.listSummary();
-      setTenants(response.data?.tenants || []);
+      setTenants(response.data?.data || response.data?.tenants || []);
     } catch (error) {
       console.error('Failed to load tenants:', error);
     } finally {
@@ -34,7 +32,7 @@ export default function TenantsList() {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (
-      tenant.client_id?.toLowerCase().includes(searchLower) ||
+      tenant.tenant_id?.toLowerCase().includes(searchLower) ||
       tenant.company_name?.toLowerCase().includes(searchLower) ||
       tenant.name?.toLowerCase().includes(searchLower)
     );
@@ -91,7 +89,7 @@ export default function TenantsList() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTenants.map((tenant) => (
-            <div key={tenant.client_id} className="card hover:shadow-md transition-shadow">
+            <div key={tenant.tenant_id} className="card hover:shadow-md transition-shadow">
               {/* Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -102,43 +100,37 @@ export default function TenantsList() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">{tenant.company_name}</h3>
-                    <p className="text-sm text-gray-500">{tenant.client_id}</p>
+                    <p className="text-sm text-gray-500">{tenant.tenant_id}</p>
                   </div>
                 </div>
                 <span className={`badge ${tenant.status === 'active' ? 'badge-success' : 'badge-error'}`}>
-                  {tenant.status}
+                  {tenant.status || 'active'}
                 </span>
               </div>
 
-              {/* Info */}
+              {/* Usage Stats */}
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">Currency</span>
-                  <span className="font-medium">{tenant.currency}</span>
+                  <span className="font-medium">{tenant.currency || 'ZAR'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Timezone</span>
-                  <span className="font-medium">{tenant.timezone}</span>
+                  <span className="text-gray-500">Quotes</span>
+                  <span className="font-medium">{tenant.quote_count || 0}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Destinations</span>
-                  <span className="font-medium">{tenant.destinations_count}</span>
+                  <span className="text-gray-500">Invoices</span>
+                  <span className="font-medium">{tenant.invoice_count || 0}</span>
                 </div>
-              </div>
-
-              {/* Integration Status */}
-              <div className="border-t border-gray-100 pt-4 mb-4">
-                <p className="text-xs text-gray-500 uppercase mb-2">Integrations</p>
-                <div className="flex flex-wrap gap-2">
-                  <IntegrationBadge label="VAPI" active={tenant.vapi_configured} />
-                  <IntegrationBadge label="SendGrid" active={tenant.sendgrid_configured} />
-                  <IntegrationBadge label="Supabase" active={tenant.supabase_configured} />
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Total Invoiced</span>
+                  <span className="font-medium text-green-600">R {Number(tenant.total_invoiced || 0).toLocaleString()}</span>
                 </div>
               </div>
 
               {/* Actions */}
               <Link
-                to={`/tenants/${tenant.client_id}`}
+                to={`/tenants/${tenant.tenant_id}`}
                 className="btn-secondary w-full flex items-center justify-center gap-2"
               >
                 <EyeIcon className="w-4 h-4" />
@@ -148,21 +140,6 @@ export default function TenantsList() {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function IntegrationBadge({ label, active }) {
-  return (
-    <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${
-      active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'
-    }`}>
-      {active ? (
-        <CheckCircleIcon className="w-3.5 h-3.5" />
-      ) : (
-        <XCircleIcon className="w-3.5 h-3.5" />
-      )}
-      {label}
     </div>
   );
 }

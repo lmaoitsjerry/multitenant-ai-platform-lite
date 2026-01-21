@@ -16,12 +16,20 @@
 
   /* Accent & Status Colors */
   --color-accent: #06B6D4;
-  --color-success: #22C55E;
+  --color-success: #10B981;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
-  --color-success-rgb: 34, 197, 94;
+  --color-info: #3B82F6;
+  --color-success-rgb: 16, 185, 129;
   --color-warning-rgb: 245, 158, 11;
   --color-error-rgb: 239, 68, 68;
+
+  /* Chart Colors - derived from theme */
+  --color-chart-1: var(--color-primary);
+  --color-chart-2: var(--color-secondary);
+  --color-chart-3: var(--color-accent);
+  --color-chart-4: var(--color-success);
+  --color-chart-5: var(--color-warning);
 
   /* Background Colors */
   --color-background: #F8FAFC;
@@ -212,13 +220,20 @@ h1, h2, h3, h4, h5, h6 {
 
 .input {
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  padding-right: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-base);
   background-color: var(--color-surface);
   color: var(--color-text-primary);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Default left padding - can be overridden by Tailwind utilities */
+.input:not([class*="pl-"]) {
+  padding-left: 0.75rem;
 }
 
 .input:focus {
@@ -267,6 +282,9 @@ h1, h2, h3, h4, h5, h6 {
 .border-theme { border-color: var(--color-border); }
 .border-theme-light { border-color: var(--color-border-light); }
 .border-theme-primary { border-color: var(--color-primary); }
+
+/* Divide utilities - for table/list dividers */
+.divide-theme > * + * { border-color: var(--color-border); }
 
 /* Hover states with theme colors */
 .hover\:bg-theme-surface:hover { background-color: var(--color-surface); }
@@ -783,4 +801,105 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 0.875rem;
   color: var(--color-text-muted);
   max-width: 24rem;
+}
+
+/* ==================== Print Styles ==================== */
+@media print {
+  /* Hide navigation and UI elements */
+  aside,
+  nav,
+  header,
+  .sidebar,
+  .no-print,
+  [data-sidebar],
+  [data-header],
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-accent,
+  .toast,
+  .modal-backdrop {
+    display: none !important;
+  }
+
+  /* Reset main content layout */
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  main,
+  .main-content,
+  [data-main] {
+    margin: 0 !important;
+    padding: 0 !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Ensure content fills page */
+  .print-content {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 1rem !important;
+  }
+
+  /* Show print-only elements */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Clean up cards and borders */
+  .card,
+  .card-elevated {
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+
+  /* Handle page breaks */
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  .page-break-after {
+    page-break-after: always;
+  }
+
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+
+  /* Print-friendly colors */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Reset any transforms that might hide content */
+  .lg\\:ml-64,
+  .ml-64 {
+    margin-left: 0 !important;
+  }
+
+  /* Ensure text is visible */
+  .text-gray-500,
+  .text-gray-600,
+  .text-theme-muted {
+    color: #333 !important;
+  }
+}
+
+/* Hide during print */
+.no-print {
+  /* Normal display */
+}
+
+/* Show only during print */
+.print-only {
+  display: none;
 }

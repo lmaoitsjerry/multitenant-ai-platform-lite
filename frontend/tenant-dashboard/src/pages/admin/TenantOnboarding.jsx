@@ -10,8 +10,130 @@ import {
   ArrowPathIcon,
   XMarkIcon,
   ExclamationTriangleIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { onboardingApi } from '../../services/api';
+import { onboardingApi, setTenantId } from '../../services/api';
+
+// Password strength calculator
+const getPasswordStrength = (password) => {
+  if (!password) return null;
+
+  let strength = 0;
+  if (password.length >= 8) strength++;
+  if (password.length >= 12) strength++;
+  if (/[a-z]/.test(password)) strength++;
+  if (/[A-Z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[^a-zA-Z0-9]/.test(password)) strength++;
+
+  if (strength <= 2) return { level: 'weak', color: 'bg-red-500', width: '25%', label: 'Weak' };
+  if (strength <= 3) return { level: 'fair', color: 'bg-orange-500', width: '50%', label: 'Fair' };
+  if (strength <= 4) return { level: 'good', color: 'bg-yellow-500', width: '75%', label: 'Good' };
+  return { level: 'strong', color: 'bg-green-500', width: '100%', label: 'Strong' };
+};
+
+// Generate a strong random password
+const generateStrongPassword = () => {
+  const length = 16;
+  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const numbers = '0123456789';
+  const symbols = '!@#$%^&*';
+  const allChars = lowercase + uppercase + numbers + symbols;
+
+  // Ensure at least one of each type
+  let password = '';
+  password += uppercase[Math.floor(Math.random() * uppercase.length)];
+  password += lowercase[Math.floor(Math.random() * lowercase.length)];
+  password += numbers[Math.floor(Math.random() * numbers.length)];
+  password += symbols[Math.floor(Math.random() * symbols.length)];
+
+  // Fill the rest randomly
+  for (let i = password.length; i < length; i++) {
+    password += allChars[Math.floor(Math.random() * allChars.length)];
+  }
+
+  // Shuffle the password
+  return password.split('').sort(() => Math.random() - 0.5).join('');
+};
+
+// Password field component with show/hide, strength indicator, and generator
+function PasswordField({ value, onChange, error }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const strength = getPasswordStrength(value);
+
+  const handleGenerate = () => {
+    const newPassword = generateStrongPassword();
+    onChange(newPassword);
+    setShowPassword(true); // Show the generated password so user can see/copy it
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Password input with toggle */}
+      <div className="relative">
+        <input
+          type={showPassword ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="At least 8 characters"
+          className={`w-full px-3 py-2 pr-20 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+            error ? 'border-red-500' : 'border-gray-300'
+          }`}
+        />
+        <button
+          type="button"
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600"
+          title={showPassword ? 'Hide password' : 'Show password'}
+        >
+          {showPassword ? (
+            <EyeSlashIcon className="w-5 h-5" />
+          ) : (
+            <EyeIcon className="w-5 h-5" />
+          )}
+        </button>
+      </div>
+
+      {/* Strength indicator */}
+      {value && strength && (
+        <div className="space-y-1">
+          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${strength.color} transition-all duration-300`}
+              style={{ width: strength.width }}
+            />
+          </div>
+          <p className={`text-xs ${
+            strength.level === 'weak' ? 'text-red-600' :
+            strength.level === 'fair' ? 'text-orange-600' :
+            strength.level === 'good' ? 'text-yellow-600' :
+            'text-green-600'
+          }`}>
+            Password strength: {strength.label}
+          </p>
+        </div>
+      )}
+
+      {/* Generate button */}
+      <button
+        type="button"
+        onClick={handleGenerate}
+        className="flex items-center gap-1.5 text-sm text-purple-600 hover:text-purple-700 font-medium"
+      >
+        <SparklesIcon className="w-4 h-4" />
+        Generate strong password
+      </button>
+
+      {/* Error message */}
+      {error && (
+        <p className="text-sm text-red-500">{error}</p>
+      )}
+    </div>
+  );
+}
 
 const STORAGE_KEY = 'tenant_onboarding_progress_lite';
 
@@ -43,8 +165,7 @@ const getDefaultData = () => ({
     from_email: '',
     email_signature: '',
     auto_send_quotes: true,
-    quote_validity_days: 14,
-    sendgrid_api_key: '',
+    quote_validity_days: 7,
   },
   admin_email: '',
   admin_password: '',
@@ -222,13 +343,57 @@ export default function TenantOnboarding() {
       const response = await onboardingApi.complete(request);
 
       if (response.data?.success || response.data?.tenant_id) {
-        setProvisioningStatus({
-          step: 'complete',
-          message: 'Setup complete!',
-          resources: response.data.resources || { tenant_id: response.data.tenant_id },
-          tenant_id: response.data.tenant_id,
-        });
-        localStorage.removeItem(STORAGE_KEY);
+        // Store tenant ID for future API calls
+        const tenantId = response.data.tenant_id;
+        if (tenantId) {
+          setTenantId(tenantId);
+        }
+
+        // Check for critical errors (e.g., admin user creation failed)
+        const criticalErrors = response.data.errors?.filter(e =>
+          e.includes('Email already registered') ||
+          e.includes('Admin user')
+        ) || [];
+
+        // Check if auto-login tokens were provided
+        const { access_token, refresh_token, user } = response.data;
+        if (access_token && refresh_token && user) {
+          // Store tokens and user for auto-login
+          localStorage.setItem('access_token', access_token);
+          localStorage.setItem('refresh_token', refresh_token);
+          localStorage.setItem('user', JSON.stringify(user));  // Store user for session
+          localStorage.removeItem(STORAGE_KEY);
+
+          // Redirect to dashboard - user is now logged in
+          setProvisioningStatus({ step: 'redirecting', message: 'Logging you in...' });
+          setTimeout(() => {
+            navigate('/');
+          }, 1000);
+        } else if (criticalErrors.length > 0) {
+          // Admin user creation failed - show error with helpful message
+          const isEmailExists = criticalErrors.some(e => e.includes('Email already registered'));
+          setProvisioningStatus({
+            step: 'error',
+            message: isEmailExists
+              ? 'This email is already registered with a different password.'
+              : 'Could not create your admin account.',
+            errors: [
+              ...criticalErrors,
+              isEmailExists
+                ? 'Please use your existing password to login, or use a different email address.'
+                : 'Please try again or contact support.'
+            ],
+          });
+        } else {
+          // No tokens but no critical errors - show success screen with login button
+          setProvisioningStatus({
+            step: 'complete',
+            message: 'Setup complete!',
+            resources: response.data.resources || { tenant_id: tenantId },
+            tenant_id: tenantId,
+          });
+          localStorage.removeItem(STORAGE_KEY);
+        }
       } else {
         throw new Error(response.data?.message || 'Setup failed');
       }
@@ -345,13 +510,14 @@ export default function TenantOnboarding() {
               formData={formData}
               provisioningStatus={provisioningStatus}
               onLaunch={handleLaunch}
+              onBack={handleBack}
               loading={loading}
             />
           )}
         </div>
 
-        {/* Navigation - hide on step 3 when showing results */}
-        {!(currentStep === 3 && (provisioningStatus?.step === 'complete' || provisioningStatus?.step === 'error' || loading)) && (
+        {/* Navigation - hide on step 3 (Review has its own launch button) */}
+        {currentStep < 3 && (
           <div className="flex items-center justify-between mt-6">
             <button
               onClick={handleBack}
@@ -366,24 +532,13 @@ export default function TenantOnboarding() {
               Back
             </button>
 
-            {currentStep < 3 ? (
-              <button
-                onClick={handleNext}
-                className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
-              >
-                Next
-                <ArrowRightIcon className="w-5 h-5" />
-              </button>
-            ) : (
-              <button
-                onClick={handleLaunch}
-                disabled={loading}
-                className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
-              >
-                <RocketLaunchIcon className="w-5 h-5" />
-                Launch Platform
-              </button>
-            )}
+            <button
+              onClick={handleNext}
+              className="flex items-center gap-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+            >
+              Next
+              <ArrowRightIcon className="w-5 h-5" />
+            </button>
           </div>
         )}
       </div>
@@ -509,18 +664,23 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
               key={theme.id}
               type="button"
               onClick={() => selectTheme(theme)}
-              className={`relative p-4 rounded-xl border-2 transition-all text-left ${
+              className={`relative p-4 rounded-xl border-2 transition-all text-left bg-white ${
                 formData.company.brand_theme?.theme_id === theme.id
-                  ? 'border-purple-500 ring-2 ring-purple-200 bg-purple-50'
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-purple-500 ring-2 ring-purple-200'
+                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
               }`}
             >
-              <div className="flex gap-1 mb-2">
-                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.primary }} />
-                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.secondary }} />
-                <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.accent }} />
+              {formData.company.brand_theme?.theme_id === theme.id && (
+                <div className="absolute top-2 right-2">
+                  <CheckCircleIcon className="w-5 h-5 text-purple-600" />
+                </div>
+              )}
+              <div className="flex gap-1.5 mb-3">
+                <div className="w-7 h-7 rounded-full border border-gray-200" style={{ backgroundColor: theme.primary }} />
+                <div className="w-7 h-7 rounded-full border border-gray-200" style={{ backgroundColor: theme.secondary }} />
+                <div className="w-7 h-7 rounded-full border border-gray-200" style={{ backgroundColor: theme.accent }} />
               </div>
-              <p className="font-medium text-gray-900 text-sm">{theme.name}</p>
+              <p className="font-semibold text-gray-900 text-sm">{theme.name}</p>
             </button>
           ))}
         </div>
@@ -563,18 +723,11 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Password <span className="text-red-500">*</span>
             </label>
-            <input
-              type="password"
+            <PasswordField
               value={formData.admin_password}
-              onChange={(e) => updateTopLevel('admin_password', e.target.value)}
-              placeholder="At least 8 characters"
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
-                errors['admin_password'] ? 'border-red-500' : 'border-gray-300'
-              }`}
+              onChange={(value) => updateTopLevel('admin_password', value)}
+              error={errors['admin_password']}
             />
-            {errors['admin_password'] && (
-              <p className="text-sm text-red-500 mt-1">{errors['admin_password']}</p>
-            )}
           </div>
         </div>
       </div>
@@ -651,36 +804,54 @@ function Step2EmailSettings({ formData, updateField, errors }) {
           <select
             value={formData.email.quote_validity_days}
             onChange={(e) => updateField('email', 'quote_validity_days', parseInt(e.target.value))}
-            className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+            className="px-3 py-1.5 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm appearance-none cursor-pointer"
+            style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
           >
+            <option value={1}>1 day</option>
+            <option value={2}>2 days</option>
+            <option value={3}>3 days</option>
+            <option value={4}>4 days</option>
+            <option value={5}>5 days</option>
+            <option value={6}>6 days</option>
             <option value={7}>7 days</option>
-            <option value={14}>14 days</option>
-            <option value={30}>30 days</option>
           </select>
         </div>
       </div>
 
-      {/* SendGrid (Optional) */}
+      {/* Email Info Note */}
       <div className="border-t border-gray-200 pt-6">
-        <h3 className="font-medium text-gray-900 mb-2">SendGrid API Key (Optional)</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          Enter your own SendGrid API key for email delivery, or leave blank to use the platform default.
-        </p>
-        <input
-          type="password"
-          value={formData.email.sendgrid_api_key}
-          onChange={(e) => updateField('email', 'sendgrid_api_key', e.target.value)}
-          placeholder="SG.xxxxxxxxxxxxxxxx"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-        />
+        <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg">
+          <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-blue-900">Email Setup</p>
+            <p className="text-sm text-blue-700 mt-1">
+              We'll automatically configure email sending for your platform. Quotes and invoices will be sent from your company name.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 // ==================== Step 3: Review & Launch ====================
-function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
-  // Success state
+function Step3Review({ formData, provisioningStatus, onLaunch, onBack, loading }) {
+  // Redirecting state (auto-login in progress)
+  if (provisioningStatus?.step === 'redirecting') {
+    return (
+      <div className="text-center py-12">
+        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <ArrowPathIcon className="w-10 h-10 text-purple-600 animate-spin" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome!</h2>
+        <p className="text-gray-500">Setting up your dashboard...</p>
+      </div>
+    );
+  }
+
+  // Success state (fallback - no auto-login)
   if (provisioningStatus?.step === 'complete') {
     return (
       <div className="text-center py-8">
@@ -697,11 +868,8 @@ function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
               <dt className="text-gray-500">Email:</dt>
               <dd className="font-medium">{formData.admin_email}</dd>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-gray-500">Tenant ID:</dt>
-              <dd className="font-mono text-xs">{provisioningStatus.tenant_id || provisioningStatus.resources?.tenant_id}</dd>
-            </div>
           </dl>
+          <p className="text-xs text-gray-400 mt-4">Use the password you created during setup to log in.</p>
         </div>
 
         <a
@@ -717,17 +885,21 @@ function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
 
   // Error state
   if (provisioningStatus?.step === 'error') {
+    const isEmailExists = provisioningStatus.message?.includes('already registered');
+
     return (
       <div className="text-center py-8">
-        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <ExclamationTriangleIcon className="w-12 h-12 text-red-600" />
+        <div className={`w-20 h-20 ${isEmailExists ? 'bg-yellow-100' : 'bg-red-100'} rounded-full flex items-center justify-center mx-auto mb-6`}>
+          <ExclamationTriangleIcon className={`w-12 h-12 ${isEmailExists ? 'text-yellow-600' : 'text-red-600'}`} />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Setup Failed</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          {isEmailExists ? 'Account Already Exists' : 'Setup Failed'}
+        </h2>
         <p className="text-gray-500 mb-4">{provisioningStatus.message}</p>
 
         {provisioningStatus.errors?.length > 0 && (
-          <div className="bg-red-50 rounded-lg p-4 text-left max-w-md mx-auto mb-6">
-            <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+          <div className={`${isEmailExists ? 'bg-yellow-50' : 'bg-red-50'} rounded-lg p-4 text-left max-w-md mx-auto mb-6`}>
+            <ul className={`list-disc list-inside text-sm ${isEmailExists ? 'text-yellow-700' : 'text-red-700'} space-y-1`}>
               {provisioningStatus.errors.map((err, idx) => (
                 <li key={idx}>{err}</li>
               ))}
@@ -735,12 +907,26 @@ function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
           </div>
         )}
 
-        <button
-          onClick={onLaunch}
-          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
-        >
-          Try Again
-        </button>
+        <div className="flex items-center justify-center gap-4">
+          {isEmailExists && (
+            <a
+              href="/login"
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+            >
+              Go to Login
+            </a>
+          )}
+          <button
+            onClick={onLaunch}
+            className={`px-6 py-3 rounded-lg font-medium ${
+              isEmailExists
+                ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
+            }`}
+          >
+            {isEmailExists ? 'Try Different Email' : 'Try Again'}
+          </button>
+        </div>
       </div>
     );
   }
@@ -817,10 +1003,8 @@ function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
               <dd className="font-medium text-gray-900">{formData.email.quote_validity_days} days</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">SendGrid</dt>
-              <dd className="font-medium text-gray-900">
-                {formData.email.sendgrid_api_key ? 'Custom Key' : 'Platform Default'}
-              </dd>
+              <dt className="text-gray-500">Email Service</dt>
+              <dd className="font-medium text-green-600">Auto-configured</dd>
             </div>
           </dl>
         </div>
@@ -839,20 +1023,27 @@ function Step3Review({ formData, provisioningStatus, onLaunch, loading }) {
         </dl>
       </div>
 
-      {/* Launch Button */}
-      <div className="text-center pt-4">
+      {/* Actions */}
+      <div className="flex items-center justify-between pt-6">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium"
+        >
+          <ArrowLeftIcon className="w-5 h-5" />
+          Back
+        </button>
         <button
           onClick={onLaunch}
           disabled={loading}
-          className="inline-flex items-center gap-2 px-8 py-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-lg font-medium disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
         >
           <RocketLaunchIcon className="w-6 h-6" />
           Launch My Platform
         </button>
-        <p className="text-sm text-gray-500 mt-3">
-          This will create your account and configure your platform
-        </p>
       </div>
+      <p className="text-sm text-gray-500 text-center mt-3">
+        This will create your account and configure your platform
+      </p>
     </div>
   );
 }

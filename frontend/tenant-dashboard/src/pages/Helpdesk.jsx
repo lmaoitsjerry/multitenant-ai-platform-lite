@@ -25,10 +25,10 @@ function Message({ message, isUser }) {
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-        isUser ? 'bg-primary-100' : 'bg-gradient-to-br from-purple-500 to-indigo-600'
+        isUser ? 'bg-theme-primary/20' : 'bg-gradient-to-br from-purple-500 to-indigo-600'
       }`}>
         {isUser ? (
-          <UserCircleIcon className="w-5 h-5 text-primary-600" />
+          <UserCircleIcon className="w-5 h-5 text-theme-primary" />
         ) : (
           <SparklesIcon className="w-4 h-4 text-white" />
         )}
@@ -38,8 +38,8 @@ function Message({ message, isUser }) {
       <div className={`max-w-[80%] ${isUser ? 'text-right' : ''}`}>
         <div className={`inline-block px-4 py-2 rounded-2xl ${
           isUser
-            ? 'bg-primary-600 text-white rounded-tr-md'
-            : 'bg-gray-100 text-gray-800 rounded-tl-md'
+            ? 'bg-theme-primary text-white rounded-tr-md'
+            : 'bg-theme-surface-elevated text-theme rounded-tl-md'
         }`}>
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         </div>
@@ -47,20 +47,20 @@ function Message({ message, isUser }) {
         {/* Sources (for AI responses) */}
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-2 space-y-1">
-            <p className="text-xs text-gray-500">Sources:</p>
+            <p className="text-xs text-theme-muted">Sources:</p>
             {message.sources.map((source, idx) => (
-              <div key={idx} className="flex items-center gap-1 text-xs text-gray-500">
+              <div key={idx} className="flex items-center gap-1 text-xs text-theme-muted">
                 <DocumentTextIcon className="w-3 h-3" />
-                <span className="truncate">{source.title || source.filename || 'Document'}</span>
+                <span className="truncate">{source.title || source.topic || source.filename || 'Knowledge Base'}</span>
                 {source.score && (
-                  <span className="text-gray-400">({Math.round(source.score * 100)}% match)</span>
+                  <span className="opacity-70">({Math.round(source.score * 100)}% match)</span>
                 )}
               </div>
             ))}
           </div>
         )}
 
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-theme-muted mt-1">
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
@@ -74,11 +74,11 @@ function TypingIndicator() {
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
         <SparklesIcon className="w-4 h-4 text-white" />
       </div>
-      <div className="bg-gray-100 px-4 py-2 rounded-2xl rounded-tl-md">
+      <div className="bg-theme-surface-elevated px-4 py-2 rounded-2xl rounded-tl-md">
         <div className="flex gap-1">
-          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+          <span className="w-2 h-2 bg-theme-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+          <span className="w-2 h-2 bg-theme-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+          <span className="w-2 h-2 bg-theme-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
         </div>
       </div>
     </div>
@@ -193,8 +193,8 @@ export default function Helpdesk() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Helpdesk</h1>
-          <p className="text-gray-500">Get help with platform features, best practices, and troubleshooting</p>
+          <h1 className="text-2xl font-bold text-theme">AI Helpdesk</h1>
+          <p className="text-theme-muted">Get help with platform features, best practices, and troubleshooting</p>
         </div>
         <button
           onClick={clearChat}
@@ -206,7 +206,7 @@ export default function Helpdesk() {
       </div>
 
       {/* Chat Container */}
-      <div className="flex-1 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+      <div className="flex-1 card flex flex-col overflow-hidden">
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((message) => (
@@ -225,14 +225,14 @@ export default function Helpdesk() {
           <div className="px-4 pb-2">
             <div className="flex items-center gap-2 mb-2">
               <LightBulbIcon className="w-4 h-4 text-amber-500" />
-              <span className="text-xs text-gray-500">Suggested questions:</span>
+              <span className="text-xs text-theme-muted">Suggested questions:</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {SUGGESTED_QUESTIONS.map((question, idx) => (
                 <button
                   key={idx}
                   onClick={() => handleSuggestedQuestion(question)}
-                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors"
+                  className="px-3 py-1.5 text-sm bg-theme-surface-elevated text-theme-secondary rounded-full hover:bg-theme-border-light transition-colors"
                 >
                   {question}
                 </button>
@@ -242,7 +242,7 @@ export default function Helpdesk() {
         )}
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 p-4">
+        <div className="border-t border-theme-border p-4">
           <form onSubmit={handleSubmit} className="flex gap-3">
             <div className="flex-1 relative">
               <input
@@ -251,21 +251,21 @@ export default function Helpdesk() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask a question..."
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="input pr-12 !rounded-xl"
                 disabled={isLoading}
               />
-              <QuestionMarkCircleIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <QuestionMarkCircleIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-muted" />
             </div>
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="px-4 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="btn-primary !rounded-xl px-4"
             >
               <PaperAirplaneIcon className="w-5 h-5" />
             </button>
           </form>
-          <p className="text-xs text-gray-400 mt-2 text-center">
-            Powered by Zorah AI - Centralized platform support
+          <p className="text-xs text-theme-muted mt-2 text-center">
+            Powered by your Knowledge Base
           </p>
         </div>
       </div>

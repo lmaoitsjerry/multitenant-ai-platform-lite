@@ -10,8 +10,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^[a-z0-9_]+$",
-          "description": "Unique client identifier (lowercase, no spaces)"
+          "pattern": "^[a-z0-9_-]+$",
+          "description": "Unique client identifier (lowercase, underscores, hyphens allowed)"
         },
         "name": {
           "type": "string",
@@ -20,7 +20,7 @@
         "short_name": {
           "type": "string",
           "pattern": "^[a-z]+$",
-          "description": "Short name (lowercase, no spaces)"
+          "description": "Short name (lowercase letters only)"
         },
         "timezone": {
           "type": "string",
@@ -38,22 +38,25 @@
       "type": "object",
       "properties": {
         "company_name": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "logo_url": {
-          "type": "string",
-          "format": "uri"
+          "type": ["string", "null"]
         },
         "primary_color": {
-          "type": "string",
-          "pattern": "^#[0-9A-Fa-f]{6}$"
+          "type": ["string", "null"]
         },
         "secondary_color": {
-          "type": "string",
-          "pattern": "^#[0-9A-Fa-f]{6}$"
+          "type": ["string", "null"]
+        },
+        "accent_color": {
+          "type": ["string", "null"]
+        },
+        "theme_id": {
+          "type": ["string", "null"]
         },
         "email_signature": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       }
     },
@@ -91,10 +94,16 @@
               "type": "string"
             },
             "dataset": {
-              "type": "string"
+              "type": "string",
+              "description": "Tenant-specific dataset for quotes, analytics, etc."
+            },
+            "shared_pricing_dataset": {
+              "type": ["string", "null"],
+              "default": "africastay_analytics",
+              "description": "Shared dataset for hotel rates, pricing, flight data (all tenants use same)"
             },
             "corpus_id": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           }
         },
@@ -103,14 +112,13 @@
           "required": ["url", "anon_key"],
           "properties": {
             "url": {
-              "type": "string",
-              "format": "uri"
+              "type": "string"
             },
             "anon_key": {
               "type": "string"
             },
             "service_key": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           }
         },
@@ -118,13 +126,16 @@
           "type": "object",
           "properties": {
             "api_key": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "phone_number_id": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "assistant_id": {
-              "type": "string"
+              "type": ["string", "null"]
+            },
+            "outbound_assistant_id": {
+              "type": ["string", "null"]
             }
           }
         },
@@ -148,8 +159,7 @@
       "required": ["primary", "smtp", "imap"],
       "properties": {
         "primary": {
-          "type": "string",
-          "format": "email"
+          "type": "string"
         },
         "smtp": {
           "type": "object",
@@ -165,7 +175,7 @@
               "type": "string"
             },
             "password": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           }
         },
@@ -180,6 +190,60 @@
               "type": "integer"
             }
           }
+        },
+        "sendgrid": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": ["string", "null"]
+            },
+            "from_email": {
+              "type": ["string", "null"]
+            },
+            "from_name": {
+              "type": ["string", "null"]
+            },
+            "reply_to": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      }
+    },
+    "outbound": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "timing": {
+          "type": ["string", "null"]
+        },
+        "call_window": {
+          "type": "object"
+        },
+        "call_days": {
+          "type": "array"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "min_quote_value": {
+          "type": "number"
+        }
+      }
+    },
+    "quotes": {
+      "type": "object",
+      "properties": {
+        "auto_send": {
+          "type": "boolean"
+        },
+        "validity_days": {
+          "type": "integer"
+        },
+        "follow_up_days": {
+          "type": "integer"
         }
       }
     },
@@ -196,8 +260,7 @@
             "type": "string"
           },
           "email": {
-            "type": "string",
-            "format": "email"
+            "type": "string"
           },
           "active": {
             "type": "boolean"
@@ -215,8 +278,14 @@
               "type": "boolean",
               "default": true
             },
+            "name": {
+              "type": ["string", "null"]
+            },
+            "voice_id": {
+              "type": ["string", "null"]
+            },
             "prompt_file": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           }
         },
@@ -228,7 +297,7 @@
               "default": true
             },
             "prompt_file": {
-              "type": "string"
+              "type": ["string", "null"]
             }
           }
         },
@@ -239,9 +308,26 @@
               "type": "boolean",
               "default": true
             },
+            "name": {
+              "type": ["string", "null"]
+            },
+            "voice_id": {
+              "type": ["string", "null"]
+            },
             "prompt_file": {
-              "type": "string"
+              "type": ["string", "null"]
             }
+          }
+        }
+      }
+    },
+    "knowledge_base": {
+      "type": "object",
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }

@@ -12,10 +12,9 @@ import {
   QuestionMarkCircleIcon,
   ChartBarIcon,
   Cog6ToothIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ChevronDownIcon,
 } from '@heroicons/react/24/outline';
+import { MapPinIcon } from '@heroicons/react/24/solid';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -89,6 +88,15 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
     }
   };
 
+  // Shared text transition styles
+  const textStyle = {
+    opacity: collapsed ? 0 : 1,
+    transform: collapsed ? 'translateX(-10px)' : 'translateX(0)',
+    transition: 'opacity 300ms ease, transform 300ms ease',
+    transitionDelay: collapsed ? '0ms' : '100ms',
+    whiteSpace: 'nowrap',
+  };
+
   return (
     <div>
       {hasChildren ? (
@@ -102,14 +110,17 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
           }`}
         >
           <item.icon className="w-5 h-5 flex-shrink-0" />
-          {!collapsed && (
-            <>
-              <span className="font-medium flex-1 text-left">{item.name}</span>
-              <ChevronDownIcon
-                className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-              />
-            </>
-          )}
+          <span className="font-medium flex-1 text-left overflow-hidden" style={textStyle}>
+            {item.name}
+          </span>
+          <ChevronDownIcon
+            className="w-4 h-4 flex-shrink-0"
+            style={{
+              ...textStyle,
+              transform: collapsed ? 'translateX(-10px)' : (isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'),
+              transition: 'opacity 300ms ease, transform 300ms ease',
+            }}
+          />
         </button>
       ) : (
         <NavLink
@@ -124,12 +135,19 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
           }
         >
           <item.icon className="w-5 h-5 flex-shrink-0" />
-          {!collapsed && <span className="font-medium">{item.name}</span>}
+          <span className="font-medium overflow-hidden" style={textStyle}>{item.name}</span>
         </NavLink>
       )}
 
-      {hasChildren && !collapsed && isExpanded && (
-        <div className="ml-8 mt-1 space-y-1">
+      {hasChildren && (
+        <div
+          className="ml-8 mt-1 space-y-1 overflow-hidden"
+          style={{
+            maxHeight: (!collapsed && isExpanded) ? '200px' : '0px',
+            opacity: (!collapsed && isExpanded) ? 1 : 0,
+            transition: 'max-height 300ms ease, opacity 300ms ease',
+          }}
+        >
           {item.children.map((child) => {
             const childPrefetch = prefetchHandlers[child.href];
             return (
@@ -156,7 +174,7 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
 }
 
 export default function Sidebar() {
-  const { clientInfo, sidebarOpen, setSidebarOpen } = useApp();
+  const { clientInfo, sidebarPinned, toggleSidebarPinned, setSidebarHovered, sidebarExpanded } = useApp();
   const { branding, darkMode } = useTheme();
   const location = useLocation();
 
@@ -187,45 +205,77 @@ export default function Sidebar() {
     }));
   };
 
+  // Use sidebarExpanded from context (pinned OR hovered)
+  const isExpanded = sidebarExpanded;
+
   return (
     <aside
-      className={`fixed left-0 top-0 h-full bg-sidebar border-r border-theme transition-all duration-300 z-40 ${
-        sidebarOpen ? 'w-64' : 'w-16'
-      }`}
+      onMouseEnter={() => setSidebarHovered(true)}
+      onMouseLeave={() => setSidebarHovered(false)}
+      style={{
+        width: isExpanded ? '16rem' : '4rem',
+        transition: 'width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
+      className="fixed left-0 top-0 h-full bg-sidebar border-r border-theme z-40"
     >
       {/* Logo / Company Name */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-theme">
-        {sidebarOpen && (
-          <div className="flex items-center gap-2">
-            {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt={clientInfo?.client_name || 'Logo'}
-                className="h-8 w-auto object-contain max-w-[120px]"
-              />
-            ) : (
-              <div className="w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">
-                  {clientInfo?.client_name?.charAt(0) || 'T'}
-                </span>
-              </div>
-            )}
-            {!logoUrl && (
-              <span className="font-semibold text-sidebar truncate">
-                {clientInfo?.client_name || 'Travel Platform'}
-              </span>
-            )}
-          </div>
-        )}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-1.5 rounded-lg hover:bg-sidebar-hover text-sidebar-muted"
-        >
-          {sidebarOpen ? (
-            <ChevronLeftIcon className="w-5 h-5" />
+      <div className="h-16 flex items-center justify-between px-4 border-b border-theme overflow-hidden">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={clientInfo?.client_name || 'Logo'}
+              className="h-8 w-8 object-contain flex-shrink-0"
+              style={{
+                maxWidth: isExpanded ? '120px' : '32px',
+                width: isExpanded ? 'auto' : '32px',
+                transition: 'all 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            />
           ) : (
-            <ChevronRightIcon className="w-5 h-5" />
+            <div className="w-8 h-8 bg-theme-primary rounded-lg flex items-center justify-center flex-shrink-0">
+              <span className="text-white font-bold text-sm">
+                {clientInfo?.client_name?.charAt(0) || 'T'}
+              </span>
+            </div>
           )}
+          <span
+            className="font-semibold text-sidebar truncate whitespace-nowrap"
+            style={{
+              opacity: isExpanded ? 1 : 0,
+              transform: isExpanded ? 'translateX(0)' : 'translateX(-10px)',
+              transition: 'opacity 300ms ease, transform 300ms ease',
+              transitionDelay: isExpanded ? '100ms' : '0ms',
+            }}
+          >
+            {clientInfo?.client_name || 'Travel Platform'}
+          </span>
+        </div>
+
+        {/* Pin Button - only visible when expanded */}
+        <button
+          onClick={toggleSidebarPinned}
+          className={`p-1.5 rounded-lg transition-all duration-300 flex-shrink-0 ${
+            sidebarPinned
+              ? 'bg-theme-primary text-white'
+              : 'hover:bg-sidebar-hover text-sidebar-muted hover:text-sidebar'
+          }`}
+          style={{
+            opacity: isExpanded ? 1 : 0,
+            transform: isExpanded ? 'scale(1)' : 'scale(0.8)',
+            transition: 'opacity 300ms ease, transform 300ms ease, background-color 200ms ease',
+            transitionDelay: isExpanded ? '150ms' : '0ms',
+            pointerEvents: isExpanded ? 'auto' : 'none',
+          }}
+          title={sidebarPinned ? 'Unpin sidebar' : 'Pin sidebar open'}
+        >
+          <MapPinIcon
+            className="w-4 h-4"
+            style={{
+              transform: sidebarPinned ? 'rotate(0deg)' : 'rotate(45deg)',
+              transition: 'transform 200ms ease',
+            }}
+          />
         </button>
       </div>
 
@@ -235,7 +285,7 @@ export default function Sidebar() {
           <NavItem
             key={item.name}
             item={item}
-            collapsed={!sidebarOpen}
+            collapsed={!isExpanded}
             isExpanded={expandedItems[item.name]}
             onToggle={toggleExpanded}
           />

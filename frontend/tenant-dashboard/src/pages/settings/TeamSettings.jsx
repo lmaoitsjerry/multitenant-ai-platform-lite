@@ -213,8 +213,8 @@ export default function TeamSettings() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">Team Members</h3>
-          <p className="text-sm text-gray-500">
+          <h3 className="text-lg font-semibold text-theme">Team Members</h3>
+          <p className="text-sm text-theme-muted">
             {users.length} member{users.length !== 1 ? 's' : ''} in your organization
           </p>
         </div>
@@ -228,96 +228,109 @@ export default function TeamSettings() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
       {/* Users Table */}
-      <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="card overflow-hidden p-0">
+        <table className="min-w-full divide-y divide-theme">
+          <thead className="bg-theme-surface-elevated">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
                 User
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
                 Role
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
                 Last Login
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-right text-xs font-medium text-theme-muted uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user) => (
-              <tr key={user.id} className={user.id === currentUser?.id ? 'bg-primary-50' : ''}>
+          <tbody className="divide-y divide-theme">
+            {users.map((user) => {
+              const isCurrentUser = user.id === currentUser?.id;
+              return (
+              <tr
+                key={user.id}
+                className={`
+                  transition-colors duration-150
+                  ${isCurrentUser
+                    ? 'bg-theme-primary/5 border-l-2 border-theme-primary'
+                    : 'border-l-2 border-transparent hover:bg-theme-surface-elevated'
+                  }
+                `}
+              >
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div className="flex-shrink-0 h-10 w-10">
-                      <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center">
-                        <span className="text-primary-700 font-medium">
+                      <div className="h-10 w-10 rounded-full bg-theme-primary/20 flex items-center justify-center">
+                        <span className="text-theme-primary font-medium">
                           {user.name.charAt(0).toUpperCase()}
                         </span>
                       </div>
                     </div>
                     <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">
+                      <div className="flex items-center gap-2 text-sm font-medium text-theme">
                         {user.name}
-                        {user.id === currentUser?.id && (
-                          <span className="ml-2 text-xs text-primary-600">(You)</span>
+                        {isCurrentUser && (
+                          <span className="text-xs font-medium text-theme-primary bg-theme-primary/10 px-2 py-0.5 rounded-full">
+                            You
+                          </span>
                         )}
                       </div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="text-sm text-theme-muted">{user.email}</div>
                     </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     user.role === 'admin'
-                      ? 'bg-purple-100 text-purple-800'
-                      : 'bg-gray-100 text-gray-800'
+                      ? 'bg-theme-primary/15 text-theme-primary'
+                      : 'bg-theme-border text-theme-secondary'
                   }`}>
                     {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {user.is_active ? (
-                    <span className="inline-flex items-center gap-1 text-green-600 text-sm">
+                    <span className="inline-flex items-center gap-1 text-green-500 text-sm">
                       <CheckCircleIcon className="w-4 h-4" />
                       Active
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-gray-500 text-sm">
+                    <span className="inline-flex items-center gap-1 text-theme-muted text-sm">
                       <ExclamationCircleIcon className="w-4 h-4" />
                       Inactive
                     </span>
                   )}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-theme-muted">
                   {user.last_login_at
                     ? new Date(user.last_login_at).toLocaleDateString()
                     : 'Never'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {user.id !== currentUser?.id && (
+                  {!isCurrentUser && (
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => openEditModal(user)}
-                        className="text-gray-600 hover:text-primary-600"
+                        className="text-theme-muted hover:text-theme-primary transition-colors"
                         title="Edit user"
                       >
                         <PencilSquareIcon className="w-5 h-5" />
                       </button>
                       <button
                         onClick={() => handleDeactivate(user.id, user.name)}
-                        className="text-gray-600 hover:text-red-600"
+                        className="text-theme-muted hover:text-red-500 transition-colors"
                         title="Deactivate user"
                       >
                         <TrashIcon className="w-5 h-5" />
@@ -326,7 +339,8 @@ export default function TeamSettings() {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -334,7 +348,7 @@ export default function TeamSettings() {
       {/* Pending Invitations */}
       {invitations.length > 0 && (
         <div className="card">
-          <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <h4 className="font-semibold text-theme mb-4 flex items-center gap-2">
             <ClockIcon className="w-5 h-5 text-amber-500" />
             Pending Invitations
           </h4>
@@ -342,36 +356,36 @@ export default function TeamSettings() {
             {invitations.map((invitation) => (
               <div
                 key={invitation.id}
-                className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-lg"
+                className="flex items-center justify-between p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg"
               >
                 <div className="flex items-center gap-3">
-                  <EnvelopeIcon className="w-5 h-5 text-amber-600" />
+                  <EnvelopeIcon className="w-5 h-5 text-amber-500" />
                   <div>
-                    <p className="font-medium text-gray-900">{invitation.name}</p>
-                    <p className="text-sm text-gray-600">{invitation.email}</p>
+                    <p className="font-medium text-theme">{invitation.name}</p>
+                    <p className="text-sm text-theme-muted">{invitation.email}</p>
                   </div>
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     invitation.role === 'admin'
-                      ? 'bg-purple-100 text-purple-800'
-                      : 'bg-gray-100 text-gray-800'
+                      ? 'bg-theme-primary/15 text-theme-primary'
+                      : 'bg-theme-border text-theme-secondary'
                   }`}>
                     {invitation.role}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-theme-muted">
                     Expires {new Date(invitation.expires_at).toLocaleDateString()}
                   </span>
                   <button
                     onClick={() => handleResendInvitation(invitation.id)}
-                    className="text-amber-600 hover:text-amber-700"
+                    className="text-amber-500 hover:text-amber-400 transition-colors"
                     title="Resend invitation"
                   >
                     <ArrowPathIcon className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => handleCancelInvitation(invitation.id, invitation.email)}
-                    className="text-red-600 hover:text-red-700"
+                    className="text-red-500 hover:text-red-400 transition-colors"
                     title="Cancel invitation"
                   >
                     <XMarkIcon className="w-5 h-5" />

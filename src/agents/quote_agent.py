@@ -525,7 +525,10 @@ class QuoteAgent:
         offset: int = 0
     ) -> List[Dict[str, Any]]:
         """List quotes from Supabase"""
+        logger.info(f"[QUOTE_LIST] Fetching quotes for tenant_id={self.config.client_id}, status={status}, limit={limit}")
+
         if not self.supabase or not self.supabase.client:
+            logger.warning("[QUOTE_LIST] Supabase client not available")
             return []
 
         try:
@@ -539,10 +542,17 @@ class QuoteAgent:
                 query = query.eq('status', status)
 
             result = query.execute()
-            return result.data or []
+            quotes = result.data or []
+            logger.info(f"[QUOTE_LIST] Found {len(quotes)} quotes for tenant {self.config.client_id}")
+
+            # Debug: log first quote's tenant_id if exists
+            if quotes:
+                logger.info(f"[QUOTE_LIST] First quote: id={quotes[0].get('quote_id')}, tenant={quotes[0].get('tenant_id')}, status={quotes[0].get('status')}")
+
+            return quotes
 
         except Exception as e:
-            logger.error(f"Failed to list quotes: {e}")
+            logger.error(f"[QUOTE_LIST] Failed to list quotes: {e}")
             return []
 
     def update_quote_status(self, quote_id: str, status: str) -> bool:

@@ -4,7 +4,6 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   ArrowPathIcon,
-  ArrowUpTrayIcon,
   ArrowDownTrayIcon,
   BuildingOfficeIcon,
   CalendarIcon,
@@ -62,30 +61,40 @@ export default function PricingRates() {
 
   const handleExport = async () => {
     try {
-      const response = await pricingApi.exportRates({ destination: filters.destination });
-      const blob = new Blob([response.data], { type: 'text/csv' });
+      // Export current filtered rates as CSV
+      const headers = ['Hotel', 'Destination', 'Room Type', 'Meal Plan', 'Check In', 'Check Out', 'Nights', 'Per Person Share', 'Single', 'Child'];
+      const csvRows = [headers.join(',')];
+
+      filteredRates.forEach(rate => {
+        const row = [
+          `"${rate.hotel_name || ''}"`,
+          `"${rate.destination || ''}"`,
+          `"${rate.room_type || ''}"`,
+          rate.meal_plan || '',
+          rate.check_in_date || '',
+          rate.check_out_date || '',
+          rate.nights || '',
+          rate.total_7nights_pps || '',
+          rate.total_7nights_single || '',
+          rate.total_7nights_child || ''
+        ];
+        csvRows.push(row.join(','));
+      });
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `rates_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
     } catch (error) {
+      console.error('Export failed:', error);
       alert('Failed to export rates');
     }
-  };
-
-  const handleImport = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const result = await pricingApi.importRates(file);
-      alert(`Imported ${result.data?.imported || 0} rates`);
-      loadRates();
-    } catch (error) {
-      alert('Failed to import rates');
-    }
-    e.target.value = '';
   };
 
   const filteredRates = rates.filter(rate => {
@@ -116,25 +125,15 @@ export default function PricingRates() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pricing Rates</h1>
-          <p className="text-gray-500 mt-1">
-            Manage hotel rates used by the quote system
+          <h1 className="text-2xl font-bold text-theme">Pricing Rates</h1>
+          <p className="text-theme-muted mt-1">
+            View hotel rates used by the quote system
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="btn-secondary flex items-center gap-2 cursor-pointer">
-            <ArrowUpTrayIcon className="w-5 h-5" />
-            Import CSV
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleImport}
-              className="hidden"
-            />
-          </label>
           <button onClick={handleExport} className="btn-secondary flex items-center gap-2">
             <ArrowDownTrayIcon className="w-5 h-5" />
-            Export
+            Export Rates
           </button>
         </div>
       </div>

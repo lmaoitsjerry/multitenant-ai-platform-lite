@@ -5,7 +5,6 @@ import {
   ArrowLeftIcon,
   EnvelopeIcon,
   ArrowDownTrayIcon,
-  PrinterIcon,
   PencilIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -198,6 +197,10 @@ export default function InvoiceDetail() {
     setActionLoading('download');
     try {
       const response = await invoicesApi.download(id);
+      // Check if we got valid blob data
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Empty PDF response');
+      }
       // Create blob and download
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
@@ -211,7 +214,8 @@ export default function InvoiceDetail() {
       showToast('Invoice downloaded!', 'success');
     } catch (error) {
       console.error('Download failed:', error);
-      showToast('Download not available yet', 'warning');
+      const errorMsg = error.response?.data?.detail || error.message || 'Download failed';
+      showToast(`Failed to download: ${errorMsg}`, 'error');
     } finally {
       setActionLoading(null);
     }
@@ -313,10 +317,6 @@ export default function InvoiceDetail() {
               <EnvelopeIcon className="w-5 h-5" />
             )}
             Send Email
-          </button>
-          <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2">
-            <PrinterIcon className="w-5 h-5" />
-            Print
           </button>
         </div>
       </div>
@@ -461,6 +461,32 @@ export default function InvoiceDetail() {
               <p className="text-gray-600 whitespace-pre-wrap">{invoice.notes}</p>
             </div>
           )}
+
+          {/* Document Preview */}
+          <div className="card">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <DocumentTextIcon className="w-5 h-5 text-purple-600" />
+              Invoice Preview
+            </h3>
+            <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+              <iframe
+                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/invoices/${invoice.invoice_id}/pdf`}
+                className="w-full h-[600px]"
+                title="Invoice Preview"
+              />
+            </div>
+            <div className="mt-3 flex justify-center gap-3">
+              <a
+                href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/invoices/${invoice.invoice_id}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-sm inline-flex items-center gap-1"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                Open in New Tab
+              </a>
+            </div>
+          </div>
         </div>
 
         {/* Sidebar */}

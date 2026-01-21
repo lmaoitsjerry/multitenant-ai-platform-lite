@@ -1,13 +1,20 @@
 """
-Tenant Onboarding Routes
+Tenant Onboarding Routes (Lite Edition)
 
 Complete onboarding wizard for new tenants:
 - Generate AI agent system prompts from plain English descriptions
-- Provision complete tenant infrastructure (VAPI, phone, database)
-- Configure email, outbound calls, and knowledge base
+- Provision tenant infrastructure (Supabase, SendGrid)
+- Configure email and AI helpdesk
+- Create SendGrid subuser for tenant email isolation
+
+Note: Voice AI features (VAPI, phone provisioning) are Pro/Enterprise only.
 """
 
 import os
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded (for Supabase credentials, etc.)
+load_dotenv()
 import re
 import logging
 import yaml
@@ -20,9 +27,17 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 logger = logging.getLogger(__name__)
+
+# Import SendGrid provisioner for tenant email isolation
+try:
+    from src.services.provisioning_service import SendGridProvisioner
+    SENDGRID_PROVISIONING_AVAILABLE = True
+except ImportError:
+    SENDGRID_PROVISIONING_AVAILABLE = False
+    logger.warning("SendGrid provisioning not available")
 
 # Try Google GenAI - try API key first, then Vertex AI
 GENAI_AVAILABLE = False
@@ -195,12 +210,12 @@ class OutboundSettings(BaseModel):
 class EmailSettings(BaseModel):
     """Step 4: Email configuration"""
     from_name: str
-    email_signature: str
+    email_signature: str = ""
     auto_send_quotes: bool = Field(default=True)
     quote_validity_days: int = Field(default=14)
     follow_up_days: int = Field(default=3)
-    sendgrid_api_key: Optional[str] = None
     from_email: Optional[str] = None
+    # Note: SendGrid subuser is auto-created during onboarding for tenant isolation
 
 
 class KnowledgeBaseConfig(BaseModel):
@@ -233,11 +248,19 @@ class OnboardingRequest(BaseModel):
 
 class OnboardingResponse(BaseModel):
     """Onboarding completion response"""
+    model_config = ConfigDict(ser_json_exclude_none=False)  # Include user even if None
+
     success: bool
     tenant_id: str
     message: str
     resources: Dict[str, Any]
     errors: List[str] = []
+    # Auth tokens for auto-login after onboarding
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expires_at: Optional[int] = None
+    # User object for auto-login (frontend needs this to initialize session)
+    user: Optional[Dict[str, Any]] = None
 
 
 class VoiceOption(BaseModel):
@@ -399,40 +422,110 @@ async def get_brand_themes():
 
 @onboarding_router.get("/voices", response_model=List[VoiceOption])
 async def get_available_voices():
-    """Get available VAPI voice options with sample audio URLs."""
-    # ElevenLabs sample URL pattern: https://api.elevenlabs.io/v1/voices/{voice_id}/preview
-    # Note: Sample URLs use the ElevenLabs preview endpoint or hosted samples
-    voices = [
-        # VAPI native voices (use 11labs samples as approximation)
-        VoiceOption(id="jennifer", name="Jennifer", gender="female", accent="American", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/preview.mp3"),
-        VoiceOption(id="sarah", name="Sarah", gender="female", accent="American", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/preview.mp3"),
-        VoiceOption(id="emma", name="Emma", gender="female", accent="British", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/D38z5RcWu1voky8WS1ja/preview.mp3"),
-        VoiceOption(id="olivia", name="Olivia", gender="female", accent="Australian", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/pFZP5JQG7iQjIQuC4Bku/preview.mp3"),
-        VoiceOption(id="michael", name="Michael", gender="male", accent="American", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/flq6f7yk4E4fJM5XTYuZ/preview.mp3"),
-        VoiceOption(id="james", name="James", gender="male", accent="British", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/ZQe5CZNOzWyzPSCn5a3c/preview.mp3"),
-        VoiceOption(id="william", name="William", gender="male", accent="American", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/CYw3kZ02Hs0563khs1Fj/preview.mp3"),
-        VoiceOption(id="daniel", name="Daniel", gender="male", accent="Australian", provider="vapi",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/onwK4e9ZLuTAKqWW03F9/preview.mp3"),
-        # ElevenLabs voices with official sample URLs
-        VoiceOption(id="21m00Tcm4TlvDq8ikWAM", name="Rachel", gender="female", accent="American", provider="elevenlabs",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/preview.mp3"),
-        VoiceOption(id="AZnzlk1XvdvUeBnXmlld", name="Domi", gender="female", accent="American", provider="elevenlabs",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/AZnzlk1XvdvUeBnXmlld/preview.mp3"),
-        VoiceOption(id="EXAVITQu4vr4xnSDxMaL", name="Bella", gender="female", accent="American", provider="elevenlabs",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/preview.mp3"),
-        VoiceOption(id="ErXwobaYiN019PkySvjV", name="Antoni", gender="male", accent="American", provider="elevenlabs",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/ErXwobaYiN019PkySvjV/preview.mp3"),
-        VoiceOption(id="VR6AewLTigWG4xSOukaG", name="Arnold", gender="male", accent="American", provider="elevenlabs",
-                   sample_url="https://storage.googleapis.com/eleven-public-prod/premade/voices/VR6AewLTigWG4xSOukaG/preview.mp3"),
-    ]
-    return voices
+    """
+    Get available VAPI voice options.
+
+    Note: Voice AI features (VAPI) are only available in Pro/Enterprise plans.
+    This endpoint returns an empty list for Lite mode.
+    """
+    # Voice features are Pro/Enterprise only - return empty list for Lite
+    return []
+
+
+# ==================== SendGrid Subuser Creation ====================
+
+async def provision_sendgrid_subuser(
+    tenant_id: str,
+    contact_email: str,
+    from_email: str,
+    from_name: str,
+    company_name: str
+) -> Dict[str, Any]:
+    """
+    Create a SendGrid subuser for tenant email isolation.
+
+    Args:
+        tenant_id: Unique tenant identifier
+        contact_email: Admin contact email
+        from_email: Sender email address
+        from_name: Sender display name
+        company_name: Company name for sender identity
+
+    Returns:
+        Dict with success status, api_key, and any errors
+    """
+    if not SENDGRID_PROVISIONING_AVAILABLE:
+        logger.warning("SendGrid provisioning not available - skipping subuser creation")
+        return {"success": False, "error": "SendGrid provisioning not available"}
+
+    master_key = os.getenv("SENDGRID_MASTER_API_KEY")
+    if not master_key:
+        logger.warning("SENDGRID_MASTER_API_KEY not configured - tenant will use default email")
+        return {"success": False, "error": "Master API key not configured"}
+
+    try:
+        provisioner = SendGridProvisioner(master_key)
+
+        # Create subuser with sanitized tenant_id
+        subuser_result = provisioner.create_subuser(
+            username=tenant_id,
+            email=contact_email
+        )
+
+        if not subuser_result.get("success"):
+            error_msg = subuser_result.get("error", "Unknown error")
+            # Check if subuser already exists
+            if "already exists" in str(error_msg).lower():
+                logger.info(f"SendGrid subuser {tenant_id} already exists")
+            else:
+                logger.error(f"SendGrid subuser creation failed: {error_msg}")
+                return {"success": False, "error": error_msg}
+
+        # Create API key for the subuser
+        api_key_result = provisioner.create_api_key(
+            name=f"{tenant_id}-mail-api-key",
+            subuser=tenant_id
+        )
+
+        if not api_key_result.get("success"):
+            logger.error(f"SendGrid API key creation failed: {api_key_result.get('error')}")
+            return {"success": False, "error": api_key_result.get("error")}
+
+        api_key = api_key_result["data"]["api_key"]
+
+        # Create verified sender identity
+        sender_result = provisioner.add_verified_sender(
+            from_email=from_email,
+            from_name=from_name,
+            reply_to=contact_email,
+            nickname=company_name,
+            address="123 Main St",  # Placeholder - can be updated later
+            city="Cape Town",
+            country="South Africa",
+            subuser=tenant_id
+        )
+
+        if not sender_result.get("success"):
+            logger.warning(f"Verified sender creation failed: {sender_result.get('error')}")
+            # Don't fail the whole process - sender can be verified later
+
+        # Try to assign an IP (optional - may not be available)
+        ip_result = provisioner.assign_ip_to_subuser(tenant_id)
+        ip_address = ip_result.get("ip") if ip_result.get("success") else None
+
+        logger.info(f"SendGrid subuser provisioned successfully for {tenant_id}")
+
+        return {
+            "success": True,
+            "subuser": tenant_id,
+            "api_key": api_key,
+            "ip_address": ip_address,
+            "sender_verified": sender_result.get("success", False)
+        }
+
+    except Exception as e:
+        logger.error(f"SendGrid provisioning error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ==================== Complete Onboarding ====================
@@ -450,17 +543,46 @@ async def complete_onboarding(request: OnboardingRequest):
     resources = {
         "tenant_id": tenant_id,
         "config_created": False,
-        "inbound_assistant_id": None,
-        "outbound_assistant_id": None,
-        "phone_number": None,
-        "phone_number_id": None,
-        "database_ready": False
+        "database_ready": False,
+        "sendgrid_subuser": None,
+        "sendgrid_api_key_created": False
     }
 
+    # Track if SendGrid API key was provisioned (for config update)
+    provisioned_sendgrid_key = None
+
     try:
-        # Step 1: Create tenant directory and config
+        # Step 1: Provision SendGrid subuser for tenant email isolation
+        # Always create a subuser for tenant isolation
+        logger.info(f"Provisioning SendGrid subuser for {tenant_id}")
+        from_email = request.email.from_email or request.company.support_email
+        from_name = request.email.from_name or request.company.company_name
+
+        sendgrid_result = await provision_sendgrid_subuser(
+            tenant_id=tenant_id,
+            contact_email=request.company.support_email,
+            from_email=from_email,
+            from_name=from_name,
+            company_name=request.company.company_name
+        )
+
+        if sendgrid_result.get("success"):
+            resources["sendgrid_subuser"] = sendgrid_result.get("subuser")
+            resources["sendgrid_api_key_created"] = True
+            provisioned_sendgrid_key = sendgrid_result.get("api_key")
+            logger.info(f"SendGrid subuser created: {tenant_id}")
+        else:
+            # Log warning but don't fail - tenant can use platform default email
+            logger.warning(f"SendGrid provisioning failed: {sendgrid_result.get('error')}")
+            errors.append(f"SendGrid: {sendgrid_result.get('error')} - using platform default")
+
+        # Step 2: Create tenant directory and config
         logger.info(f"Creating tenant configuration for {tenant_id}")
-        config_created = await create_tenant_config(tenant_id, request)
+        config_created = await create_tenant_config(
+            tenant_id,
+            request,
+            sendgrid_api_key=provisioned_sendgrid_key
+        )
         resources["config_created"] = config_created
 
         if not config_created:
@@ -473,91 +595,108 @@ async def complete_onboarding(request: OnboardingRequest):
                 errors=errors
             )
 
-        # Step 2: Provision VAPI assistants
-        logger.info(f"Provisioning VAPI assistants for {tenant_id}")
-        vapi_key = os.getenv("VAPI_API_KEY")
+        # Step 3: Voice features (VAPI) - Not available in Lite mode
+        # Pro/Enterprise features: Voice AI agents, phone provisioning
+        # For Lite mode, we skip all VAPI/voice provisioning
+        logger.info(f"Lite mode - voice features not available, skipping VAPI provisioning for {tenant_id}")
 
-        if vapi_key:
+        # Step 4: Initialize database records (tenants, tenant_settings, tenant_branding)
+        logger.info(f"Initializing database records for {tenant_id}")
+        try:
+            from config.loader import get_config, clear_config_cache
+            from src.tools.supabase_tool import SupabaseTool
+
+            # Clear cache and load fresh config
+            clear_config_cache(tenant_id)
+            config = get_config(tenant_id)
+            db = SupabaseTool(config)
+
+            # Create tenants registry record
             try:
-                from src.tools.vapi_tool import VAPIProvisioner
-                provisioner = VAPIProvisioner(vapi_key)
+                tenants_data = {
+                    "id": tenant_id,
+                    "name": request.company.company_name,
+                    "short_name": re.sub(r'[^a-z]', '', request.company.company_name.lower())[:50] or "tenant",
+                    "status": "active",
+                    "plan": "lite",
+                    "admin_email": request.admin_email,
+                    "support_email": request.company.support_email,
+                    "max_users": 5,
+                    "max_monthly_quotes": 100,
+                    "max_storage_gb": 1,
+                }
+                tenants_result = db.client.table("tenants").upsert(tenants_data, on_conflict="id").execute()
+                if tenants_result.data:
+                    resources["tenant_registered"] = True
+                    logger.info(f"Created tenants registry record for {tenant_id}")
+            except Exception as reg_err:
+                # Table might not exist yet - not critical, log and continue
+                logger.warning(f"Could not create tenants registry record (table may not exist): {reg_err}")
 
-                # Create inbound assistant
-                inbound_result = await create_vapi_assistant(
-                    provisioner=provisioner,
-                    tenant_id=tenant_id,
-                    agent_type="inbound",
-                    name=request.agents.inbound_agent_name,
-                    system_prompt=request.agents.inbound_prompt,
-                    voice_id=request.agents.inbound_voice_id,
-                    company_name=request.company.company_name
-                )
-                resources["inbound_assistant_id"] = inbound_result.get("assistant_id")
-
-                # Create outbound assistant if configured
-                if request.agents.outbound_prompt:
-                    outbound_result = await create_vapi_assistant(
-                        provisioner=provisioner,
-                        tenant_id=tenant_id,
-                        agent_type="outbound",
-                        name=request.agents.outbound_agent_name,
-                        system_prompt=request.agents.outbound_prompt,
-                        voice_id=request.agents.outbound_voice_id,
-                        company_name=request.company.company_name
-                    )
-                    resources["outbound_assistant_id"] = outbound_result.get("assistant_id")
-
-            except Exception as e:
-                logger.error(f"VAPI provisioning failed: {e}")
-                errors.append(f"VAPI provisioning: {str(e)}")
-        else:
-            errors.append("VAPI_API_KEY not configured - skipping assistant provisioning")
-
-        # Step 3: Purchase phone number if requested
-        if request.provision_phone and vapi_key:
-            logger.info(f"Provisioning phone number for {tenant_id}")
-            try:
-                phone_result = await provision_phone_number(
-                    tenant_id=tenant_id,
-                    country_code=request.phone_country,
-                    assistant_id=resources.get("inbound_assistant_id")
-                )
-                resources["phone_number"] = phone_result.get("phone_number")
-                resources["phone_number_id"] = phone_result.get("phone_number_id")
-            except Exception as e:
-                logger.error(f"Phone provisioning failed: {e}")
-                errors.append(f"Phone provisioning: {str(e)}")
-
-        # Step 4: Update config with provisioned resources
-        if resources.get("inbound_assistant_id") or resources.get("phone_number_id"):
-            await update_tenant_vapi_config(
-                tenant_id=tenant_id,
-                inbound_assistant_id=resources.get("inbound_assistant_id"),
-                outbound_assistant_id=resources.get("outbound_assistant_id"),
-                phone_number_id=resources.get("phone_number_id")
+            # Create tenant_settings record
+            settings_result = db.update_tenant_settings(
+                company_name=request.company.company_name,
+                support_email=request.company.support_email,
+                support_phone=request.company.support_phone,
+                website=request.company.website_url,
+                currency=request.company.currency,
+                timezone=request.company.timezone,
+                email_from_name=request.email.from_name,
+                email_from_email=request.email.from_email or request.company.support_email,
             )
 
-        # Step 5: Initialize database
-        if request.supabase_url:
-            logger.info(f"Initializing database for {tenant_id}")
-            try:
-                resources["database_ready"] = True
-            except Exception as e:
-                logger.error(f"Database initialization failed: {e}")
-                errors.append(f"Database: {str(e)}")
+            if settings_result:
+                resources["tenant_settings_created"] = True
+                logger.info(f"Created tenant_settings record for {tenant_id}")
+            else:
+                logger.warning(f"Failed to create tenant_settings for {tenant_id}")
 
-        # Step 6: Create admin user
+            # Create tenant_branding record
+            branding_result = db.create_branding(
+                preset_theme=request.company.brand_theme.theme_id,
+                colors={
+                    "primary": request.company.brand_theme.primary,
+                    "secondary": request.company.brand_theme.secondary,
+                    "accent": request.company.brand_theme.accent,
+                }
+            )
+
+            if branding_result:
+                resources["tenant_branding_created"] = True
+                logger.info(f"Created tenant_branding record for {tenant_id}")
+            else:
+                logger.warning(f"Failed to create tenant_branding for {tenant_id}")
+
+            resources["database_ready"] = True
+
+        except Exception as e:
+            logger.error(f"Database initialization failed for {tenant_id}: {e}")
+            errors.append(f"Database initialization: {str(e)}")
+            # Don't fail onboarding - YAML config will be used as fallback
+
+        # Step 6: Create admin user and get auth tokens for auto-login
+        auth_tokens = {}
         if request.admin_email and request.admin_password:
             logger.info(f"Creating admin user for {tenant_id}")
             try:
                 from src.services.auth_service import AuthService
-                from config.loader import get_config
+                from config.loader import get_config, clear_config_cache
+
+                # Clear any cached config to ensure we load the fresh one
+                clear_config_cache(tenant_id)
 
                 # Load the newly created config
                 config = get_config(tenant_id)
+
+                # Get Supabase credentials from tenant config
+                service_key = config.supabase_service_key
+                if not service_key:
+                    logger.error(f"Missing Supabase service key for {tenant_id}")
+                    raise ValueError("Supabase service key not configured")
+
                 auth_service = AuthService(
                     supabase_url=config.supabase_url,
-                    supabase_key=config.supabase_service_key
+                    supabase_key=service_key
                 )
 
                 success, result = await auth_service.create_auth_user(
@@ -572,6 +711,29 @@ async def complete_onboarding(request: OnboardingRequest):
                     resources["admin_user_created"] = True
                     resources["admin_email"] = request.admin_email
                     logger.info(f"Admin user created: {request.admin_email}")
+
+                    # Step 6b: Auto-login to get tokens for frontend
+                    logger.info(f"Generating auth tokens for {request.admin_email}")
+                    login_success, login_result = await auth_service.login(
+                        email=request.admin_email,
+                        password=request.admin_password,
+                        tenant_id=tenant_id
+                    )
+
+                    if login_success:
+                        user_data = login_result.get("user")
+                        logger.info(f"Login result user: {user_data}")  # Debug
+                        auth_tokens = {
+                            "access_token": login_result.get("access_token"),
+                            "refresh_token": login_result.get("refresh_token"),
+                            "expires_at": login_result.get("expires_at"),
+                            "user": user_data,  # Include user for frontend session
+                        }
+                        resources["auto_login"] = True
+                        logger.info(f"Auth tokens generated for auto-login (user: {bool(user_data)})")
+                    else:
+                        logger.warning(f"Auto-login failed: {login_result.get('error')}")
+                        resources["auto_login"] = False
                 else:
                     errors.append(f"Admin user creation: {result.get('error', 'Unknown error')}")
                     resources["admin_user_created"] = False
@@ -597,7 +759,11 @@ async def complete_onboarding(request: OnboardingRequest):
             tenant_id=tenant_id,
             message=message,
             resources=resources,
-            errors=errors
+            errors=errors,
+            access_token=auth_tokens.get("access_token"),
+            refresh_token=auth_tokens.get("refresh_token"),
+            expires_at=auth_tokens.get("expires_at"),
+            user=auth_tokens.get("user")  # Include user for frontend session initialization
         )
 
     except Exception as e:
@@ -613,8 +779,18 @@ async def complete_onboarding(request: OnboardingRequest):
 
 # ==================== Helper Functions ====================
 
-async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bool:
-    """Create tenant directory and config.yaml file"""
+async def create_tenant_config(
+    tenant_id: str,
+    request: OnboardingRequest,
+    sendgrid_api_key: Optional[str] = None
+) -> bool:
+    """Create tenant directory and config.yaml file
+
+    Args:
+        tenant_id: Unique tenant identifier
+        request: Onboarding request data
+        sendgrid_api_key: Provisioned or provided SendGrid API key
+    """
     base_path = Path(__file__).parent.parent.parent / "clients" / tenant_id
     base_path.mkdir(parents=True, exist_ok=True)
 
@@ -632,11 +808,17 @@ async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bo
         with open(outbound_prompt_path, 'w') as f:
             f.write(request.agents.outbound_prompt)
 
+    # Generate short_name: lowercase letters only from company name
+    short_name = re.sub(r'[^a-z]', '', request.company.company_name.lower())
+    if not short_name:
+        short_name = "tenant"  # Fallback if no letters in company name
+
     # Build config structure
     config = {
         "client": {
+            "id": tenant_id,
             "name": request.company.company_name,
-            "short_name": tenant_id,
+            "short_name": short_name,
             "timezone": request.company.timezone,
             "currency": request.company.currency
         },
@@ -660,12 +842,6 @@ async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bo
                 "anon_key": request.supabase_anon_key or os.getenv("SUPABASE_ANON_KEY", ""),
                 "service_key": request.supabase_service_key or os.getenv("SUPABASE_SERVICE_KEY", "")
             },
-            "vapi": {
-                "api_key": f"${{{tenant_id.upper().replace('-', '_')}_VAPI_API_KEY}}",
-                "assistant_id": None,
-                "outbound_assistant_id": None,
-                "phone_number_id": None
-            },
             "openai": {
                 "api_key": "${OPENAI_API_KEY}",
                 "model": "gpt-4o-mini"
@@ -677,14 +853,14 @@ async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bo
                 "host": "smtp.sendgrid.net",
                 "port": 587,
                 "username": "apikey",
-                "password": "${SENDGRID_API_KEY}"
+                "password": sendgrid_api_key or "${SENDGRID_API_KEY}"
             },
             "imap": {
                 "host": "imap.gmail.com",
                 "port": 993
             },
             "sendgrid": {
-                "api_key": request.email.sendgrid_api_key or "${SENDGRID_API_KEY}",
+                "api_key": sendgrid_api_key or "${SENDGRID_API_KEY}",
                 "from_email": request.email.from_email or request.company.support_email,
                 "from_name": request.email.from_name,
                 "reply_to": request.company.support_email
@@ -710,20 +886,97 @@ async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bo
             "inbound": {
                 "enabled": True,
                 "name": request.agents.inbound_agent_name,
-                "voice_id": request.agents.inbound_voice_id,
                 "prompt_file": "prompts/inbound.txt"
             },
-            "outbound": {
-                "enabled": request.outbound.enabled,
-                "name": request.agents.outbound_agent_name,
-                "voice_id": request.agents.outbound_voice_id,
-                "prompt_file": "prompts/outbound.txt"
+            "helpdesk": {
+                "enabled": True,
+                "prompt_file": "prompts/inbound.txt"
             }
         },
         "knowledge_base": {
             "categories": request.knowledge_base.categories
         },
-        "destinations": [],
+        # Default African destinations - all tenants use shared pricing from africastay_analytics
+        "destinations": [
+            {
+                "name": "Zanzibar",
+                "code": "ZNZ",
+                "enabled": True,
+                "aliases": ["Stone Town", "Zanzibar Island"]
+            },
+            {
+                "name": "Kenya",
+                "code": "KEN",
+                "enabled": True,
+                "aliases": ["Masai Mara", "Nairobi", "Diani Beach", "Amboseli", "Samburu", "Mombasa"]
+            },
+            {
+                "name": "Mauritius",
+                "code": "MRU",
+                "enabled": True,
+                "aliases": ["Port Louis"]
+            },
+            {
+                "name": "Cape Town",
+                "code": "CPT",
+                "enabled": True,
+                "aliases": ["Western Cape", "V&A Waterfront"]
+            },
+            {
+                "name": "Seychelles",
+                "code": "SEZ",
+                "enabled": True,
+                "aliases": ["Mahe", "Praslin", "La Digue"]
+            },
+            {
+                "name": "Maldives",
+                "code": "MLE",
+                "enabled": True,
+                "aliases": ["Male"]
+            },
+            {
+                "name": "Tanzania",
+                "code": "TZA",
+                "enabled": True,
+                "aliases": ["Serengeti", "Ngorongoro", "Kilimanjaro", "Arusha"]
+            },
+            {
+                "name": "South Africa",
+                "code": "ZAF",
+                "enabled": True,
+                "aliases": ["Johannesburg", "Kruger", "Garden Route", "Durban"]
+            },
+            {
+                "name": "Victoria Falls",
+                "code": "VFA",
+                "enabled": True,
+                "aliases": ["Vic Falls", "Zimbabwe", "Livingstone"]
+            },
+            {
+                "name": "Botswana",
+                "code": "BWA",
+                "enabled": True,
+                "aliases": ["Chobe", "Okavango Delta", "Kasane"]
+            },
+            {
+                "name": "Mozambique",
+                "code": "MOZ",
+                "enabled": True,
+                "aliases": ["Vilanculos", "Bazaruto", "Inhambane", "Tofo"]
+            },
+            {
+                "name": "Rwanda",
+                "code": "RWA",
+                "enabled": True,
+                "aliases": ["Kigali", "Gorilla Trekking"]
+            },
+            {
+                "name": "Uganda",
+                "code": "UGA",
+                "enabled": True,
+                "aliases": ["Kampala", "Bwindi"]
+            }
+        ],
         "consultants": []
     }
 
@@ -734,101 +987,6 @@ async def create_tenant_config(tenant_id: str, request: OnboardingRequest) -> bo
 
     logger.info(f"Created tenant config at {config_path}")
     return True
-
-
-async def create_vapi_assistant(
-    provisioner,
-    tenant_id: str,
-    agent_type: str,
-    name: str,
-    system_prompt: str,
-    voice_id: Optional[str],
-    company_name: str
-) -> Dict[str, Any]:
-    """Create a VAPI assistant with the given configuration"""
-    try:
-        result = provisioner.create_assistant(
-            name=f"{company_name} - {name} ({agent_type.title()})",
-            system_prompt=system_prompt,
-            voice_id=voice_id or "jennifer",
-            first_message=f"Hello! This is {name} from {company_name}. How can I help you today?" if agent_type == "inbound" else f"Hi, this is {name} calling from {company_name}. I'm following up on the travel quote we sent you."
-        )
-        return {"assistant_id": result.get("id"), "name": name}
-    except Exception as e:
-        logger.error(f"Failed to create {agent_type} assistant: {e}")
-        raise
-
-
-async def provision_phone_number(
-    tenant_id: str,
-    country_code: str,
-    assistant_id: Optional[str]
-) -> Dict[str, Any]:
-    """Provision a phone number via Twilio and import to VAPI"""
-    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
-    twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
-    vapi_key = os.getenv("VAPI_API_KEY")
-
-    if not all([twilio_sid, twilio_token, vapi_key]):
-        raise ValueError("Twilio/VAPI credentials not configured")
-
-    from src.tools.twilio_vapi_provisioner import TwilioVAPIProvisioner
-
-    provisioner = TwilioVAPIProvisioner(twilio_sid, twilio_token, vapi_key)
-
-    result = provisioner.provision_phone_for_tenant(
-        country_code=country_code,
-        client_id=tenant_id,
-        assistant_id=assistant_id
-    )
-
-    if result.get("success"):
-        return {
-            "phone_number": result.get("phone_number"),
-            "phone_number_id": result.get("vapi_id")
-        }
-    else:
-        raise ValueError(result.get("error", "Failed to provision phone"))
-
-
-async def update_tenant_vapi_config(
-    tenant_id: str,
-    inbound_assistant_id: Optional[str],
-    outbound_assistant_id: Optional[str],
-    phone_number_id: Optional[str]
-) -> bool:
-    """Update tenant config.yaml with VAPI resource IDs"""
-    config_path = Path(__file__).parent.parent.parent / "clients" / tenant_id / "client.yaml"
-
-    if not config_path.exists():
-        return False
-
-    try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-
-        if 'infrastructure' not in config:
-            config['infrastructure'] = {}
-        if 'vapi' not in config['infrastructure']:
-            config['infrastructure']['vapi'] = {}
-
-        vapi = config['infrastructure']['vapi']
-
-        if inbound_assistant_id:
-            vapi['assistant_id'] = inbound_assistant_id
-        if outbound_assistant_id:
-            vapi['outbound_assistant_id'] = outbound_assistant_id
-        if phone_number_id:
-            vapi['phone_number_id'] = phone_number_id
-
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to update VAPI config: {e}")
-        return False
 
 
 # ==================== Status Endpoint ====================
@@ -855,8 +1013,6 @@ async def get_onboarding_status(tenant_id: str):
             "status": "completed",
             "config": {
                 "company_name": config.company_name,
-                "vapi_configured": bool(config.vapi_assistant_id),
-                "phone_configured": bool(config.vapi_phone_number_id),
                 "sendgrid_configured": bool(config.sendgrid_api_key)
             }
         }

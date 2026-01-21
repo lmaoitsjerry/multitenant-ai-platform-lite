@@ -15,7 +15,9 @@ import {
   ExclamationCircleIcon,
   BuildingOfficeIcon,
   XMarkIcon,
+  StarIcon,
 } from '@heroicons/react/24/outline';
+import { StarIcon as StarIconSolid, CheckIcon } from '@heroicons/react/24/solid';
 
 export default function GenerateQuote() {
   const navigate = useNavigate();
@@ -196,23 +198,23 @@ export default function GenerateQuote() {
     return (
       <div className="max-w-lg mx-auto">
         <div className="card text-center py-12">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircleIcon className="w-10 h-10 text-green-600" />
+          <div className="w-16 h-16 bg-[var(--color-success)]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircleIcon className="w-10 h-10 text-[var(--color-success)]" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Quote Generated!</h2>
-          <p className="text-gray-600 mb-6">
+          <h2 className="text-2xl font-bold text-theme mb-2">Quote Generated!</h2>
+          <p className="text-theme-secondary mb-6">
             Quote ID: <span className="font-mono font-medium">{success.quote_id}</span>
           </p>
-          
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
+
+          <div className="bg-theme-surface-elevated rounded-lg p-4 mb-6 text-left border border-theme">
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-gray-500">Hotels Found:</span>
-                <span className="font-medium">{success.hotels_count || 0}</span>
+                <span className="text-theme-muted">Hotels Found:</span>
+                <span className="font-medium text-theme">{success.hotels_count || 0}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Email Sent:</span>
-                <span className={`font-medium ${success.email_sent ? 'text-green-600' : 'text-yellow-600'}`}>
+                <span className="text-theme-muted">Email Sent:</span>
+                <span className={`font-medium ${success.email_sent ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
                   {success.email_sent ? 'Yes' : 'No'}
                 </span>
               </div>
@@ -261,23 +263,23 @@ export default function GenerateQuote() {
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/quotes')}
-          className="p-2 hover:bg-gray-100 rounded-lg"
+          className="p-2 hover:bg-theme-border-light rounded-lg transition-colors"
         >
-          <ArrowLeftIcon className="w-5 h-5 text-gray-500" />
+          <ArrowLeftIcon className="w-5 h-5 text-theme-muted" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Generate Quote</h1>
-          <p className="text-gray-500">Create a personalized travel quote</p>
+          <h1 className="text-2xl font-bold text-theme">Generate Quote</h1>
+          <p className="text-theme-muted">Create a personalized travel quote</p>
         </div>
       </div>
 
       {/* Error Alert */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-          <ExclamationCircleIcon className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+        <div className="bg-[var(--color-error)]/10 border border-[var(--color-error)]/30 rounded-lg p-4 mb-6 flex items-start gap-3">
+          <ExclamationCircleIcon className="w-5 h-5 text-[var(--color-error)] flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-red-800">Error</p>
-            <p className="text-red-600 text-sm">{error}</p>
+            <p className="font-medium text-[var(--color-error)]">Error</p>
+            <p className="text-[var(--color-error)]/80 text-sm">{error}</p>
           </div>
         </div>
       )}
@@ -287,14 +289,14 @@ export default function GenerateQuote() {
         <div className="space-y-6">
           {/* Customer Info Section */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <UserIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="text-lg font-semibold text-theme mb-4 flex items-center gap-2">
+              <UserIcon className="w-5 h-5 text-theme-primary" />
               Customer Information
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Full Name <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <input
                   type="text"
@@ -307,8 +309,8 @@ export default function GenerateQuote() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Email <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <input
                   type="email"
@@ -321,7 +323,7 @@ export default function GenerateQuote() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Phone
                 </label>
                 <input
@@ -338,14 +340,14 @@ export default function GenerateQuote() {
 
           {/* Trip Details Section */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <MapPinIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="text-lg font-semibold text-theme mb-4 flex items-center gap-2">
+              <MapPinIcon className="w-5 h-5 text-theme-primary" />
               Trip Details
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Destination <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Destination <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <select
                   name="destination"
@@ -366,36 +368,36 @@ export default function GenerateQuote() {
               {/* Hotel Selection - Optional */}
               {formData.destination && (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">
                     <BuildingOfficeIcon className="w-4 h-4 inline mr-1" />
                     Select Hotels (optional)
                   </label>
-                  <p className="text-xs text-gray-500 mb-2">
+                  <p className="text-xs text-theme-muted mb-3">
                     Leave empty to auto-select based on availability, or choose specific hotels
                   </p>
 
                   {loadingHotels ? (
-                    <div className="flex items-center gap-2 text-gray-500 py-2">
-                      <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="flex items-center gap-2 text-theme-muted py-2">
+                      <div className="w-4 h-4 border-2 border-theme-primary border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-sm">Loading hotels...</span>
                     </div>
                   ) : hotels.length > 0 ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {/* Selected Hotels Pills */}
                       {formData.selected_hotels.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
+                        <div className="flex flex-wrap gap-2">
                           {formData.selected_hotels.map(hotelName => (
                             <span
                               key={hotelName}
-                              className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-sm"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-primary)]/10 text-theme-primary rounded-full text-sm font-medium"
                             >
                               {hotelName}
                               <button
                                 type="button"
                                 onClick={() => toggleHotel(hotelName)}
-                                className="hover:bg-purple-200 rounded-full p-0.5"
+                                className="hover:bg-[var(--color-primary)]/20 rounded-full p-0.5 transition-colors"
                               >
-                                <XMarkIcon className="w-3 h-3" />
+                                <XMarkIcon className="w-3.5 h-3.5" />
                               </button>
                             </span>
                           ))}
@@ -403,39 +405,70 @@ export default function GenerateQuote() {
                       )}
 
                       {/* Hotel Checkboxes */}
-                      <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                      <div className="max-h-56 overflow-y-auto border border-theme-border rounded-xl divide-y divide-theme-border bg-theme-surface">
                         {hotels.map((hotel, idx) => {
                           const hotelName = hotel.hotel_name || hotel.name || hotel;
                           const isSelected = formData.selected_hotels.includes(hotelName);
+                          const starRating = hotel.star_rating || 0;
                           return (
                             <label
                               key={idx}
-                              className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 ${isSelected ? 'bg-purple-50' : ''}`}
+                              className={`flex items-center gap-3 p-3.5 cursor-pointer transition-all duration-200 ${
+                                isSelected
+                                  ? 'bg-[var(--color-primary)]/10 border-l-2 border-l-[var(--color-primary)]'
+                                  : 'hover:bg-theme-surface-elevated border-l-2 border-l-transparent'
+                              }`}
                             >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleHotel(hotelName)}
-                                className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                              />
+                              {/* Custom Checkbox */}
+                              <div className="relative flex-shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleHotel(hotelName)}
+                                  className="sr-only"
+                                />
+                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
+                                  isSelected
+                                    ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
+                                    : 'border-theme-border bg-theme-surface hover:border-theme-muted'
+                                }`}>
+                                  {isSelected && (
+                                    <CheckIcon className="w-3.5 h-3.5 text-white" />
+                                  )}
+                                </div>
+                              </div>
                               <div className="flex-1 min-w-0">
-                                <p className="font-medium text-gray-900 truncate">{hotelName}</p>
-                                {hotel.star_rating && (
-                                  <p className="text-xs text-gray-500">
-                                    {'★'.repeat(hotel.star_rating)} {hotel.room_type || ''}
-                                  </p>
+                                <p className="font-medium text-theme truncate">{hotelName}</p>
+                                {starRating > 0 && (
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <div className="flex">
+                                      {[...Array(5)].map((_, i) => (
+                                        i < starRating ? (
+                                          <StarIconSolid key={i} className="w-3.5 h-3.5 text-amber-400" />
+                                        ) : (
+                                          <StarIcon key={i} className="w-3.5 h-3.5 text-theme-muted/40" />
+                                        )
+                                      ))}
+                                    </div>
+                                    {hotel.room_type && (
+                                      <span className="text-xs text-theme-muted ml-1">{hotel.room_type}</span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
+                              {isSelected && (
+                                <CheckCircleIcon className="w-5 h-5 text-theme-primary flex-shrink-0" />
+                              )}
                             </label>
                           );
                         })}
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-theme-muted">
                         {formData.selected_hotels.length} of {hotels.length} hotels selected
                       </p>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500 italic py-2">
+                    <p className="text-sm text-theme-muted italic py-2">
                       No hotels found for this destination
                     </p>
                   )}
@@ -443,8 +476,8 @@ export default function GenerateQuote() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Check-in Date <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Check-in Date <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <input
                   type="date"
@@ -457,8 +490,8 @@ export default function GenerateQuote() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Check-out Date <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Check-out Date <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <input
                   type="date"
@@ -475,14 +508,14 @@ export default function GenerateQuote() {
 
           {/* Travelers Section */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <UsersIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="text-lg font-semibold text-theme mb-4 flex items-center gap-2">
+              <UsersIcon className="w-5 h-5 text-theme-primary" />
               Travelers
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Adults <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
+                  Adults <span className="text-[var(--color-error)]">*</span>
                 </label>
                 <input
                   type="number"
@@ -496,7 +529,7 @@ export default function GenerateQuote() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Children
                 </label>
                 <input
@@ -511,7 +544,7 @@ export default function GenerateQuote() {
               </div>
               {formData.children > 0 && (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-theme-secondary mb-1">
                     Children Ages (comma-separated)
                   </label>
                   <input
@@ -522,7 +555,7 @@ export default function GenerateQuote() {
                     className="input"
                     placeholder="e.g., 5, 8, 12"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-theme-muted mt-1">
                     Enter ages separated by commas (e.g., 5, 8, 12)
                   </p>
                 </div>
@@ -532,13 +565,13 @@ export default function GenerateQuote() {
 
           {/* Budget & Notes Section */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <CurrencyDollarIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="text-lg font-semibold text-theme mb-4 flex items-center gap-2">
+              <CurrencyDollarIcon className="w-5 h-5 text-theme-primary" />
               Budget & Notes
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Total Budget (optional)
                 </label>
                 <input
@@ -552,7 +585,7 @@ export default function GenerateQuote() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Special Requests / Notes
                 </label>
                 <textarea
@@ -567,16 +600,16 @@ export default function GenerateQuote() {
           </div>
 
           {/* Email Option */}
-          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center gap-3 p-4 bg-theme-surface-elevated rounded-lg border border-theme">
             <input
               type="checkbox"
               id="send_email"
               name="send_email"
               checked={formData.send_email}
               onChange={handleChange}
-              className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+              className="w-4 h-4 rounded border-theme text-theme-primary focus:ring-[var(--color-primary)]"
             />
-            <label htmlFor="send_email" className="text-sm text-gray-700">
+            <label htmlFor="send_email" className="text-sm text-theme-secondary">
               Send quote to customer via email
             </label>
           </div>

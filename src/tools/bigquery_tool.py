@@ -141,12 +141,166 @@ class BigQueryTool:
                     bigquery.ScalarQueryParameter("nights", "INTEGER", nights)
                 ]
             )
-            results = self.client.query(query, job_config=job_config).result()
+            # Execute query with 8 second timeout to stay under frontend's 10s limit
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result(timeout=8.0)
             hotels = [dict(row) for row in results]
             logger.info(f"Found {len(hotels)} hotels for {destination}")
             return hotels
         except Exception as e:
             logger.error(f"Error finding matching hotels: {e}")
+            return []
+
+    def _normalize_hotel_name(self, name: str) -> str:
+        """
+        Normalize hotel name for matching - handles star variations and rating prefixes
+        """
+        import re
+        # Replace unicode stars with asterisk
+        name = name.replace('★', '*').replace('☆', '*')
+        # Remove leading rating patterns like "3* ", "3★ ", "4* ", etc.
+        name = re.sub(r'^\d+\*?\s*', '', name)
+        return name.lower().strip()
+
+    def _extract_hotel_keywords(self, name: str) -> List[str]:
+        """
+        Extract key words from hotel name for flexible matching
+        Filters out common words like 'hotel', 'resort', 'beach', etc.
+        """
+        import re
+        # Normalize first
+        name = self._normalize_hotel_name(name)
+
+        # Common words to filter out (too generic for matching)
+        common_words = {
+            'hotel', 'hotels', 'resort', 'resorts', 'beach', 'spa', 'lodge',
+            'suites', 'suite', 'inn', 'club', 'the', 'and', 'of', 'at', 'in',
+            'by', 'on', 'a', 'an', '&', '-'
+        }
+
+        # Split into words and filter
+        words = re.split(r'[\s\-&]+', name)
+        keywords = [w for w in words if w and len(w) > 2 and w not in common_words]
+
+        return keywords
+
+    def find_rates_by_hotel_names(
+        self,
+        hotel_names: List[str],
+        nights: int,
+        check_in: str,
+        check_out: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Find rates for specific hotels by name (for user-selected hotels)
+
+        This method uses relaxed date filtering to find the closest available
+        rates for the specified hotels, even if exact dates don't match.
+
+        Args:
+            hotel_names: List of hotel names to search for
+            nights: Number of nights
+            check_in: Customer check-in date (YYYY-MM-DD)
+            check_out: Customer check-out date (YYYY-MM-DD)
+
+        Returns:
+            List of rate records for the specified hotels
+        """
+        if not self.client or not hotel_names:
+            return []
+
+        logger.info(f"Finding rates for {len(hotel_names)} selected hotels: {hotel_names}")
+
+        # Extract keywords from hotel names for flexible matching
+        # This handles cases where BigQuery has "Diamonds Leisure Beach & Golf Resort"
+        # but user selected "Diamonds Leisure Beach Resort"
+        hotel_keywords = []
+        for name in hotel_names:
+            keywords = self._extract_hotel_keywords(name)
+            logger.info(f"Hotel '{name}' -> keywords: {keywords}")
+            hotel_keywords.append(keywords)
+
+        # Build OR conditions for each hotel - use primary keyword (first distinctive word)
+        # Each hotel needs at least one distinctive keyword to match
+        like_conditions = []
+        param_idx = 0
+        for i, keywords in enumerate(hotel_keywords):
+            if keywords:
+                # Use primary keyword (usually brand name like "diamonds", "sbh", "serena")
+                primary_keyword = keywords[0]
+                like_conditions.append(f"LOWER(r.hotel_name) LIKE @name_{param_idx}")
+                param_idx += 1
+
+        like_clause = " OR ".join(like_conditions)
+
+        query = f"""
+        SELECT
+            r.rate_id,
+            r.hotel_name,
+            r.hotel_rating,
+            r.room_type,
+            r.meal_plan,
+            r.total_7nights_pps,
+            r.total_7nights_single,
+            r.total_7nights_child,
+            r.check_in_date,
+            r.check_out_date,
+            r.nights
+        FROM {self.db.hotel_rates} r
+        WHERE
+            ({like_clause})
+            AND r.is_active = TRUE
+            AND r.nights = @nights
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY r.hotel_name, r.room_type, r.meal_plan
+            ORDER BY
+                -- Priority 1: Exact date match
+                CASE WHEN @check_in = r.check_in_date AND @check_out = r.check_out_date THEN 1
+                -- Priority 2: Customer dates within rate period
+                     WHEN @check_in >= r.check_in_date AND @check_out <= r.check_out_date THEN 2
+                -- Priority 3: Same month (seasonal rates)
+                     WHEN EXTRACT(MONTH FROM @check_in) = EXTRACT(MONTH FROM r.check_in_date) THEN 3
+                -- Priority 4: Any available rate
+                     ELSE 4
+                END,
+                r.rate_id DESC
+        ) = 1
+        ORDER BY r.hotel_name, r.total_7nights_pps ASC
+        LIMIT 100
+        """
+
+        try:
+            # Build query parameters for dynamic LIKE conditions
+            params = [
+                bigquery.ScalarQueryParameter("check_in", "DATE", check_in),
+                bigquery.ScalarQueryParameter("check_out", "DATE", check_out),
+                bigquery.ScalarQueryParameter("nights", "INTEGER", nights)
+            ]
+
+            # Add LIKE pattern parameters for each hotel's primary keyword
+            param_idx = 0
+            for keywords in hotel_keywords:
+                if keywords:
+                    # Use primary keyword with wildcards for flexible matching
+                    primary_keyword = keywords[0]
+                    params.append(bigquery.ScalarQueryParameter(f"name_{param_idx}", "STRING", f"%{primary_keyword}%"))
+                    logger.info(f"Search pattern {param_idx}: %{primary_keyword}%")
+                    param_idx += 1
+
+            if not like_conditions:
+                logger.warning("No valid keywords extracted from hotel names")
+                return []
+
+            job_config = bigquery.QueryJobConfig(query_parameters=params)
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result(timeout=8.0)
+            hotels = [dict(row) for row in results]
+            logger.info(f"Found {len(hotels)} rate records for selected hotels")
+            return hotels
+        except Exception as e:
+            logger.error(f"Error finding rates by hotel names: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def search_hotels_by_name(

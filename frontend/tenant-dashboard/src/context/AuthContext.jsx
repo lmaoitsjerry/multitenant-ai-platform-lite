@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, dashboardApi, clientApi } from '../services/api';
+import { authApi, dashboardApi, clientApi, setTenantId, clearTenantId } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -102,8 +102,10 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password, tenantId = null) => {
     setError(null);
+    console.log('[Auth] Attempting login for:', email);
     try {
       const response = await authApi.login(email, password, tenantId);
+      console.log('[Auth] Login response:', { success: response.data.success, hasError: !!response.data.error });
 
       if (response.data.success) {
         const { access_token, refresh_token, user: userData } = response.data;
@@ -112,6 +114,13 @@ export function AuthProvider({ children }) {
         localStorage.setItem(ACCESS_TOKEN_KEY, access_token);
         localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
         localStorage.setItem(USER_KEY, JSON.stringify(userData));
+
+        // CRITICAL: Store tenant_id from user object for subsequent API calls
+        // This ensures all API requests use the correct tenant's X-Client-ID header
+        if (userData?.tenant_id) {
+          setTenantId(userData.tenant_id);
+          console.log('[Auth] Stored tenant_id:', userData.tenant_id);
+        }
 
         setUser(userData);
 
@@ -126,11 +135,14 @@ export function AuthProvider({ children }) {
 
         return { success: true };
       } else {
-        setError(response.data.error || 'Login failed');
-        return { success: false, error: response.data.error };
+        const errorMsg = response.data.error || 'Login failed';
+        console.log('[Auth] Login failed:', errorMsg);
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
       }
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.response?.data?.detail || 'Login failed';
+      console.log('[Auth] Login error:', errorMsg, err);
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
@@ -150,6 +162,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    clearTenantId();  // Clear tenant_id so next login uses correct tenant
     setUser(null);
     setError(null);
   };

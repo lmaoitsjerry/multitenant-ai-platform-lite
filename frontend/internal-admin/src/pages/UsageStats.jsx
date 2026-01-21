@@ -7,22 +7,26 @@ import {
   DocumentTextIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
-import { usageApi } from '../services/api';
+import { analyticsApi } from '../services/api';
 
 export default function UsageStats() {
   const [loading, setLoading] = useState(true);
-  const [usage, setUsage] = useState(null);
-  const [period, setPeriod] = useState('month');
+  const [overview, setOverview] = useState(null);
+  const [topTenants, setTopTenants] = useState([]);
 
   useEffect(() => {
     loadUsage();
-  }, [period]);
+  }, []);
 
   const loadUsage = async () => {
     try {
       setLoading(true);
-      const response = await usageApi.getSummary(period);
-      setUsage(response.data);
+      const [overviewRes, topTenantsRes] = await Promise.all([
+        analyticsApi.getOverview(),
+        analyticsApi.getTopTenants('revenue', 20),
+      ]);
+      setOverview(overviewRes.data?.data || overviewRes.data);
+      setTopTenants(topTenantsRes.data?.data || []);
     } catch (error) {
       console.error('Failed to load usage:', error);
     } finally {
@@ -32,39 +36,18 @@ export default function UsageStats() {
 
   const formatCurrency = (amount) => `R ${Number(amount || 0).toLocaleString()}`;
 
-  const periodLabels = {
-    day: 'Today',
-    week: 'This Week',
-    month: 'This Month',
-    quarter: 'This Quarter',
-    year: 'This Year',
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Usage Statistics</h1>
-          <p className="text-gray-500 mt-1">Platform usage across all tenants</p>
+          <p className="text-gray-500 mt-1">Platform usage across all tenants (this month)</p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-            className="input w-40"
-          >
-            <option value="day">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-            <option value="quarter">This Quarter</option>
-            <option value="year">This Year</option>
-          </select>
-          <button onClick={loadUsage} className="btn-secondary flex items-center gap-2">
-            <ArrowPathIcon className="w-5 h-5" />
-            Refresh
-          </button>
-        </div>
+        <button onClick={loadUsage} className="btn-secondary flex items-center gap-2">
+          <ArrowPathIcon className="w-5 h-5" />
+          Refresh
+        </button>
       </div>
 
       {/* Totals */}
@@ -76,33 +59,33 @@ export default function UsageStats() {
             </div>
           ))}
         </div>
-      ) : usage?.totals && (
+      ) : overview && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <TotalCard
-            title="Total Revenue"
-            value={formatCurrency(usage.totals.total_revenue)}
-            subtitle={`${usage.totals.total_invoices_paid} paid invoices`}
+            title="Revenue (This Month)"
+            value={formatCurrency(overview.revenue_this_month)}
+            subtitle={`${overview.invoices_paid_this_month || 0} paid invoices`}
             icon={CurrencyDollarIcon}
             color="green"
           />
           <TotalCard
             title="Quotes Generated"
-            value={usage.totals.total_quotes}
-            subtitle={`${usage.totals.tenant_count} active tenants`}
+            value={overview.quotes_this_month || 0}
+            subtitle={`${overview.total_tenants || 0} active tenants`}
             icon={DocumentTextIcon}
             color="blue"
           />
           <TotalCard
-            title="Invoices Created"
-            value={usage.totals.total_invoices}
-            subtitle={`${usage.totals.total_invoices_paid} paid`}
+            title="Total Invoices"
+            value={overview.total_invoices || 0}
+            subtitle={`${overview.invoices_paid_this_month || 0} paid this month`}
             icon={ChartBarIcon}
             color="purple"
           />
           <TotalCard
-            title="Active Users"
-            value={usage.totals.total_active_users}
-            subtitle={`${usage.totals.total_crm_clients} CRM clients`}
+            title="Total Users"
+            value={overview.total_users || 0}
+            subtitle={`${overview.total_crm_clients || 0} CRM clients`}
             icon={UsersIcon}
             color="orange"
           />
@@ -112,7 +95,7 @@ export default function UsageStats() {
       {/* Usage by Tenant Table */}
       <div className="card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Usage by Tenant - {periodLabels[period]}
+          Top Tenants by Revenue
         </h3>
 
         {loading ? (
@@ -121,7 +104,7 @@ export default function UsageStats() {
               <div key={i} className="h-16 bg-gray-100 rounded animate-pulse"></div>
             ))}
           </div>
-        ) : usage?.by_tenant?.length > 0 ? (
+        ) : topTenants?.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -136,48 +119,49 @@ export default function UsageStats() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {usage.by_tenant
-                  .sort((a, b) => b.total_revenue - a.total_revenue)
-                  .map((tenantUsage) => (
-                    <tr key={tenantUsage.client_id} className="hover:bg-gray-50">
+                {topTenants.map((tenant) => (
+                    <tr key={tenant.tenant_id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <Link
-                          to={`/tenants/${tenantUsage.client_id}`}
+                          to={`/tenants/${tenant.tenant_id}`}
                           className="font-medium text-zorah-600 hover:text-zorah-700"
                         >
-                          {tenantUsage.client_id}
+                          {tenant.company_name || tenant.tenant_id}
                         </Link>
+                        <p className="text-xs text-gray-400">{tenant.tenant_id}</p>
                       </td>
-                      <td className="px-4 py-3 text-right">{tenantUsage.quotes_generated}</td>
-                      <td className="px-4 py-3 text-right">{tenantUsage.invoices_created}</td>
+                      <td className="px-4 py-3 text-right">{tenant.quotes_count || 0}</td>
+                      <td className="px-4 py-3 text-right">{tenant.invoices_count || 0}</td>
                       <td className="px-4 py-3 text-right">
-                        <span className="text-green-600 font-medium">{tenantUsage.invoices_paid}</span>
+                        <span className="text-green-600 font-medium">{tenant.invoices_paid || 0}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="font-bold text-green-600">
-                          {formatCurrency(tenantUsage.total_revenue)}
+                          {formatCurrency(tenant.total_revenue)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">{tenantUsage.active_users}</td>
-                      <td className="px-4 py-3 text-right">{tenantUsage.total_clients}</td>
+                      <td className="px-4 py-3 text-right">{tenant.users_count || 0}</td>
+                      <td className="px-4 py-3 text-right">{tenant.clients_count || 0}</td>
                     </tr>
                   ))}
               </tbody>
-              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
-                <tr>
-                  <td className="px-4 py-3 font-bold">Total</td>
-                  <td className="px-4 py-3 text-right font-bold">{usage.totals.total_quotes}</td>
-                  <td className="px-4 py-3 text-right font-bold">{usage.totals.total_invoices}</td>
-                  <td className="px-4 py-3 text-right font-bold text-green-600">
-                    {usage.totals.total_invoices_paid}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-green-600">
-                    {formatCurrency(usage.totals.total_revenue)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold">{usage.totals.total_active_users}</td>
-                  <td className="px-4 py-3 text-right font-bold">{usage.totals.total_crm_clients}</td>
-                </tr>
-              </tfoot>
+              {overview && (
+                <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 font-bold">Platform Total</td>
+                    <td className="px-4 py-3 text-right font-bold">{overview.quotes_this_month || 0}</td>
+                    <td className="px-4 py-3 text-right font-bold">{overview.total_invoices || 0}</td>
+                    <td className="px-4 py-3 text-right font-bold text-green-600">
+                      {overview.invoices_paid_this_month || 0}
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-green-600">
+                      {formatCurrency(overview.revenue_this_month)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold">{overview.total_users || 0}</td>
+                    <td className="px-4 py-3 text-right font-bold">{overview.total_crm_clients || 0}</td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         ) : (
@@ -186,27 +170,25 @@ export default function UsageStats() {
       </div>
 
       {/* Revenue Comparison */}
-      {usage?.by_tenant?.length > 0 && (
+      {topTenants?.length > 0 && (
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Revenue Comparison</h3>
           <div className="space-y-4">
-            {usage.by_tenant
-              .sort((a, b) => b.total_revenue - a.total_revenue)
-              .map((tenantUsage) => {
-                const maxRevenue = Math.max(...usage.by_tenant.map(t => t.total_revenue));
-                const percentage = maxRevenue > 0 ? (tenantUsage.total_revenue / maxRevenue) * 100 : 0;
+            {topTenants.map((tenant) => {
+                const maxRevenue = Math.max(...topTenants.map(t => t.total_revenue || 0));
+                const percentage = maxRevenue > 0 ? ((tenant.total_revenue || 0) / maxRevenue) * 100 : 0;
 
                 return (
-                  <div key={tenantUsage.client_id}>
+                  <div key={tenant.tenant_id}>
                     <div className="flex items-center justify-between mb-1">
                       <Link
-                        to={`/tenants/${tenantUsage.client_id}`}
+                        to={`/tenants/${tenant.tenant_id}`}
                         className="font-medium text-gray-900 hover:text-zorah-600"
                       >
-                        {tenantUsage.client_id}
+                        {tenant.company_name || tenant.tenant_id}
                       </Link>
                       <span className="font-bold text-green-600">
-                        {formatCurrency(tenantUsage.total_revenue)}
+                        {formatCurrency(tenant.total_revenue)}
                       </span>
                     </div>
                     <div className="h-3 bg-gray-100 rounded-full overflow-hidden">

@@ -60,7 +60,11 @@ export default function ClientsList() {
 
       if (response.data?.success) {
         setShowAddModal(false);
-        setToast({ type: 'success', message: 'Client created successfully!' });
+        // Show different message if client already existed
+        const message = response.data.created === false
+          ? 'Client already exists - showing existing record'
+          : 'Client created successfully!';
+        setToast({ type: 'success', message });
         loadClients(true); // Force refresh the list (bypass cache)
       } else {
         setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
@@ -78,12 +82,16 @@ export default function ClientsList() {
     try {
       setLoading(true);
       const params = { limit: 100 };
-      if (stageFilter) params.pipeline_stage = stageFilter;
+      if (stageFilter) params.stage = stageFilter;  // Backend expects 'stage' not 'pipeline_stage'
 
+      console.log('[ClientsList] Fetching clients with params:', params, 'forceRefresh:', forceRefresh);
       const response = await crmApi.listClients(params, forceRefresh);
-      setClients(response.data?.data || []);
+      console.log('[ClientsList] API response:', response.data);
+      const clientsData = response.data?.data || [];
+      console.log('[ClientsList] Setting clients:', clientsData.length, 'clients');
+      setClients(clientsData);
     } catch (error) {
-      console.error('Failed to load clients:', error);
+      console.error('[ClientsList] Failed to load clients:', error);
     } finally {
       setLoading(false);
     }
@@ -201,9 +209,9 @@ export default function ClientsList() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredClients.map((client) => (
-                <tr key={client.id} className="hover:bg-gray-50" onMouseEnter={() => crmApi.prefetch(client.id)}>
+                <tr key={client.client_id || client.id} className="hover:bg-gray-50" onMouseEnter={() => crmApi.prefetch(client.client_id || client.id)}>
                   <td className="px-6 py-4">
-                    <Link to={`/crm/clients/${client.id}`} className="flex items-center gap-3 hover:text-purple-600">
+                    <Link to={`/crm/clients/${client.client_id || client.id}`} className="flex items-center gap-3 hover:text-purple-600">
                       <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
                         <span className="text-purple-600 font-medium">
                           {client.name?.charAt(0)?.toUpperCase() || '?'}
@@ -262,22 +270,22 @@ export default function ClientsList() {
       {/* Add Client Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-[9999] overflow-y-auto">
-          {/* Backdrop */}
+          {/* Backdrop with blur */}
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
             onClick={() => setShowAddModal(false)}
           />
 
           {/* Modal Container */}
           <div className="flex min-h-full items-center justify-center p-4">
-            <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md transform transition-all">
+            <div className="relative bg-theme-surface rounded-xl shadow-2xl w-full max-w-md transform transition-all border border-theme-border">
               {/* Header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Add New Client</h3>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-theme-border">
+                <h3 className="text-lg font-semibold text-theme">Add New Client</h3>
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                  className="p-1.5 rounded-lg hover:bg-theme-surface-elevated text-theme-muted hover:text-theme"
                 >
                   <XMarkIcon className="w-5 h-5" />
                 </button>
@@ -286,47 +294,40 @@ export default function ClientsList() {
               {/* Form */}
               <form onSubmit={handleCreateClient} className="p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                  <label className="block text-sm font-medium text-theme-muted mb-1">Name *</label>
                   <input
                     type="text"
                     name="name"
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="Client name"
                     autoFocus
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                  <label className="block text-sm font-medium text-theme-muted mb-1">Email *</label>
                   <input
                     type="email"
                     name="email"
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="client@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <label className="block text-sm font-medium text-theme-muted mb-1">Phone</label>
                   <input
                     type="tel"
                     name="phone"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="input"
                     placeholder="+27 82 123 4567"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                  <label className="block text-sm font-medium text-theme-muted mb-1">Source</label>
                   <select
                     name="source"
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 appearance-none cursor-pointer"
-                    style={{
-                      backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                      backgroundPosition: 'right 0.5rem center',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundSize: '1.5em 1.5em',
-                      paddingRight: '2.5rem'
-                    }}
+                    className="input"
                   >
                     <option value="manual">Manual Entry</option>
                     <option value="referral">Referral</option>
@@ -338,14 +339,14 @@ export default function ClientsList() {
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                    className="flex-1 btn-secondary"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={creating}
-                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="flex-1 btn-primary flex items-center justify-center gap-2"
                   >
                     {creating ? (
                       <>

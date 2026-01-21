@@ -787,7 +787,11 @@ function CreateInvoiceModal({ isOpen, onClose, onCreated, quotes, preSelectedQuo
                     </select>
                     {quotes.length === 0 && (
                       <p className="text-xs text-amber-600 mt-1">
-                        Generate a quote first, then you can convert it to an invoice.
+                        No quotes found for your tenant. Generate a quote first, then you can convert it to an invoice.
+                        <br />
+                        <span className="text-gray-400 text-[10px]">
+                          Debug: tenant_id={localStorage.getItem('tenant_id') || 'not set'}
+                        </span>
                       </p>
                     )}
                   </div>
@@ -1070,9 +1074,15 @@ export default function InvoicesList() {
   const loadData = async () => {
     try {
       setLoading(true);
+
+      // Debug: Log the current tenant_id being used for API calls
+      const tenantId = localStorage.getItem('tenant_id');
+      console.log('[InvoicesList] Current tenant_id in localStorage:', tenantId);
+      console.log('[InvoicesList] VITE_CLIENT_ID env:', import.meta.env.VITE_CLIENT_ID);
+
       const [invoicesRes, quotesRes] = await Promise.all([
         invoicesApi.list({ status: statusFilter || undefined, limit: 50 }),
-        quotesApi.list({ limit: 100 }),  // Increased limit to ensure we get all quotes
+        quotesApi.list({ limit: 100 }, { skipCache: true }),  // Skip cache to ensure fresh data
       ]);
 
       console.log('[InvoicesList] Quotes API response:', quotesRes);

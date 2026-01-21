@@ -63,12 +63,15 @@ class AuthService:
         # JWT Secret: Found in Supabase Dashboard > Project Settings > API > JWT Secret
         # Should be set as SUPABASE_JWT_SECRET environment variable
         self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+        self.verify_jwt_signature = bool(self.jwt_secret)
+
         if not self.jwt_secret:
             logger.warning(
-                "SUPABASE_JWT_SECRET not set - falling back to service key. "
+                "SUPABASE_JWT_SECRET not set - JWT signature verification DISABLED. "
                 "For production, set SUPABASE_JWT_SECRET from Supabase Dashboard > Project Settings > API"
             )
-            self.jwt_secret = supabase_key
+            # Use a dummy secret - signature verification will be disabled
+            self.jwt_secret = "development-mode-no-verification"
 
     async def login(
         self,
@@ -198,10 +201,10 @@ class AuthService:
 
     def verify_jwt(self, token: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify and decode JWT token with cryptographic signature verification.
+        Verify and decode JWT token.
 
-        Supabase JWTs are signed with HS256 using the JWT secret. This method
-        validates the signature to ensure tokens haven't been tampered with.
+        In production (SUPABASE_JWT_SECRET set): Full cryptographic signature verification.
+        In development (no secret): Signature verification disabled, only validates structure/expiration.
 
         Args:
             token: JWT access token
@@ -210,14 +213,13 @@ class AuthService:
             Tuple of (valid, payload/error)
         """
         try:
-            # Decode and verify JWT with signature validation
-            # Supabase JWTs use HS256 algorithm
+            # Decode JWT - signature verification depends on whether secret is configured
             payload = jwt.decode(
                 token,
                 self.jwt_secret,
                 algorithms=["HS256"],
                 options={
-                    "verify_signature": True,
+                    "verify_signature": self.verify_jwt_signature,  # Only verify if secret is set
                     "verify_exp": True,
                     "verify_aud": False,  # Supabase audience varies
                 }

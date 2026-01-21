@@ -5,7 +5,6 @@ import {
   ArrowLeftIcon,
   EnvelopeIcon,
   DocumentDuplicateIcon,
-  PrinterIcon,
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
@@ -18,6 +17,8 @@ import {
   DocumentTextIcon,
   XMarkIcon,
   ExclamationTriangleIcon,
+  ArrowDownTrayIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline';
 
 const statusConfig = {
@@ -285,10 +286,6 @@ export default function QuoteDetail() {
     navigate('/invoices');
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   const handleDuplicate = () => {
     // Navigate to generate quote with prefilled data
     navigate('/quotes/new', { 
@@ -349,9 +346,9 @@ export default function QuoteDetail() {
   const hotels = quote.hotels || [];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+    <div className="space-y-6 print-content">
+      {/* Header - Hidden when printing */}
+      <div className="flex items-start justify-between no-print">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/quotes')}
@@ -381,16 +378,18 @@ export default function QuoteDetail() {
             <DocumentDuplicateIcon className="w-5 h-5" />
             Duplicate
           </button>
-          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
-            <PrinterIcon className="w-5 h-5" />
-            Print
-          </button>
         </div>
       </div>
 
-      {/* Email Status Warning */}
+      {/* Print Header - Only visible when printing */}
+      <div className="print-only">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Travel Quote</h1>
+        <p className="text-gray-600 font-mono">{quote.quote_id}</p>
+      </div>
+
+      {/* Email Status Warning - Hidden when printing */}
       {quote.status === 'generated' && !quote.email_sent && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3 no-print">
           <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
           <div>
             <p className="font-medium text-yellow-800">Email Not Sent</p>
@@ -401,8 +400,8 @@ export default function QuoteDetail() {
         </div>
       )}
 
-      {/* Status Banner */}
-      <div className={`${status.color} rounded-lg p-4 flex items-center gap-3`}>
+      {/* Status Banner - Hidden when printing */}
+      <div className={`${status.color} rounded-lg p-4 flex items-center gap-3 no-print`}>
         <StatusIcon className="w-5 h-5" />
         <span className="font-medium">Status: {status.label}</span>
         {quote.email_sent && (
@@ -506,6 +505,32 @@ export default function QuoteDetail() {
               )}
             </div>
           </div>
+
+          {/* Quote Preview */}
+          <div className="card">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <EyeIcon className="w-5 h-5 text-purple-600" />
+              Quote Preview
+            </h3>
+            <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+              <iframe
+                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/quotes/${quote.quote_id}/pdf`}
+                className="w-full h-[600px]"
+                title="Quote Preview"
+              />
+            </div>
+            <div className="mt-3 flex justify-center gap-3">
+              <a
+                href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/quotes/${quote.quote_id}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-sm inline-flex items-center gap-1"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                Open in New Tab
+              </a>
+            </div>
+          </div>
         </div>
 
         {/* Sidebar */}
@@ -531,8 +556,8 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Timeline */}
-          <div className="card">
+          {/* Timeline - Hidden when printing */}
+          <div className="card no-print">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <ClockIcon className="w-5 h-5 text-purple-600" />
               Timeline
@@ -575,8 +600,8 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="card">
+          {/* Actions - Hidden when printing */}
+          <div className="card no-print">
             <h3 className="font-semibold text-gray-900 mb-4">Actions</h3>
             <div className="space-y-3">
               <button

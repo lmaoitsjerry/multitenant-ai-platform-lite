@@ -262,7 +262,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;  -- Required to bypass RLS when inserting via trigger
 
 CREATE TRIGGER create_notification_prefs_on_user_create
     AFTER INSERT ON organization_users

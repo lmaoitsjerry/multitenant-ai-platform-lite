@@ -73,13 +73,15 @@ class CRMService:
         New clients start in QUOTED stage
         """
         if not self.supabase or not self.supabase.client:
+            logger.error("Supabase client not available for client creation")
             return None
 
         try:
             # Check if client exists
             existing = self.get_client_by_email(email)
-            
+
             if existing:
+                logger.info(f"Client already exists for email {email}: {existing.get('client_id') or existing.get('id')}")
                 return {**existing, 'created': False}
 
             # Create new client
@@ -100,10 +102,13 @@ class CRMService:
                 'updated_at': datetime.utcnow().isoformat()
             }
 
+            logger.info(f"Creating new client: {client_id} for tenant {self.config.client_id}")
             result = self.supabase.client.table('clients').insert(record).execute()
-            
+
             if result.data:
+                logger.info(f"Successfully created client: {result.data[0].get('client_id')}")
                 return {**result.data[0], 'created': True}
+            logger.error(f"Insert returned no data for client {client_id}")
             return None
 
         except Exception as e:
@@ -132,23 +137,46 @@ class CRMService:
             return None
 
     def get_client(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """Get client by ID"""
+        """Get client by ID (supports both CLI-XXXXXXXX format and UUID)"""
         if not self.supabase or not self.supabase.client:
             return None
 
         try:
-            result = self.supabase.client.table('clients')\
-                .select("*")\
-                .eq('tenant_id', self.config.client_id)\
-                .eq('client_id', client_id)\
-                .single()\
-                .execute()
+            # Determine if this is a CLI-XXXXXXXX format or UUID
+            is_cli_format = client_id.startswith('CLI-')
+
+            if is_cli_format:
+                # Query by client_id column (CLI-XXXXXXXX format)
+                result = self.supabase.client.table('clients')\
+                    .select("*")\
+                    .eq('tenant_id', self.config.client_id)\
+                    .eq('client_id', client_id)\
+                    .single()\
+                    .execute()
+            else:
+                # Query by id column (UUID format) for backwards compatibility
+                result = self.supabase.client.table('clients')\
+                    .select("*")\
+                    .eq('tenant_id', self.config.client_id)\
+                    .eq('id', client_id)\
+                    .single()\
+                    .execute()
 
             return result.data
 
         except Exception as e:
             logger.error(f"Failed to get client: {e}")
             return None
+
+    def _get_client_id_filter(self, client_id: str) -> tuple:
+        """Helper to determine the correct column and value for client ID queries.
+        Returns (column_name, value) tuple for use in .eq() calls.
+        Supports both CLI-XXXXXXXX format and UUID format for backwards compatibility.
+        """
+        if client_id.startswith('CLI-'):
+            return ('client_id', client_id)
+        else:
+            return ('id', client_id)
 
     def update_client(
         self,
@@ -165,7 +193,7 @@ class CRMService:
 
         try:
             update_data = {'updated_at': datetime.utcnow().isoformat()}
-            
+
             if name is not None:
                 update_data['name'] = name
             if phone is not None:
@@ -177,10 +205,11 @@ class CRMService:
             if total_value is not None:
                 update_data['total_value'] = total_value
 
+            id_col, id_val = self._get_client_id_filter(client_id)
             self.supabase.client.table('clients')\
                 .update(update_data)\
                 .eq('tenant_id', self.config.client_id)\
-                .eq('client_id', client_id)\
+                .eq(id_col, id_val)\
                 .execute()
 
             return True
@@ -195,13 +224,14 @@ class CRMService:
             return False
 
         try:
+            id_col, id_val = self._get_client_id_filter(client_id)
             self.supabase.client.table('clients')\
                 .update({
                     'pipeline_stage': stage.value,
                     'updated_at': datetime.utcnow().isoformat()
                 })\
                 .eq('tenant_id', self.config.client_id)\
-                .eq('client_id', client_id)\
+                .eq(id_col, id_val)\
                 .execute()
 
             # Log stage change activity
@@ -310,15 +340,19 @@ class CRMService:
             return []
 
     def get_activities(self, client_id: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get activities for a client"""
+        """Get activities for a client (supports both CLI-XXXXXXXX and UUID formats)"""
         if not self.supabase or not self.supabase.client:
             return []
 
         try:
+            # Activities are stored with client_id in CLI-XXXXXXXX format,
+            # but we also support UUID lookup for backwards compatibility
+            id_col, id_val = self._get_client_id_filter(client_id)
+
             result = self.supabase.client.table('activities')\
                 .select("*")\
                 .eq('tenant_id', self.config.client_id)\
-                .eq('client_id', client_id)\
+                .eq(id_col, id_val)\
                 .order('created_at', desc=True)\
                 .limit(limit)\
                 .execute()
@@ -330,25 +364,73 @@ class CRMService:
             return []
 
     def get_pipeline_summary(self) -> Dict[str, Any]:
-        """Get pipeline stage summary with counts and values"""
+        """Get pipeline stage summary with counts and values.
+
+        Values are calculated from quotes linked to clients by email,
+        since total_value on clients may not always be updated.
+        """
         if not self.supabase or not self.supabase.client:
             return {}
 
         try:
-            result = self.supabase.client.table('clients')\
-                .select("pipeline_stage, total_value")\
+            # Get all clients with their pipeline stages and emails
+            clients_result = self.supabase.client.table('clients')\
+                .select("email, pipeline_stage")\
                 .eq('tenant_id', self.config.client_id)\
                 .execute()
 
-            clients = result.data or []
+            clients = clients_result.data or []
+            logger.info(f"[Pipeline] Found {len(clients)} clients")
 
+            # Get all quotes to calculate values
+            quotes_result = self.supabase.client.table('quotes')\
+                .select("customer_email, total_price")\
+                .eq('tenant_id', self.config.client_id)\
+                .execute()
+
+            quotes = quotes_result.data or []
+            logger.info(f"[Pipeline] Found {len(quotes)} quotes")
+
+            # Log first few quotes for debugging
+            for i, q in enumerate(quotes[:3]):
+                logger.info(f"[Pipeline] Quote {i}: email={q.get('customer_email')}, total_price={q.get('total_price')}")
+
+            # Build a map of email -> total quote value
+            email_values = {}
+            for quote in quotes:
+                # Handle both 'customer_email' and potential variations
+                email = (quote.get('customer_email') or quote.get('email') or '').lower().strip()
+                price = quote.get('total_price') or quote.get('price') or 0
+                if email and price:
+                    email_values[email] = email_values.get(email, 0) + price
+
+            logger.info(f"[Pipeline] Email->Value map: {len(email_values)} entries")
+            for email, value in list(email_values.items())[:3]:
+                logger.info(f"[Pipeline]   {email}: {value}")
+
+            # Log client emails for comparison
+            client_emails = [(c.get('email') or '').lower().strip() for c in clients]
+            logger.info(f"[Pipeline] Client emails: {client_emails[:5]}")
+
+            # Calculate summary by stage
             summary = {}
             for stage in PipelineStage:
                 stage_clients = [c for c in clients if c.get('pipeline_stage') == stage.value]
+                # Sum quote values for clients in this stage
+                stage_value = 0
+                for c in stage_clients:
+                    client_email = (c.get('email') or '').lower().strip()
+                    client_value = email_values.get(client_email, 0)
+                    if client_value > 0:
+                        logger.debug(f"Pipeline: Client {client_email} in {stage.value} has value {client_value}")
+                    stage_value += client_value
+
                 summary[stage.value] = {
                     'count': len(stage_clients),
-                    'value': sum(c.get('total_value', 0) or 0 for c in stage_clients)
+                    'value': stage_value
                 }
+                if stage_value > 0:
+                    logger.info(f"Pipeline summary: {stage.value} has {len(stage_clients)} clients, value {stage_value}")
 
             return summary
 
@@ -357,21 +439,34 @@ class CRMService:
             return {}
 
     def get_client_stats(self) -> Dict[str, Any]:
-        """Get overall CRM statistics"""
+        """Get overall CRM statistics.
+
+        Total value is calculated from quotes linked to clients.
+        """
         if not self.supabase or not self.supabase.client:
             return {}
 
         try:
-            result = self.supabase.client.table('clients')\
+            # Get all clients
+            clients_result = self.supabase.client.table('clients')\
                 .select("*")\
                 .eq('tenant_id', self.config.client_id)\
                 .execute()
 
-            clients = result.data or []
+            clients = clients_result.data or []
+
+            # Get total value from quotes
+            quotes_result = self.supabase.client.table('quotes')\
+                .select("total_price")\
+                .eq('tenant_id', self.config.client_id)\
+                .execute()
+
+            quotes = quotes_result.data or []
+            total_quote_value = sum(q.get('total_price', 0) or 0 for q in quotes)
 
             return {
                 'total_clients': len(clients),
-                'total_value': sum(c.get('total_value', 0) or 0 for c in clients),
+                'total_value': total_quote_value,
                 'by_stage': {
                     stage.value: len([c for c in clients if c.get('pipeline_stage') == stage.value])
                     for stage in PipelineStage

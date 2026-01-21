@@ -25,26 +25,55 @@ class EmailSender:
     def __init__(self, config):
         """
         Initialize email sender with client configuration
-        
+
         Args:
             config: ClientConfig instance
+
+        Credentials are loaded in this priority order:
+        1. Database (tenant_settings table) - for dynamic subuser credentials
+        2. Config file (client.yaml) - for static credentials
         """
         self.config = config
-        self.sendgrid_api_key = getattr(config, 'sendgrid_api_key', None)
+
+        # Try to load settings from database first (for subuser support)
+        db_settings = self._load_db_settings()
+
+        # SendGrid API key: database first, then config
+        self.sendgrid_api_key = (
+            db_settings.get('sendgrid_api_key') if db_settings else None
+        ) or getattr(config, 'sendgrid_api_key', None)
         self.use_sendgrid = bool(self.sendgrid_api_key)
-        
-        # Email settings
-        self.from_email = getattr(config, 'sendgrid_from_email', None) or getattr(config, 'primary_email', 'noreply@example.com')
-        self.from_name = getattr(config, 'sendgrid_from_name', None) or getattr(config, 'company_name', 'Travel Agency')
-        self.reply_to = getattr(config, 'sendgrid_reply_to', None) or self.from_email
-        
+
+        # Email settings: database first, then config
+        self.from_email = (
+            db_settings.get('email_from_email') if db_settings else None
+        ) or getattr(config, 'sendgrid_from_email', None) or getattr(config, 'primary_email', 'noreply@example.com')
+
+        self.from_name = (
+            db_settings.get('email_from_name') if db_settings else None
+        ) or getattr(config, 'sendgrid_from_name', None) or getattr(config, 'company_name', 'Travel Agency')
+
+        self.reply_to = (
+            db_settings.get('email_reply_to') if db_settings else None
+        ) or getattr(config, 'sendgrid_reply_to', None) or self.from_email
+
         # SMTP fallback settings
         self.smtp_host = getattr(config, 'smtp_host', 'smtp.gmail.com')
         self.smtp_port = getattr(config, 'smtp_port', 465)
         self.smtp_username = getattr(config, 'smtp_username', '')
         self.smtp_password = getattr(config, 'smtp_password', '')
-        
-        logger.info(f"Email sender initialized for {config.client_id} (SendGrid: {self.use_sendgrid})")
+
+        logger.info(f"Email sender initialized for {config.client_id} (SendGrid: {self.use_sendgrid}, from_db: {db_settings is not None})")
+
+    def _load_db_settings(self) -> Optional[Dict[str, Any]]:
+        """Load email settings from tenant_settings table"""
+        try:
+            from src.tools.supabase_tool import SupabaseTool
+            supabase = SupabaseTool(self.config)
+            return supabase.get_tenant_settings()
+        except Exception as e:
+            logger.debug(f"Could not load tenant settings from database: {e}")
+            return None
 
     def send_email(
         self,

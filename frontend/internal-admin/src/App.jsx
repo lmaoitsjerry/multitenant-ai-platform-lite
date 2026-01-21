@@ -3,18 +3,19 @@ import {
   HomeIcon,
   BuildingOffice2Icon,
   ChartBarIcon,
-  ServerStackIcon,
-  Cog6ToothIcon,
+  BookOpenIcon,
 } from '@heroicons/react/24/outline';
 import Dashboard from './pages/Dashboard';
 import TenantsList from './pages/TenantsList';
 import TenantDetail from './pages/TenantDetail';
 import UsageStats from './pages/UsageStats';
+import KnowledgeManager from './pages/KnowledgeManager';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Tenants', href: '/tenants', icon: BuildingOffice2Icon },
   { name: 'Usage', href: '/usage', icon: ChartBarIcon },
+  { name: 'Knowledge', href: '/knowledge', icon: BookOpenIcon },
 ];
 
 function Sidebar() {
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="/tenants" element={<TenantsList />} />
         <Route path="/tenants/:tenantId" element={<TenantDetail />} />
         <Route path="/usage" element={<UsageStats />} />
+        <Route path="/knowledge" element={<KnowledgeManager />} />
       </Routes>
     </Layout>
   );

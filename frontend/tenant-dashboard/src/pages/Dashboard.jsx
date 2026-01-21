@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import {
@@ -9,8 +9,32 @@ import {
   ArrowTrendingUpIcon,
   PlusIcon,
   ArrowPathIcon,
+  SparklesIcon,
+  RocketLaunchIcon,
+  SunIcon,
+  MoonIcon,
 } from '@heroicons/react/24/outline';
-import { dashboardApi, quotesApi } from '../services/api';
+import { dashboardApi, quotesApi, pricingApi } from '../services/api';
+
+// Dynamic welcome messages
+const WELCOME_MESSAGES = [
+  { greeting: "Let's make today great!", icon: SparklesIcon, subtext: "Your next booking is waiting" },
+  { greeting: "Ready to close some deals?", icon: RocketLaunchIcon, subtext: "Check your pipeline for hot leads" },
+  { greeting: "Great things ahead!", icon: SparklesIcon, subtext: "Time to create amazing travel experiences" },
+  { greeting: "Let's get productive!", icon: RocketLaunchIcon, subtext: "Your dashboard is ready" },
+  { greeting: "Another day, another adventure!", icon: SparklesIcon, subtext: "Help your clients explore the world" },
+  { greeting: "Time to shine!", icon: SparklesIcon, subtext: "Your customers are counting on you" },
+  { greeting: "Let's make it happen!", icon: RocketLaunchIcon, subtext: "Today's quotes could be tomorrow's bookings" },
+];
+
+// Get time-based greeting
+const getTimeGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return { text: "Good morning", icon: SunIcon };
+  if (hour < 17) return { text: "Good afternoon", icon: SunIcon };
+  if (hour < 21) return { text: "Good evening", icon: MoonIcon };
+  return { text: "Working late?", icon: MoonIcon };
+};
 
 // Cache configuration
 const CACHE_KEY = 'dashboard_data_cache';
@@ -69,6 +93,14 @@ export default function Dashboard() {
   const [isStale, setIsStale] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Select random welcome message on mount (stable for session)
+  const welcomeMessage = useMemo(() => {
+    return WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)];
+  }, []);
+
+  // Get time-based greeting
+  const timeGreeting = useMemo(() => getTimeGreeting(), []);
+
   // Load cached data on mount, then fetch fresh data
   useEffect(() => {
     const cached = getCachedData();
@@ -119,6 +151,23 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch pricing stats as fallback when dashboard returns 0
+  const fetchPricingStats = async () => {
+    try {
+      const [hotelsRes, destinationsRes] = await Promise.all([
+        pricingApi.listHotels(),
+        pricingApi.listDestinations()
+      ]);
+
+      return {
+        hotels: hotelsRes.data?.count || hotelsRes.data?.data?.length || 0,
+        destinations: destinationsRes.data?.count || destinationsRes.data?.data?.length || 0
+      };
+    } catch {
+      return { hotels: 0, destinations: 0 };
+    }
+  };
+
   // Fetch dashboard data from API
   const loadDashboard = useCallback(async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) {
@@ -130,7 +179,23 @@ export default function Dashboard() {
     try {
       const response = await dashboardApi.getAll();
       if (response.data?.success && response.data?.data) {
-        const data = response.data.data;
+        let data = response.data.data;
+
+        // Fallback: If hotels/destinations are 0, try fetching from pricing API directly
+        if (data.stats?.total_hotels === 0 || data.stats?.total_destinations === 0) {
+          const pricingStats = await fetchPricingStats();
+          if (pricingStats.hotels > 0 || pricingStats.destinations > 0) {
+            data = {
+              ...data,
+              stats: {
+                ...data.stats,
+                total_hotels: pricingStats.hotels || data.stats.total_hotels,
+                total_destinations: pricingStats.destinations || data.stats.total_destinations
+              }
+            };
+          }
+        }
+
         setDashboardData(data);
         setCachedData(data);
         setIsStale(false);
@@ -170,9 +235,14 @@ export default function Dashboard() {
   const recentQuotes = dashboardData?.recent_quotes || [];
   const usage = dashboardData?.usage || {};
 
+  // Currency formatting with symbol based on configured currency
+  const currencySymbols = { ZAR: 'R', USD: '$', EUR: '€', GBP: '£' };
+  const currencyCode = clientInfo?.currency || 'ZAR';
+  const currencySymbol = currencySymbols[currencyCode] || currencyCode;
+
   const formatCurrency = (amount) => {
     if (!amount) return '-';
-    return `R ${Number(amount).toLocaleString()}`;
+    return `${currencySymbol} ${Number(amount).toLocaleString()}`;
   };
 
   return (
@@ -180,11 +250,22 @@ export default function Dashboard() {
       {/* Welcome */}
       <div className="card gradient-purple text-white">
         <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">Welcome back!</h2>
-            <p className="text-purple-100 mt-1">
-              Here's what's happening with {clientInfo?.client_name || 'your business'} today.
-            </p>
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-white/10 rounded-xl hidden sm:block">
+              <timeGreeting.icon className="w-8 h-8" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold">{timeGreeting.text}!</h2>
+              </div>
+              <p className="text-purple-100 mt-1 text-lg flex items-center gap-2">
+                <welcomeMessage.icon className="w-5 h-5 inline" />
+                {welcomeMessage.greeting}
+              </p>
+              <p className="text-purple-200 text-sm mt-2">
+                {welcomeMessage.subtext} {clientInfo?.client_name ? `at ${clientInfo.client_name}` : ''}
+              </p>
+            </div>
           </div>
           <button
             onClick={handleRefresh}
@@ -222,7 +303,7 @@ export default function Dashboard() {
           href="/pricing/hotels"
           loading={loading}
           isStale={isStale || refreshing}
-          notice={!loading && stats?.total_hotels === 0 ? "Configure pricing data" : null}
+          notice={!loading && stats?.total_hotels === 0 ? "View pricing guide →" : null}
         />
         <StatCard
           title="Destinations"
@@ -231,7 +312,7 @@ export default function Dashboard() {
           href="/pricing/rates"
           loading={loading}
           isStale={isStale || refreshing}
-          notice={!loading && stats?.total_destinations === 0 ? "Configure pricing data" : null}
+          notice={!loading && stats?.total_destinations === 0 ? "View pricing guide →" : null}
         />
       </div>
 
@@ -247,9 +328,9 @@ export default function Dashboard() {
               icon={PlusIcon}
             />
             <QuickAction
-              title="Start Chat"
-              description="Handle customer inquiry"
-              href="/chat"
+              title="Add Client"
+              description="Add a new client to CRM"
+              href="/crm/clients"
               icon={UsersIcon}
             />
             <QuickAction

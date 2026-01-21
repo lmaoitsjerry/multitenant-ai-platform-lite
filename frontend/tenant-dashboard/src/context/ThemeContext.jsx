@@ -110,7 +110,11 @@ export function ThemeProvider({ children }) {
   const [fonts, setFonts] = useState(DEFAULT_FONTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [darkMode, setDarkMode] = useState(false);
+  // Initialize from localStorage for instant dark mode on page load (no flash)
+  const [darkMode, setDarkMode] = useState(() => {
+    const stored = localStorage.getItem('darkMode');
+    return stored === 'true';
+  });
 
   // Load branding on mount
   useEffect(() => {
@@ -127,12 +131,39 @@ export function ThemeProvider({ children }) {
     }
   }, [branding, previewBranding]);
 
-  // Apply dark mode attribute
+  // Apply dark mode attribute and clear conflicting inline styles
   useEffect(() => {
+    const root = document.documentElement;
+
+    // Clear ALL theme-related inline styles so CSS dark/light mode rules take effect
+    // These inline styles override CSS [data-theme] rules due to specificity
+    const themeCSSVars = [
+      // Background/surface colors - must clear for dark mode to work
+      '--color-background',
+      '--color-surface',
+      '--color-surface-elevated',
+      // Text colors
+      '--color-text-primary',
+      '--color-text-secondary',
+      '--color-text-muted',
+      // Border colors
+      '--color-border',
+      '--color-border-light',
+      // Sidebar colors
+      '--color-sidebar-bg',
+      '--color-sidebar-text',
+      '--color-sidebar-text-muted',
+      '--color-sidebar-hover',
+      '--color-sidebar-active-bg',
+      '--color-sidebar-active-text',
+    ];
+    themeCSSVars.forEach(v => root.style.removeProperty(v));
+
+    // Now set the data-theme attribute - CSS rules will take effect
     if (darkMode) {
-      document.documentElement.setAttribute('data-theme', 'dark');
+      root.setAttribute('data-theme', 'dark');
     } else {
-      document.documentElement.removeAttribute('data-theme');
+      root.removeAttribute('data-theme');
     }
   }, [darkMode]);
 
@@ -142,7 +173,10 @@ export function ThemeProvider({ children }) {
       const response = await brandingApi.get();
       if (response.data?.success) {
         setBranding(response.data.data);
-        setDarkMode(response.data.data.dark_mode_enabled || false);
+        const serverDarkMode = response.data.data.dark_mode_enabled || false;
+        setDarkMode(serverDarkMode);
+        // Sync localStorage with server state
+        localStorage.setItem('darkMode', String(serverDarkMode));
       }
     } catch (err) {
       console.error('Failed to load branding:', err);
@@ -200,12 +234,19 @@ export function ThemeProvider({ children }) {
 
   const applyCSSVariables = useCallback((theme) => {
     const root = document.documentElement;
+    const isDark = root.getAttribute('data-theme') === 'dark';
 
     // Apply colors
     if (theme.colors) {
       Object.entries(theme.colors).forEach(([key, value]) => {
         const cssVar = CSS_VAR_MAP[key];
         if (cssVar && value) {
+          // Skip sidebar colors if they weren't explicitly set by tenant
+          // Let CSS handle them based on dark/light mode
+          const isSidebarVar = cssVar.includes('sidebar');
+          if (isSidebarVar && !theme.colors[key]) {
+            return; // Skip auto-generated sidebar colors, let CSS handle it
+          }
           root.style.setProperty(cssVar, value);
         }
       });
@@ -218,16 +259,20 @@ export function ThemeProvider({ children }) {
         }
       }
 
-      // Auto-generate sidebar active colors based on primary if not explicitly set
-      if (theme.colors.primary && !theme.colors.sidebar_active_bg) {
-        root.style.setProperty('--color-sidebar-active-bg', generateTint(theme.colors.primary, 0.15));
-      }
-      if (theme.colors.primary && !theme.colors.sidebar_active_text) {
-        root.style.setProperty('--color-sidebar-active-text', theme.colors.primary);
-      }
-      // Auto-generate sidebar hover based on primary (very subtle tint)
-      if (theme.colors.primary && !theme.colors.sidebar_hover) {
-        root.style.setProperty('--color-sidebar-hover', generateTint(theme.colors.primary, 0.08));
+      // Only auto-generate sidebar colors if NOT in dark mode
+      // Dark mode should use CSS-defined colors for proper contrast
+      if (!isDark && theme.colors.primary) {
+        // Auto-generate sidebar active colors based on primary if not explicitly set
+        if (!theme.colors.sidebar_active_bg) {
+          root.style.setProperty('--color-sidebar-active-bg', generateTint(theme.colors.primary, 0.15));
+        }
+        if (!theme.colors.sidebar_active_text) {
+          root.style.setProperty('--color-sidebar-active-text', theme.colors.primary);
+        }
+        // Auto-generate sidebar hover based on primary (very subtle tint)
+        if (!theme.colors.sidebar_hover) {
+          root.style.setProperty('--color-sidebar-hover', generateTint(theme.colors.primary, 0.08));
+        }
       }
     }
 
@@ -395,10 +440,14 @@ export function ThemeProvider({ children }) {
 
   const toggleDarkMode = async () => {
     const newDarkMode = !darkMode;
+    // Immediately update state and localStorage for instant response
     setDarkMode(newDarkMode);
+    localStorage.setItem('darkMode', String(newDarkMode));
 
-    // Save to server
-    await updateBranding({ dark_mode_enabled: newDarkMode });
+    // Save to server in background (don't await to avoid lag)
+    updateBranding({ dark_mode_enabled: newDarkMode }).catch((err) => {
+      console.error('Failed to save dark mode to server:', err);
+    });
   };
 
   const value = useMemo(() => ({
