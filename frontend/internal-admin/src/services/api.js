@@ -1,7 +1,15 @@
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || 'zorah-internal-admin-2024';
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN;
+
+// Validate admin token is configured
+if (!ADMIN_TOKEN) {
+  console.error(
+    'FATAL: VITE_ADMIN_TOKEN environment variable is not set. ' +
+    'Admin API requests will fail. Set this in your .env file.'
+  );
+}
 
 const api = axios.create({
   baseURL: API_URL,
@@ -15,6 +23,11 @@ const api = axios.create({
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401 && !ADMIN_TOKEN) {
+      console.error(
+        'Admin authentication failed. Ensure VITE_ADMIN_TOKEN is set in your .env file.'
+      );
+    }
     console.error('API Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }

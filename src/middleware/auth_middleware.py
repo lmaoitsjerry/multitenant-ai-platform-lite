@@ -44,15 +44,22 @@ PUBLIC_PATHS = {
     "/api/v1/branding",
     "/api/v1/branding/presets",
     "/api/v1/branding/fonts",
+    # Helpdesk endpoints (search uses X-Client-ID for tenant context)
+    "/api/v1/helpdesk/faiss-status",
+    "/api/v1/helpdesk/test-search",
+    "/api/v1/helpdesk/ask",
+    "/api/v1/helpdesk/topics",
+    "/api/v1/helpdesk/search",
 }
 
 # Prefixes that don't require authentication
 PUBLIC_PREFIXES = [
     "/api/v1/webhooks/",
+    "/api/webhooks/",  # Legacy webhook endpoints (SendGrid inbound)
     "/webhooks/",
     "/api/v1/inbound/",
     "/api/v1/admin/",  # Admin routes use X-Admin-Token auth
-    "/api/v1/admin/onboarding/",  # Onboarding routes (admin token auth)
+    "/api/v1/onboarding/",  # Tenant onboarding (new signups - no auth)
     "/api/v1/public/",  # Public shareable endpoints (invoices, quotes)
 ]
 
@@ -161,6 +168,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Get tenant ID
         tenant_id = request.headers.get("X-Client-ID") or os.getenv("CLIENT_ID", "africastay")
+        # SECURITY NOTE: The X-Client-ID header is initially trusted to load tenant config.
+        # After JWT verification and user lookup, we validate that the header matches
+        # the user's actual tenant_id. This prevents tenant spoofing attacks where an
+        # attacker sends a valid JWT but targets a different tenant via the header.
 
         try:
             # Get tenant config for Supabase credentials
@@ -198,6 +209,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "User account is deactivated"}
+                )
+
+            # Validate X-Client-ID matches user's actual tenant
+            header_tenant_id = request.headers.get("X-Client-ID")
+            if header_tenant_id and header_tenant_id != user["tenant_id"]:
+                logger.warning(
+                    f"Tenant spoofing attempt: header X-Client-ID={header_tenant_id}, "
+                    f"user tenant_id={user['tenant_id']}, auth_user_id={auth_user_id}"
+                )
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Access denied: tenant mismatch"}
                 )
 
             # Attach user context to request
