@@ -19,6 +19,7 @@ from enum import Enum
 
 from config.loader import ClientConfig
 
+from src.utils.error_handler import log_and_raise
 from src.webhooks.email_webhook import router as email_webhook_router
 from src.services.crm_service import CRMService, PipelineStage
 
@@ -219,8 +220,7 @@ async def generate_quote(
         return result
 
     except Exception as e:
-        logger.error(f"Quote generation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "generating quote", e, logger)
 
 
 @quotes_router.get("")
@@ -228,14 +228,19 @@ async def list_quotes(
     status: Optional[str] = None,
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    x_client_id: str = Header(None, alias="X-Client-ID")
 ):
     """List quotes with optional filtering"""
     from src.agents.quote_agent import QuoteAgent
 
+    logger.info(f"[LIST_QUOTES] X-Client-ID header: {x_client_id}, resolved config.client_id: {config.client_id}")
+
     try:
         agent = get_quote_agent(config)
         quotes = agent.list_quotes(status=status, limit=limit, offset=offset)
+
+        logger.info(f"[LIST_QUOTES] Returning {len(quotes)} quotes for tenant {config.client_id}")
 
         return {
             "success": True,
@@ -244,8 +249,7 @@ async def list_quotes(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list quotes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing quotes", e, logger)
 
 
 @quotes_router.get("/{quote_id}")
@@ -271,8 +275,7 @@ async def get_quote(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get quote: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving quote", e, logger)
 
 
 @quotes_router.get("/{quote_id}/pdf")
@@ -321,8 +324,7 @@ async def download_quote_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate quote PDF: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "generating quote PDF", e, logger)
 
 
 @quotes_router.post("/{quote_id}/resend")
@@ -358,8 +360,7 @@ async def resend_quote(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to resend quote: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "resending quote", e, logger)
 
 
 @quotes_router.post("/{quote_id}/send")
@@ -413,8 +414,7 @@ async def send_quote(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error sending quote {quote_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "sending quote", e, logger)
 
 
 # ==================== CRM Endpoints ====================
@@ -449,8 +449,7 @@ async def list_clients(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list clients: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing clients", e, logger)
 
 
 @crm_router.post("/clients")
@@ -482,8 +481,7 @@ async def create_client(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "creating client", e, logger)
 
 
 @crm_router.get("/clients/{client_id}")
@@ -507,8 +505,7 @@ async def get_client(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving client", e, logger)
 
 
 @crm_router.patch("/clients/{client_id}")
@@ -546,8 +543,7 @@ async def update_client(
         }
 
     except Exception as e:
-        logger.error(f"Failed to update client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating client", e, logger)
 
 
 class StageUpdate(BaseModel):
@@ -587,8 +583,7 @@ async def update_client_stage(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update client stage: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating client stage", e, logger)
 
 
 @crm_router.get("/clients/{client_id}/activities")
@@ -609,8 +604,7 @@ async def get_client_activities(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get activities: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving activities", e, logger)
 
 
 @crm_router.post("/clients/{client_id}/activities")
@@ -643,8 +637,7 @@ async def log_activity(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to log activity: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "logging activity", e, logger)
 
 
 @crm_router.get("/pipeline")
@@ -662,8 +655,7 @@ async def get_pipeline(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get pipeline: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving pipeline", e, logger)
 
 
 @crm_router.get("/pipeline/summary")
@@ -681,8 +673,7 @@ async def get_pipeline_summary(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get pipeline summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving pipeline summary", e, logger)
 
 
 @crm_router.get("/stats")
@@ -700,8 +691,7 @@ async def get_crm_stats(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get CRM stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving CRM stats", e, logger)
 
 
 # ==================== Invoice Endpoints ====================
@@ -774,8 +764,7 @@ async def convert_quote_to_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to convert quote to invoice: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "converting quote to invoice", e, logger)
 
 
 @invoices_router.post("/create")
@@ -840,8 +829,7 @@ async def create_manual_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create manual invoice: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Invoice creation failed: {str(e)}")
+        log_and_raise(500, "creating manual invoice", e, logger)
 
 
 @invoices_router.get("")
@@ -867,8 +855,7 @@ async def list_invoices(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list invoices: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing invoices", e, logger)
 
 
 @invoices_router.get("/{invoice_id}")
@@ -894,8 +881,7 @@ async def get_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get invoice: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving invoice", e, logger)
 
 
 @invoices_router.patch("/{invoice_id}/status")
@@ -949,8 +935,7 @@ async def update_invoice_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update invoice status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating invoice status", e, logger)
 
 
 @invoices_router.post("/{invoice_id}/send")
@@ -1038,8 +1023,7 @@ async def send_invoice_email(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to send invoice: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "sending invoice", e, logger)
 
 
 @invoices_router.get("/{invoice_id}/pdf")
@@ -1113,8 +1097,7 @@ async def download_invoice_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate invoice PDF: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "generating invoice PDF", e, logger)
 
 
 @invoices_router.patch("/{invoice_id}/travelers")
@@ -1152,8 +1135,7 @@ async def update_invoice_travelers(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update travelers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating travelers", e, logger)
 
 
 # ==================== PUBLIC ENDPOINTS ====================
@@ -1274,8 +1256,7 @@ async def public_invoice_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate public invoice PDF: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "generating public invoice PDF", e, logger)
 
 
 def get_quote_public(quote_id: str):
@@ -1374,8 +1355,7 @@ async def public_quote_pdf(quote_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate public quote PDF: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "generating public quote PDF", e, logger)
 
 
 # ==================== Export all routers ====================

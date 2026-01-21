@@ -20,6 +20,7 @@ from pydantic import BaseModel, EmailStr
 from config.loader import ClientConfig, get_config
 from src.middleware.auth_middleware import get_current_user, require_admin
 from src.tools.supabase_tool import SupabaseTool
+from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +138,7 @@ async def get_my_consents(
         return {"success": True, "consents": consents}
 
     except Exception as e:
-        logger.error(f"Failed to get consents: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving consents", e, logger)
 
 
 @privacy_router.post("/consent")
@@ -214,8 +214,7 @@ async def update_consent(
         }
 
     except Exception as e:
-        logger.error(f"Failed to update consent: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating consent", e, logger)
 
 
 @privacy_router.post("/consent/bulk")
@@ -314,8 +313,7 @@ async def submit_dsar(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to submit DSAR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "submitting DSAR", e, logger)
 
 
 @privacy_router.get("/dsar")
@@ -337,8 +335,7 @@ async def get_my_dsars(
         return {"success": True, "requests": response.data or []}
 
     except Exception as e:
-        logger.error(f"Failed to get DSARs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving DSARs", e, logger)
 
 
 @privacy_router.get("/dsar/{request_id}")
@@ -368,8 +365,7 @@ async def get_dsar_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get DSAR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving DSAR", e, logger)
 
 
 # ============================================================
@@ -424,8 +420,7 @@ async def request_data_export(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to request export: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "requesting data export", e, logger)
 
 
 # ============================================================
@@ -489,8 +484,7 @@ async def request_data_erasure(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to request erasure: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "requesting data erasure", e, logger)
 
 
 # ============================================================
@@ -527,8 +521,7 @@ async def list_all_dsars(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list DSARs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing DSARs", e, logger)
 
 
 @privacy_router.patch("/admin/dsar/{request_id}")
@@ -561,8 +554,7 @@ async def update_dsar_status(
         return {"success": True, "status": update.status}
 
     except Exception as e:
-        logger.error(f"Failed to update DSAR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "updating DSAR", e, logger)
 
 
 @privacy_router.get("/admin/audit-log")
@@ -607,8 +599,7 @@ async def get_audit_log(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get audit log: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "retrieving audit log", e, logger)
 
 
 @privacy_router.post("/admin/breach")
@@ -651,8 +642,7 @@ async def report_breach(
         }
 
     except Exception as e:
-        logger.error(f"Failed to report breach: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "reporting breach", e, logger)
 
 
 @privacy_router.get("/admin/breaches")
@@ -677,8 +667,7 @@ async def list_breaches(
         return {"success": True, "breaches": response.data or []}
 
     except Exception as e:
-        logger.error(f"Failed to list breaches: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log_and_raise(500, "listing breaches", e, logger)
 
 
 # ============================================================
