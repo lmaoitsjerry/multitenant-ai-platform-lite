@@ -2,9 +2,19 @@
 
 ## Overview
 
-Production hardening, security fixes, and scalability improvements for the Multi-Tenant AI Travel Platform based on comprehensive code review.
+Production hardening, security fixes, scalability improvements, and comprehensive test coverage for the Multi-Tenant AI Travel Platform.
 
 ## Categories
+
+### Coverage (COVER) - v4.0
+
+| ID | Requirement | Version | Priority |
+|----|-------------|---------|----------|
+| COVER-01 | BigQuery analytics mock infrastructure with realistic query responses | v4 | High |
+| COVER-02 | LLM agent test suite with OpenAI response mocking (helpdesk, inbound, quote) | v4 | High |
+| COVER-03 | Twilio VAPI provisioner tests with API mocking | v4 | Medium |
+| COVER-04 | SendGrid advanced scenarios (templates, dynamic content, subusers) | v4 | Medium |
+| COVER-05 | File upload and RAG service integration tests | v4 | High |
 
 ### Security (SEC)
 
@@ -79,11 +89,10 @@ Production hardening, security fixes, and scalability improvements for the Multi
 - DEVOPS-03: Structured logging
 - TEST-04: 70% coverage target
 
-### Out of Scope (v4+)
+### Out of Scope (v5+)
 
 - Full TypeScript migration for frontends
 - Real-time WebSocket features
-- VAPI voice call integration
 - Multi-GCP project consolidation (enterprise scale)
 - Distributed tracing (OpenTelemetry)
 
@@ -106,13 +115,18 @@ Production hardening, security fixes, and scalability improvements for the Multi
 | TEST-02 | Phase 10 | ✓ Complete |
 | TEST-03 | Phase 11 | ✓ Complete |
 | TEST-04 | Phase 12 | ✓ Partial (45%, 70% deferred to v4) |
+| COVER-01 | Phase 13 | Pending |
+| COVER-02 | Phase 14 | Pending |
+| COVER-03 | Phase 14 | Pending |
+| COVER-04 | Phase 13 | Pending |
+| COVER-05 | Phase 15 | Pending |
+| TEST-04 | Phase 15 | Pending (completion to 70%) |
 
 **Coverage:**
-- v3 requirements: 14 total
-- Complete: 13
-- Partial: 1 (TEST-04: 45% achieved, 70% deferred)
+- v3 requirements: 14 total (13 complete, 1 partial)
+- v4 requirements: 6 total (5 new + TEST-04 completion)
 - Unmapped: 0 ✓
 
 ---
 *Last updated: 2026-01-21*
-*Milestone: v3.0 - Production Hardening (COMPLETE)*
+*Milestone: v4.0 - Test Coverage Push (IN PROGRESS)*

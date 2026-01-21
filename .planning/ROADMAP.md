@@ -5,21 +5,21 @@
 - ✅ **v1.0 Bug Fixes** - Phases 1-3 (archived)
 - ✅ **v2.0 Inbound Email & Helpdesk RAG** - Phases 1-8 (shipped 2026-01-17)
 - ✅ **v3.0 Production Hardening** - Phases 9-12 (shipped 2026-01-21)
+- 🚧 **v4.0 Test Coverage Push** - Phases 13-15 (in progress)
 
 ## Overview
 
-Production hardening based on comprehensive code review. Focus on security vulnerabilities, scalability blockers, and DevOps readiness. Transforms the platform from "good for 5-50 tenants" to production-ready with proper security controls.
+Comprehensive test coverage push to reach 70% coverage target. Focus on external API mocking (BigQuery, OpenAI, Twilio, SendGrid) and AI agent testing (helpdesk, inbound, quote agents).
 
 ## Phases
 
 **Phase Numbering:**
-- Integer phases (9, 10, 11, 12): Planned v3.0 milestone work
-- Continues from v2.0 (phases 1-8 complete)
+- Integer phases (13, 14, 15): Planned v4.0 milestone work
+- Continues from v3.0 (phases 9-12 complete)
 
-- [x] **Phase 9: Critical Security Fixes** - Admin auth, tenant validation, hardcoded tokens
-- [x] **Phase 10: Security Hardening** - Error sanitization, security headers, Redis rate limiting
-- [x] **Phase 11: Database-Backed Tenant Registry** - Replace YAML files with database config
-- [x] **Phase 12: DevOps & Test Coverage** - CI/CD, Dockerfile hardening, test suite
+- [ ] **Phase 13: External API Mock Infrastructure** - BigQuery mocking, SendGrid advanced scenarios
+- [ ] **Phase 14: AI Agent Test Suite** - Helpdesk, inbound, quote agents + Twilio VAPI
+- [ ] **Phase 15: Coverage Finalization** - RAG services, admin knowledge routes, 70% threshold
 
 <details>
 <summary>✅ v2.0 Inbound Email & Helpdesk RAG (Phases 1-8) - SHIPPED 2026-01-17</summary>
@@ -59,6 +59,67 @@ Production hardening based on comprehensive code review. Focus on security vulne
 </details>
 
 ## Phase Details
+
+### 🚧 v4.0 Test Coverage Push (In Progress)
+
+**Milestone Goal:** Achieve 70% test coverage by adding comprehensive mocks for external APIs and AI agents.
+**Started:** 2026-01-21
+**Current coverage:** 44.9% → Target: 70%
+
+#### Phase 13: External API Mock Infrastructure
+**Goal:** Create reusable mock infrastructure for BigQuery and SendGrid
+**Depends on:** Phase 12 (v3.0 complete)
+**Requirements:** COVER-01, COVER-04
+**Success Criteria** (what must be TRUE):
+  1. BigQuery client can be mocked with realistic query responses
+  2. Analytics routes tests achieve 50%+ coverage (up from 9.4%)
+  3. SendGrid template and subuser tests cover advanced scenarios
+  4. Mock fixtures are reusable across test files
+**Research:** Unlikely (established mocking patterns from v3.0)
+**Status:** Not started
+
+Plans:
+- [ ] 13-01: BigQuery mock infrastructure and analytics route tests
+- [ ] 13-02: SendGrid advanced scenario tests (templates, subusers)
+
+#### Phase 14: AI Agent Test Suite
+**Goal:** Test AI agents with mocked LLM responses
+**Depends on:** Phase 13
+**Requirements:** COVER-02, COVER-03
+**Success Criteria** (what must be TRUE):
+  1. OpenAI API responses can be mocked for deterministic testing
+  2. Helpdesk agent tests cover conversation flow (0% → 50%+)
+  3. Inbound agent tests cover email parsing pipeline (0% → 50%+)
+  4. Quote agent tests cover generation flow (existing + expanded)
+  5. Twilio VAPI provisioner tests cover API interactions (0% → 50%+)
+**Research:** Unlikely (OpenAI mocking patterns well-documented)
+**Status:** Not started
+
+Plans:
+- [ ] 14-01: OpenAI mock infrastructure and helpdesk agent tests
+- [ ] 14-02: Inbound agent and quote agent expanded tests
+- [ ] 14-03: Twilio VAPI provisioner mock tests
+
+#### Phase 15: Coverage Finalization
+**Goal:** Close remaining coverage gaps and enforce 70% threshold
+**Depends on:** Phase 14
+**Requirements:** COVER-05, TEST-04
+**Success Criteria** (what must be TRUE):
+  1. File upload tests cover multipart handling
+  2. RAG service tests cover vector operations (rag_tool.py)
+  3. Admin knowledge routes achieve 50%+ coverage (up from 17.9%)
+  4. Overall coverage reaches 70%
+  5. CI enforces 70% threshold (update pyproject.toml + ci.yml)
+**Research:** Unlikely (internal patterns)
+**Status:** Not started
+
+Plans:
+- [ ] 15-01: File upload and RAG service tests
+- [ ] 15-02: Admin knowledge routes expanded tests
+- [ ] 15-03: Coverage threshold enforcement (70%)
+
+<details>
+<summary>✅ v3.0 Production Hardening (Phases 9-12) - SHIPPED 2026-01-21</summary>
 
 ### ✅ v3.0 Production Hardening (Complete)
 
@@ -146,20 +207,22 @@ Plans:
 - [x] 12-12: Inbound, templates, RAG & BigQuery tests
 - [x] 12-13: Final coverage push (leaderboard, middleware, quote agent)
 
+</details>
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 9 → 10 → 11 → 12
+Phases execute in numeric order: 13 → 14 → 15
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-8 | v2.0 | 13/13 | Complete | 2026-01-17 |
-| 9. Critical Security | v3.0 | 3/3 | Complete | 2026-01-21 |
-| 10. Security Hardening | v3.0 | 4/4 | Complete | 2026-01-21 |
-| 11. Tenant Registry | v3.0 | 4/4 | Complete | 2026-01-21 |
-| 12. DevOps & Tests | v3.0 | 13/13 | Complete | 2026-01-21 |
+| 9-12 | v3.0 | 24/24 | Complete | 2026-01-21 |
+| 13. External API Mocks | v4.0 | 0/2 | Not started | - |
+| 14. AI Agent Tests | v4.0 | 0/3 | Not started | - |
+| 15. Coverage Finalization | v4.0 | 0/3 | Not started | - |
 
 ---
 *Created: 2026-01-16*
 *Updated: 2026-01-21*
-*Milestone Complete: v3.0 - Production Hardening (shipped 2026-01-21)*
+*Current Milestone: v4.0 - Test Coverage Push (in progress)*
