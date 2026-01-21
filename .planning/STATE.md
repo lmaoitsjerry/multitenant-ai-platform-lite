@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 06 of 08 complete
+Plan: 07 of 08 complete (05 and 06 executed in parallel)
 Status: In Progress - Test Coverage Expansion
-Last activity: 2026-01-21 - Completed 12-06-PLAN.md (Analytics & Helpdesk Tests)
+Last activity: 2026-01-21 - Completed 12-05-PLAN.md (SupabaseTool & Routes Tests)
 
-Progress: [================] 100% (v3.0) + 2/4 extended tests
+Progress: [================] 100% (v3.0) + 3/4 extended tests
 
 ## Milestones
 
@@ -41,9 +41,9 @@ Progress: [================] 100% (v3.0) + 2/4 extended tests
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21 (v2.0: 13, v3.0: 6, v3.1: 2)
-- Average duration: ~20 min
-- Total execution time: ~9.0 hours
+- Total plans completed: 22 (v2.0: 13, v3.0: 6, v3.1: 3)
+- Average duration: ~18 min
+- Total execution time: ~9.2 hours
 
 **By Phase (v3.0 + v3.1):**
 
@@ -52,7 +52,7 @@ Progress: [================] 100% (v3.0) + 2/4 extended tests
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 6/8 | In Progress (extended) |
+| 12 | 7/8 | In Progress (extended) |
 
 ## Accumulated Context
 
@@ -112,6 +112,8 @@ Progress: [================] 100% (v3.0) + 2/4 extended tests
 | D-12-04-03 | Added pytest-cov dependency for coverage reporting | 2026-01-21 |
 | D-12-06-01 | Auth middleware runs before validation (401 not 422) | 2026-01-21 |
 | D-12-06-02 | Reset singleton _instance in each test for isolation | 2026-01-21 |
+| D-12-05-01 | Focus route tests on auth requirement verification | 2026-01-21 |
+| D-12-05-02 | Create chainable mock pattern for Supabase queries | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -140,9 +142,11 @@ Progress: [================] 100% (v3.0) + 2/4 extended tests
 | test_services.py | 21 | Passing |
 | test_analytics_routes.py | 34 | Passing |
 | test_helpdesk_service.py | 29 | Passing |
-| **Total** | **197+** | **Passing** |
+| test_supabase_tool.py | 53 | Passing |
+| test_core_routes.py | 47 | Passing |
+| **Total** | **297+** | **Passing** |
 
-Current coverage: ~30% (baseline threshold: 15%)
+Current coverage: ~30% (baseline threshold: 25%)
 Target coverage: 70% (aspirational)
 
 ### Blockers/Concerns
@@ -153,6 +157,6 @@ Target coverage: 70% (aspirational)
 
 ## Session Continuity
 
-Last session: 2026-01-21 15:58 UTC
-Stopped at: Completed 12-06-PLAN.md (Analytics & Helpdesk Tests)
+Last session: 2026-01-21 16:07 UTC
+Stopped at: Completed 12-05-PLAN.md (SupabaseTool & Routes Tests)
 Resume file: .planning/phases/12-devops-tests/12-07-PLAN.md
