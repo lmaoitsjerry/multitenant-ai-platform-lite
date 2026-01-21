@@ -46,10 +46,10 @@ exclude_lines = [
     "\\.\\.\\.",
 ]
 # Coverage threshold:
-# - Current: 30% (baseline as of 2026-01-21)
-# - Target: 70% (aspirational)
-# Increase this threshold as coverage improves over time
-fail_under = 25
+# - v3.0: 45% (achieved 2026-01-21, up from 27%)
+# - v4.0 target: 70% (requires extensive external API mocking)
+# Prevents regression below current coverage level
+fail_under = 45
 show_missing = true
 precision = 1
 

@@ -32,9 +32,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          # Target: 70% (aspirational). Current baseline: 15% (prevents major regression)
-          # Increase this threshold as coverage improves over time
-          pytest tests/ -v --tb=short --cov=src --cov=main --cov=config --cov-report=term-missing --cov-fail-under=15
+          # v3.0: 45% threshold (achieved 2026-01-21)
+          # v4.0 target: 70% (requires extensive external API mocking)
+          pytest tests/ -v --tb=short --cov=src --cov=main --cov=config --cov-report=term-missing --cov-fail-under=45
         env:
           PYTHONPATH: ${{ github.workspace }}
 
