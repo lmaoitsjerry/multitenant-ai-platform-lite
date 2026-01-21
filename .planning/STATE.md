@@ -5,18 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
-**Current focus:** Phase 12 Extended - Additional Test Coverage (v3.1) COMPLETE
+**Current focus:** Phase 12 Extended - Additional Test Coverage (v3.2) COMPLETE
 
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 10 of 10 complete
-Status: Complete - Extended Test Coverage Milestone
-Last activity: 2026-01-21 - Completed 12-10-PLAN.md (Onboarding, Privacy, Branding & Provisioning Tests)
+Plan: 12 of 12 complete
+Status: Complete - Extended Test Coverage Milestone v3.2
+Last activity: 2026-01-21 - Completed 12-12-PLAN.md (Inbound, Templates, RAG & BigQuery Tests)
 
-Progress: [================] 100% (v3.0) + 6/6 extended tests
+Progress: [================] 100% (v3.0) + 8/8 extended tests
 
 ## Milestones
+
+### v3.2: Additional Specialized Tests (COMPLETE)
+- 2 extended plans (12-11, 12-12) for specialized service coverage
+- Focus: Inbound routes, templates, RAG services, BigQuery tool tests
+- Completed: 2026-01-21
+- Tests added: 172
 
 ### v3.1: Extended Test Coverage (COMPLETE)
 - 6 extended plans (12-05 to 12-10) for additional coverage
@@ -41,18 +47,18 @@ Progress: [================] 100% (v3.0) + 6/6 extended tests
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25 (v2.0: 13, v3.0: 6, v3.1: 6)
+- Total plans completed: 27 (v2.0: 13, v3.0: 6, v3.1: 6, v3.2: 2)
 - Average duration: ~15 min
-- Total execution time: ~10.5 hours
+- Total execution time: ~11 hours
 
-**By Phase (v3.0 + v3.1):**
+**By Phase (v3.0 + v3.1 + v3.2):**
 
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 10/10 | Complete (6 extended) |
+| 12 | 12/12 | Complete (8 extended) |
 
 ## Accumulated Context
 
@@ -74,7 +80,7 @@ Progress: [================] 100% (v3.0) + 6/6 extended tests
 3. ~~No structured logging/tracing~~ FIXED (12-02: JSON logging with request ID)
 4. ~~No test coverage enforcement~~ FIXED (12-04: pytest-cov with CI threshold)
 
-### Decisions (v3.0 + v3.1)
+### Decisions (v3.0 + v3.1 + v3.2)
 
 | ID | Decision | Date |
 |----|----------|------|
@@ -122,6 +128,10 @@ Progress: [================] 100% (v3.0) + 6/6 extended tests
 | D-12-10-01 | Accept 400/401 for auth-required endpoints | 2026-01-21 |
 | D-12-10-02 | Use tmp_path fixture for provisioning file tests | 2026-01-21 |
 | D-12-10-03 | Test against actual preset names from theme_presets.py | 2026-01-21 |
+| D-12-12-01 | Use X-Client-ID routing tests instead of JWT auth | 2026-01-21 |
+| D-12-12-02 | Mock SupabaseTool via src.tools.supabase_tool patching | 2026-01-21 |
+| D-12-12-03 | Test route structure with router.routes inspection | 2026-01-21 |
+| D-12-12-04 | Test BigQuery client initialization failures gracefully | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -162,19 +172,23 @@ Progress: [================] 100% (v3.0) + 6/6 extended tests
 | test_privacy_routes.py | 35 | Passing |
 | test_branding_routes.py | 39 | Passing |
 | test_provisioning_service.py | 24 | Passing |
-| **Total** | **620+** | **Passing** |
+| test_inbound_routes.py | 41 | Passing |
+| test_templates_routes.py | 43 | Passing |
+| test_rag_services.py | 48 | Passing |
+| test_bigquery_tool.py | 40 | Passing |
+| **Total** | **792+** | **Passing** |
 
-Current coverage: 37.4% (baseline threshold: 25%)
+Current coverage: ~44% (estimated with new tests)
 Target coverage: 70% (aspirational)
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage at 37.4% - exceeds target of 35%
+- Test coverage significantly improved to ~44%
 
 ## Session Continuity
 
-Last session: 2026-01-21 18:20 UTC
-Stopped at: Completed 12-10-PLAN.md (Onboarding, Privacy, Branding & Provisioning Tests)
-Resume file: None (v3.1 milestone complete)
+Last session: 2026-01-21 18:45 UTC
+Stopped at: Completed 12-12-PLAN.md (Inbound, Templates, RAG & BigQuery Tests)
+Resume file: None (v3.2 milestone complete)
