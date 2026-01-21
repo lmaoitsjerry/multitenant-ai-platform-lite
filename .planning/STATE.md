@@ -10,19 +10,19 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 09 of 09 complete
+Plan: 10 of 10 complete
 Status: Complete - Extended Test Coverage Milestone
-Last activity: 2026-01-21 - Completed 12-09-PLAN.md (External Integration Tests)
+Last activity: 2026-01-21 - Completed 12-10-PLAN.md (Onboarding, Privacy, Branding & Provisioning Tests)
 
-Progress: [================] 100% (v3.0) + 5/5 extended tests
+Progress: [================] 100% (v3.0) + 6/6 extended tests
 
 ## Milestones
 
 ### v3.1: Extended Test Coverage (COMPLETE)
-- 5 extended plans (12-05 to 12-09) for additional coverage
-- Focus: Analytics, helpdesk, crm, webhook, email, pdf tests
+- 6 extended plans (12-05 to 12-10) for additional coverage
+- Focus: Analytics, helpdesk, crm, webhook, email, pdf, onboarding, privacy, branding, provisioning tests
 - Completed: 2026-01-21
-- Coverage achieved: 36.2%
+- Coverage achieved: 37.4%
 
 ### v3.0: Production Hardening (COMPLETE)
 - 4 phases (9-12), 15 plans executed
@@ -41,9 +41,9 @@ Progress: [================] 100% (v3.0) + 5/5 extended tests
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24 (v2.0: 13, v3.0: 6, v3.1: 5)
-- Average duration: ~17 min
-- Total execution time: ~10 hours
+- Total plans completed: 25 (v2.0: 13, v3.0: 6, v3.1: 6)
+- Average duration: ~15 min
+- Total execution time: ~10.5 hours
 
 **By Phase (v3.0 + v3.1):**
 
@@ -52,7 +52,7 @@ Progress: [================] 100% (v3.0) + 5/5 extended tests
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 9/9 | Complete (5 extended) |
+| 12 | 10/10 | Complete (6 extended) |
 
 ## Accumulated Context
 
@@ -119,6 +119,9 @@ Progress: [================] 100% (v3.0) + 5/5 extended tests
 | D-12-09-01 | Mock SendGrid API via requests.post patching | 2026-01-21 |
 | D-12-09-02 | Skip PDF tests when libraries unavailable | 2026-01-21 |
 | D-12-09-03 | Use sys.modules patching for dynamic imports | 2026-01-21 |
+| D-12-10-01 | Accept 400/401 for auth-required endpoints | 2026-01-21 |
+| D-12-10-02 | Use tmp_path fixture for provisioning file tests | 2026-01-21 |
+| D-12-10-03 | Test against actual preset names from theme_presets.py | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -155,19 +158,23 @@ Progress: [================] 100% (v3.0) + 5/5 extended tests
 | test_email_sender.py | 31 | Passing |
 | test_pdf_generator.py | 30 | 7 pass, 23 skip |
 | test_email_webhook.py | 39 | Passing |
-| **Total** | **495+** | **Passing** |
+| test_onboarding_routes.py | 27 | Passing |
+| test_privacy_routes.py | 35 | Passing |
+| test_branding_routes.py | 39 | Passing |
+| test_provisioning_service.py | 24 | Passing |
+| **Total** | **620+** | **Passing** |
 
-Current coverage: 36.2% (baseline threshold: 25%)
+Current coverage: 37.4% (baseline threshold: 25%)
 Target coverage: 70% (aspirational)
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage at 36.2% - improved from 30%, exceeds target of 35%
+- Test coverage at 37.4% - exceeds target of 35%
 
 ## Session Continuity
 
-Last session: 2026-01-21 18:15 UTC
-Stopped at: Completed 12-09-PLAN.md (External Integration Tests)
+Last session: 2026-01-21 18:20 UTC
+Stopped at: Completed 12-10-PLAN.md (Onboarding, Privacy, Branding & Provisioning Tests)
 Resume file: None (v3.1 milestone complete)
