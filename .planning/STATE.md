@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 13 of 15 (External API Mock Infrastructure)
-Plan: 2 of 3 complete
-Status: In progress
-Last activity: 2026-01-21 — Completed 13-02-PLAN.md (SendGrid Mock Infrastructure)
+Plan: 3 of 3 complete
+Status: Phase complete
+Last activity: 2026-01-21 — Completed 13-01-PLAN.md (BigQuery Mock Infrastructure)
 
-Progress: [####----------------] 25% (v4.0: 2/8 plans complete)
+Progress: [######--------------] 38% (v4.0: 3/8 plans complete)
 
 ## Milestones
 
@@ -137,6 +137,9 @@ Progress: [####----------------] 25% (v4.0: 2/8 plans complete)
 | D-13-02-01 | Use MockSendGridResponse class with status_code and body attributes | 2026-01-21 |
 | D-13-02-02 | Implement fluent interface via MockSendGridClientEndpoint class | 2026-01-21 |
 | D-13-02-03 | Patch SupabaseTool at src.tools.supabase_tool for inline imports | 2026-01-21 |
+| D-13-01-01 | Mock BigQuery with pattern-matching for SQL query responses | 2026-01-21 |
+| D-13-01-02 | Test route handlers directly to bypass auth middleware for coverage | 2026-01-21 |
+| D-13-01-03 | Patch at source module location for lazy imports | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -163,7 +166,7 @@ Progress: [####----------------] 25% (v4.0: 2/8 plans complete)
 | test_tenant_config_service.py | 34 | Passing |
 | test_api_routes.py | 24 | Passing |
 | test_services.py | 21 | Passing |
-| test_analytics_routes.py | 34 | Passing |
+| test_analytics_routes.py | 73 | Passing (66% coverage) |
 | test_helpdesk_service.py | 29 | Passing |
 | test_supabase_tool.py | 53 | Passing |
 | test_core_routes.py | 47 | Passing |
@@ -191,9 +194,9 @@ Progress: [####----------------] 25% (v4.0: 2/8 plans complete)
 | test_performance_service_expanded.py | 35 | Passing |
 | test_sendgrid_admin.py | 29 | Passing |
 | test_admin_sendgrid_routes.py | 34 | Passing |
-| **Total** | **1167** | **Passing** |
+| **Total** | **1206** | **Passing** |
 
-Current coverage: ~46% (measured with pytest-cov)
+Current coverage: ~48% (measured with pytest-cov)
 Target coverage: 70% (aspirational - requires continued mocking work)
 
 ### Blockers/Concerns
@@ -206,7 +209,7 @@ Target coverage: 70% (aspirational - requires continued mocking work)
 
 | Module | Coverage | Reason Not Higher |
 |--------|----------|-------------------|
-| analytics_routes.py | 9.4% | Complex BigQuery queries |
+| analytics_routes.py | 66% | BigQuery/Supabase mocked via direct handler tests |
 | admin_knowledge_routes.py | 17.9% | RAG/file handling |
 | helpdesk_agent.py | 0.0% | LLM orchestration |
 | inbound_agent.py | 0.0% | Email processing |
@@ -215,5 +218,5 @@ Target coverage: 70% (aspirational - requires continued mocking work)
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 13-02-PLAN.md
+Stopped at: Completed 13-01-PLAN.md (BigQuery Mock Infrastructure)
 Resume file: .planning/phases/13-external-api-mocks/13-03-PLAN.md (if exists)
