@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 
 ## Current Position
 
-Phase: 11 of 12 (Database-Backed Tenant Registry) - COMPLETE
-Plan: 04 of 04 complete
-Status: Phase complete
-Last activity: 2026-01-21 — Completed 11-04-PLAN.md (Redis Caching & Unit Tests)
+Phase: 12 of 12 (DevOps & CI/CD)
+Plan: 01 of 04 complete
+Status: In progress
+Last activity: 2026-01-21 — Completed 12-01-PLAN.md (Dockerfile Non-Root Hardening)
 
-Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
+Progress: [===============] 75% (v3.0: Phases 9-11 complete, Phase 12 in progress)
 
 ## Milestones
 
@@ -45,7 +45,7 @@ Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 0/3 | Pending |
+| 12 | 1/4 | In Progress |
 
 ## Accumulated Context
 
@@ -63,7 +63,7 @@ Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
 
 **DevOps Gaps:**
 1. No CI/CD pipeline
-2. Dockerfile runs as root
+2. ~~Dockerfile runs as root~~ FIXED (12-01: Non-root user uid 1000)
 3. No structured logging/tracing
 
 ### Decisions (v3.0 - Current)
@@ -90,6 +90,9 @@ Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
 | D-11-04-01 | Set cache TTL to 300 seconds (5 minutes) | 2026-01-21 |
 | D-11-04-02 | Skip caching for YAML_ONLY_TENANTS | 2026-01-21 |
 | D-11-04-03 | Use redis.from_url() for connection | 2026-01-21 |
+| D-12-01-01 | Use uid/gid 1000 for appuser/appgroup | 2026-01-21 |
+| D-12-01-02 | Install curl for health checks instead of Python | 2026-01-21 |
+| D-12-01-03 | Use COPY --chown for application files | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -113,6 +116,6 @@ Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
 
 ## Session Continuity
 
-Last session: 2026-01-21 17:00 UTC
-Stopped at: Completed Phase 11 - Human ran SQL migration and tenant migration script
-Resume file: None - Phase 11 verified complete, ready for Phase 12
+Last session: 2026-01-21 15:18 UTC
+Stopped at: Completed 12-01-PLAN.md (Dockerfile Non-Root Hardening)
+Resume file: None - Ready for 12-02-PLAN.md
