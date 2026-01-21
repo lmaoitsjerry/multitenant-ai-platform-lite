@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
-**Current focus:** Phase 12 Extended - Additional Test Coverage (v3.1)
+**Current focus:** Phase 12 Extended - Additional Test Coverage (v3.1) COMPLETE
 
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 08 of 08 pending (07 complete)
-Status: In Progress - Test Coverage Expansion
-Last activity: 2026-01-21 - Completed 12-07-PLAN.md (Pricing, Knowledge & CRM Tests)
+Plan: 09 of 09 complete
+Status: Complete - Extended Test Coverage Milestone
+Last activity: 2026-01-21 - Completed 12-09-PLAN.md (External Integration Tests)
 
-Progress: [================] 100% (v3.0) + 3.5/4 extended tests
+Progress: [================] 100% (v3.0) + 5/5 extended tests
 
 ## Milestones
 
-### v3.1: Extended Test Coverage (IN PROGRESS)
-- 4 extended plans (12-05 to 12-08) for additional coverage
-- Focus: Analytics, helpdesk, crm, webhook tests
-- Started: 2026-01-21
-- Target coverage: 35%+
+### v3.1: Extended Test Coverage (COMPLETE)
+- 5 extended plans (12-05 to 12-09) for additional coverage
+- Focus: Analytics, helpdesk, crm, webhook, email, pdf tests
+- Completed: 2026-01-21
+- Coverage achieved: 36.2%
 
 ### v3.0: Production Hardening (COMPLETE)
 - 4 phases (9-12), 15 plans executed
@@ -41,9 +41,9 @@ Progress: [================] 100% (v3.0) + 3.5/4 extended tests
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23 (v2.0: 13, v3.0: 6, v3.1: 4)
+- Total plans completed: 24 (v2.0: 13, v3.0: 6, v3.1: 5)
 - Average duration: ~17 min
-- Total execution time: ~9.5 hours
+- Total execution time: ~10 hours
 
 **By Phase (v3.0 + v3.1):**
 
@@ -52,7 +52,7 @@ Progress: [================] 100% (v3.0) + 3.5/4 extended tests
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 7/8 | In Progress (extended) |
+| 12 | 9/9 | Complete (5 extended) |
 
 ## Accumulated Context
 
@@ -116,6 +116,9 @@ Progress: [================] 100% (v3.0) + 3.5/4 extended tests
 | D-12-05-02 | Create chainable mock pattern for Supabase queries | 2026-01-21 |
 | D-12-07-01 | Mock SupabaseTool via __init__ patching for CRM tests | 2026-01-21 |
 | D-12-07-02 | Use tmp_path fixture for FAISSIndexManager file tests | 2026-01-21 |
+| D-12-09-01 | Mock SendGrid API via requests.post patching | 2026-01-21 |
+| D-12-09-02 | Skip PDF tests when libraries unavailable | 2026-01-21 |
+| D-12-09-03 | Use sys.modules patching for dynamic imports | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -149,19 +152,22 @@ Progress: [================] 100% (v3.0) + 3.5/4 extended tests
 | test_pricing_routes.py | 32 | Passing |
 | test_knowledge_routes.py | 35 | Passing |
 | test_crm_service.py | 31 | Passing |
-| **Total** | **395+** | **Passing** |
+| test_email_sender.py | 31 | Passing |
+| test_pdf_generator.py | 30 | 7 pass, 23 skip |
+| test_email_webhook.py | 39 | Passing |
+| **Total** | **495+** | **Passing** |
 
-Current coverage: ~37% (baseline threshold: 25%)
+Current coverage: 36.2% (baseline threshold: 25%)
 Target coverage: 70% (aspirational)
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage at 37% - improved from 30%, needs ongoing improvement
+- Test coverage at 36.2% - improved from 30%, exceeds target of 35%
 
 ## Session Continuity
 
-Last session: 2026-01-21 17:15 UTC
-Stopped at: Completed 12-07-PLAN.md (Pricing, Knowledge & CRM Tests)
-Resume file: .planning/phases/12-devops-tests/12-08-PLAN.md
+Last session: 2026-01-21 18:15 UTC
+Stopped at: Completed 12-09-PLAN.md (External Integration Tests)
+Resume file: None (v3.1 milestone complete)
