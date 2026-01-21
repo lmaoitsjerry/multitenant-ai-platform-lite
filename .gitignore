@@ -74,8 +74,8 @@ temp/
 output/
 generated/
 
-# Test files
-test_*.py
+# Test files (root level only, not tests/ directory)
+/test_*.py
 test_*.pdf
 
 # Development scripts
