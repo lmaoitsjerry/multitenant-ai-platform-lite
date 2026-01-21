@@ -18,7 +18,7 @@ Production hardening based on comprehensive code review. Focus on security vulne
 
 - [x] **Phase 9: Critical Security Fixes** - Admin auth, tenant validation, hardcoded tokens
 - [x] **Phase 10: Security Hardening** - Error sanitization, security headers, Redis rate limiting
-- [ ] **Phase 11: Database-Backed Tenant Registry** - Replace YAML files with database config
+- [x] **Phase 11: Database-Backed Tenant Registry** - Replace YAML files with database config
 - [ ] **Phase 12: DevOps & Test Coverage** - CI/CD, Dockerfile hardening, test suite
 
 <details>
@@ -99,25 +99,24 @@ Plans:
 - [x] 10-03: Redis-backed rate limiting with fallback
 - [x] 10-04: Rate limiting unit tests
 
-#### Phase 11: Database-Backed Tenant Registry
+#### Phase 11: Database-Backed Tenant Registry ✅
 **Goal:** Replace file-based tenant config with database for dynamic tenant management
 **Depends on:** Phase 10
 **Requirements:** SCALE-01, SCALE-03, TEST-03
 **Success Criteria** (what must be TRUE):
-  1. Tenant configuration stored in database table (not YAML files)
-  2. Tenant provisioning API creates database records (no file deploy needed)
-  3. Redis caching for tenant config lookups with TTL
-  4. Existing tenants migrated from YAML to database
-  5. Unit tests verify tenant isolation at database level
-**Research:** Likely (Supabase schema design, migration strategy)
-**Research topics:** Tenant registry schema, YAML to database migration
-**Plans:** TBD
+  1. ✅ Tenant configuration stored in database table (tenant_config JSONB column)
+  2. ✅ Tenant provisioning API creates database records (POST /api/v1/admin/tenants)
+  3. ✅ Redis caching for tenant config lookups with TTL (5 min TTL)
+  4. ✅ Existing tenants migrated from YAML to database (4 real tenants, 63 tn_* deleted)
+  5. ✅ Unit tests verify tenant isolation at database level (34 tests passing)
+**Status:** Complete
+**Completed:** 2026-01-21
 
 Plans:
-- [ ] 11-01: Create tenants registry table and migration
-- [ ] 11-02: Tenant config service with database backend
-- [ ] 11-03: Migrate existing tenants from YAML to database
-- [ ] 11-04: Redis caching for tenant lookups
+- [x] 11-01: Tenant config JSONB schema extension (014_tenant_config.sql)
+- [x] 11-02: TenantConfigService with database backend + provisioning API
+- [x] 11-03: Migrate 4 real tenants, delete 63 tn_* test directories
+- [x] 11-04: Redis caching + tenant isolation unit tests
 
 #### Phase 12: DevOps & Test Coverage
 **Goal:** Production-ready deployment with CI/CD and comprehensive tests
@@ -148,7 +147,7 @@ Phases execute in numeric order: 9 → 10 → 11 → 12
 | 1-8 | v2.0 | 13/13 | Complete | 2026-01-17 |
 | 9. Critical Security | v3.0 | 3/3 | Complete | 2026-01-21 |
 | 10. Security Hardening | v3.0 | 4/4 | Complete | 2026-01-21 |
-| 11. Tenant Registry | v3.0 | 0/4 | Not started | - |
+| 11. Tenant Registry | v3.0 | 4/4 | Complete | 2026-01-21 |
 | 12. DevOps & Tests | v3.0 | 0/4 | Not started | - |
 
 ---
