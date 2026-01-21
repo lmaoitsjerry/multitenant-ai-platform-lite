@@ -100,7 +100,11 @@ app.add_middleware(RateLimitMiddleware)
 from src.middleware.timing_middleware import TimingMiddleware
 app.add_middleware(TimingMiddleware)
 
-# 5. CORS middleware - MUST be added LAST so it runs FIRST
+# 5. Security headers middleware - adds CSP, X-Frame-Options, HSTS, etc.
+from src.middleware.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 6. CORS middleware - MUST be added LAST so it runs FIRST
 # This ensures CORS headers are added to ALL responses including errors
 def get_cors_origins() -> list:
     """Get allowed CORS origins from environment or use defaults."""
