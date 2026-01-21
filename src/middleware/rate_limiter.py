@@ -89,17 +89,31 @@ class InMemoryRateLimitStore(RateLimitStore):
 
 class RedisRateLimitStore(RateLimitStore):
     """Redis-based rate limit storage (for production)"""
-    
+
     def __init__(self, redis_url: str = "redis://localhost:6379"):
+        self._fallback = InMemoryRateLimitStore()
         try:
             import redis
+            # Log connection (mask password)
+            safe_url = redis_url.split('@')[-1] if '@' in redis_url else redis_url
+            logger.info(f"Connecting to Redis at {safe_url}")
+
             self._redis = redis.from_url(redis_url)
             self._redis.ping()
             logger.info("Connected to Redis for rate limiting")
         except Exception as e:
             logger.warning(f"Redis not available, falling back to in-memory: {e}")
             self._redis = None
-            self._fallback = InMemoryRateLimitStore()
+
+    def is_healthy(self) -> bool:
+        """Check if Redis connection is healthy."""
+        if not self._redis:
+            return False
+        try:
+            self._redis.ping()
+            return True
+        except Exception:
+            return False
     
     def get_count(self, key: str) -> int:
         if not self._redis:
@@ -141,6 +155,18 @@ def get_store() -> RateLimitStore:
             _store = InMemoryRateLimitStore()
             logger.info("Using in-memory rate limiting (set REDIS_URL for production)")
     return _store
+
+
+def get_rate_limit_store_info() -> dict:
+    """Get information about the current rate limit store."""
+    store = get_store()
+    is_redis = isinstance(store, RedisRateLimitStore)
+    redis_healthy = is_redis and store.is_healthy()
+    return {
+        "backend": "redis" if redis_healthy else "memory",
+        "redis_connected": redis_healthy,
+        "message": "Redis rate limiting active" if redis_healthy else "In-memory rate limiting (single instance only)"
+    }
 
 
 # ==================== Rate Limit Configuration ====================
