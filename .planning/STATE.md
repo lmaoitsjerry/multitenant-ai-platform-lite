@@ -5,22 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
-**Current focus:** Phase 12 — DevOps & CI/CD (Phase 11 Complete)
+**Current focus:** Phase 12 COMPLETE - v3.0 Production Hardening Milestone Complete
 
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 03 of 04 complete
-Status: In progress
-Last activity: 2026-01-21 — Completed 12-03-PLAN.md (GitHub Actions CI/CD Pipeline)
+Plan: 04 of 04 complete
+Status: Phase Complete - v3.0 Milestone Complete
+Last activity: 2026-01-21 - Completed 12-04-PLAN.md (Test Coverage & CI Integration)
 
-Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progress)
+Progress: [================] 100% (v3.0: All phases complete!)
 
 ## Milestones
 
-### v3.0: Production Hardening (CURRENT)
-- 4 phases (9-12), 14 plans planned
+### v3.0: Production Hardening (COMPLETE)
+- 4 phases (9-12), 15 plans executed
 - Focus: Security vulnerabilities, scalability blockers, DevOps readiness
+- Completed: 2026-01-21
 - Source: Comprehensive code review findings
 
 ### v2.0: Inbound Email & Helpdesk RAG (COMPLETE)
@@ -34,9 +35,9 @@ Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progre
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18 (v2.0: 13, v3.0: 5)
-- Average duration: ~30 min
-- Total execution time: ~7.5 hours
+- Total plans completed: 19 (v2.0: 13, v3.0: 6)
+- Average duration: ~25 min
+- Total execution time: ~8.0 hours
 
 **By Phase (v3.0):**
 
@@ -45,7 +46,7 @@ Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progre
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 3/4 | In Progress |
+| 12 | 4/4 | Complete |
 
 ## Accumulated Context
 
@@ -65,6 +66,7 @@ Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progre
 1. ~~No CI/CD pipeline~~ FIXED (12-03: GitHub Actions CI/CD)
 2. ~~Dockerfile runs as root~~ FIXED (12-01: Non-root user uid 1000)
 3. ~~No structured logging/tracing~~ FIXED (12-02: JSON logging with request ID)
+4. ~~No test coverage enforcement~~ FIXED (12-04: pytest-cov with CI threshold)
 
 ### Decisions (v3.0 - Current)
 
@@ -99,6 +101,9 @@ Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progre
 | D-12-03-01 | Use workflow_run trigger for deploy after CI success | 2026-01-21 |
 | D-12-03-02 | Use Workload Identity Federation (no service account keys) | 2026-01-21 |
 | D-12-03-03 | Separate test and docker-build jobs (parallel execution) | 2026-01-21 |
+| D-12-04-01 | Coverage baseline at 15% (prevents major regression) | 2026-01-21 |
+| D-12-04-02 | 70% coverage target is aspirational | 2026-01-21 |
+| D-12-04-03 | Added pytest-cov dependency for coverage reporting | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -116,14 +121,28 @@ Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progre
 - Configure GitHub secrets for CI/CD: GCP_PROJECT_ID, WIF_PROVIDER, WIF_SERVICE_ACCOUNT
 - Set up Workload Identity Federation in GCP (see .github/workflows/README.md)
 
+### Test Coverage Summary
+
+| Test File | Tests | Status |
+|-----------|-------|--------|
+| test_auth_middleware.py | 19 | Passing |
+| test_rate_limiter.py | 44 | Passing |
+| test_tenant_config_service.py | 34 | Passing |
+| test_api_routes.py | 24 | Passing |
+| test_services.py | 21 | Passing |
+| **Total** | **134+** | **Passing** |
+
+Current coverage: ~27% (baseline threshold: 15%)
+Target coverage: 70% (aspirational)
+
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage improving: 19 auth middleware tests (09-03), 44 rate limiter tests (10-04), 34 tenant config tests (11-04)
+- Test coverage at 27% - good foundation, needs ongoing improvement
 
 ## Session Continuity
 
-Last session: 2026-01-21 15:31 UTC
-Stopped at: Completed 12-03-PLAN.md (GitHub Actions CI/CD Pipeline)
-Resume file: None - Ready for 12-04-PLAN.md
+Last session: 2026-01-21 15:40 UTC
+Stopped at: Completed 12-04-PLAN.md (Test Coverage & CI Integration)
+Resume file: None - v3.0 Milestone Complete
