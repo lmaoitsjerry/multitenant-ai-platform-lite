@@ -16,7 +16,7 @@ Production hardening based on comprehensive code review. Focus on security vulne
 - Integer phases (9, 10, 11, 12): Planned v3.0 milestone work
 - Continues from v2.0 (phases 1-8 complete)
 
-- [ ] **Phase 9: Critical Security Fixes** - Admin auth, tenant validation, hardcoded tokens
+- [x] **Phase 9: Critical Security Fixes** - Admin auth, tenant validation, hardcoded tokens
 - [ ] **Phase 10: Security Hardening** - Error sanitization, security headers, Redis rate limiting
 - [ ] **Phase 11: Database-Backed Tenant Registry** - Replace YAML files with database config
 - [ ] **Phase 12: DevOps & Test Coverage** - CI/CD, Dockerfile hardening, test suite
@@ -64,22 +64,22 @@ Production hardening based on comprehensive code review. Focus on security vulne
 
 **Milestone Goal:** Address critical security vulnerabilities and scalability blockers identified in code review. Make the platform production-ready for current scale (5-50 tenants).
 
-#### Phase 9: Critical Security Fixes
+#### Phase 9: Critical Security Fixes ✅
 **Goal:** Fix authentication vulnerabilities that could allow unauthorized access
 **Depends on:** Phase 8 (v2.0 complete)
 **Requirements:** SEC-01, SEC-02, SEC-05, TEST-01
 **Success Criteria** (what must be TRUE):
-  1. Admin endpoints fail with 503 if ADMIN_API_TOKEN not set (not silently bypass)
-  2. X-Client-ID header validated against user's actual tenant_id from JWT claims
-  3. Frontend admin panel uses environment variable for admin token, not hardcoded
-  4. Unit tests verify auth middleware rejects tenant spoofing attempts
-**Research:** Unlikely (established patterns, security best practices)
-**Plans:** TBD
+  1. ✅ Admin endpoints fail with 503 if ADMIN_API_TOKEN not set (already implemented)
+  2. ✅ X-Client-ID header validated against user's actual tenant_id from JWT claims
+  3. ✅ Frontend admin panel uses environment variable for admin token, not hardcoded
+  4. ✅ Unit tests verify auth middleware rejects tenant spoofing attempts (19 tests passing)
+**Status:** Complete
+**Completed:** 2026-01-21
 
 Plans:
-- [ ] 09-01: Admin auth enforcement and startup validation
-- [ ] 09-02: X-Client-ID tenant validation in auth middleware
-- [ ] 09-03: Remove hardcoded admin token from frontend
+- [x] 09-01: X-Client-ID tenant validation (SEC-02 verified)
+- [x] 09-02: Remove hardcoded admin token from frontend (SEC-05)
+- [x] 09-03: Auth middleware unit tests (TEST-01)
 
 #### Phase 10: Security Hardening
 **Goal:** Harden the application against common web vulnerabilities and prepare for scale
@@ -146,7 +146,7 @@ Phases execute in numeric order: 9 → 10 → 11 → 12
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-8 | v2.0 | 13/13 | Complete | 2026-01-17 |
-| 9. Critical Security | v3.0 | 0/3 | Not started | - |
+| 9. Critical Security | v3.0 | 3/3 | Complete | 2026-01-21 |
 | 10. Security Hardening | v3.0 | 0/3 | Not started | - |
 | 11. Tenant Registry | v3.0 | 0/4 | Not started | - |
 | 12. DevOps & Tests | v3.0 | 0/4 | Not started | - |
