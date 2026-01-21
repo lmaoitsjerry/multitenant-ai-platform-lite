@@ -9,9 +9,16 @@ Usage:
 
     # Or use convenience function
     config = get_tenant_config("tenant_id")
+
+Features:
+    - Database-first lookup with YAML fallback
+    - Redis caching with configurable TTL (5 minutes default)
+    - Graceful fallback when Redis unavailable
+    - Secret handling (resolved from env vars, not stored in DB)
 """
 
 import os
+import json
 import logging
 import copy
 import re
@@ -26,8 +33,9 @@ logger = logging.getLogger(__name__)
 class TenantConfigService:
     """
     Tenant configuration service with dual-mode operation:
-    1. Try database first (Supabase tenants table)
-    2. Fall back to YAML files for unmigrated tenants
+    1. Try Redis cache first (if available)
+    2. Try database (Supabase tenants table)
+    3. Fall back to YAML files for unmigrated tenants
 
     Ignores tn_* auto-generated test tenants (garbage data).
     """
@@ -41,12 +49,29 @@ class TenantConfigService:
         'beachresorts',
     }
 
+    # YAML-only tenants (skips cache for these)
+    YAML_ONLY_TENANTS = {
+        'africastay',
+        'safariexplore-kvph',
+        'safarirun-t0vc',
+        'beachresorts',
+        'example',
+    }
+
     # tn_* prefixed tenants are auto-generated test data - ignore them
     # They will NOT be migrated and their YAML files can be deleted
+
+    # Cache TTL in seconds (5 minutes)
+    CACHE_TTL = 300
+
+    # Cache key prefix
+    CACHE_PREFIX = "tenant_config:"
 
     def __init__(self, base_path: Optional[str] = None):
         self.base_path = Path(base_path) if base_path else Path(__file__).parent.parent.parent
         self._supabase = None
+        self._redis = None
+        self._redis_available = None  # Lazy check - None means not checked yet
 
     def _get_supabase_client(self):
         """Get or create Supabase client (lazy initialization)"""
@@ -63,9 +88,129 @@ class TenantConfigService:
 
         return self._supabase
 
+    def _get_redis_client(self):
+        """Get Redis client for caching (lazy initialization with fallback)"""
+        if self._redis_available is False:
+            return None
+
+        if self._redis is None:
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                try:
+                    import redis
+                    self._redis = redis.from_url(redis_url)
+                    self._redis.ping()
+                    self._redis_available = True
+                    logger.info("Redis cache connected for tenant config")
+                except Exception as e:
+                    logger.warning(f"Redis not available for tenant config cache: {e}")
+                    self._redis_available = False
+                    self._redis = None
+            else:
+                self._redis_available = False
+
+        return self._redis
+
+    def _cache_key(self, tenant_id: str) -> str:
+        """Generate cache key for tenant"""
+        return f"{self.CACHE_PREFIX}{tenant_id}"
+
+    def _get_from_cache(self, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get tenant config from Redis cache"""
+        redis_client = self._get_redis_client()
+        if not redis_client:
+            return None
+
+        try:
+            key = self._cache_key(tenant_id)
+            data = redis_client.get(key)
+            if data:
+                logger.debug(f"Cache hit for tenant {tenant_id}")
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Redis cache read error: {e}")
+
+        return None
+
+    def _set_cache(self, tenant_id: str, config: Dict[str, Any]):
+        """Store tenant config in Redis cache"""
+        redis_client = self._get_redis_client()
+        if not redis_client:
+            return
+
+        try:
+            key = self._cache_key(tenant_id)
+            # Don't cache secrets - they're resolved at runtime anyway
+            redis_client.setex(key, self.CACHE_TTL, json.dumps(config))
+            logger.debug(f"Cached config for tenant {tenant_id} (TTL: {self.CACHE_TTL}s)")
+        except Exception as e:
+            logger.warning(f"Redis cache write error: {e}")
+
+    def _invalidate_cache(self, tenant_id: str):
+        """Remove tenant config from cache"""
+        redis_client = self._get_redis_client()
+        if not redis_client:
+            return
+
+        try:
+            key = self._cache_key(tenant_id)
+            redis_client.delete(key)
+            logger.debug(f"Invalidated cache for tenant {tenant_id}")
+        except Exception as e:
+            logger.warning(f"Redis cache delete error: {e}")
+
+    def invalidate_all_cache(self):
+        """Clear all tenant config cache entries"""
+        redis_client = self._get_redis_client()
+        if not redis_client:
+            return
+
+        try:
+            # Find and delete all tenant config keys
+            pattern = f"{self.CACHE_PREFIX}*"
+            cursor = 0
+            while True:
+                cursor, keys = redis_client.scan(cursor, match=pattern, count=100)
+                if keys:
+                    redis_client.delete(*keys)
+                if cursor == 0:
+                    break
+            logger.info("Invalidated all tenant config cache")
+        except Exception as e:
+            logger.warning(f"Redis cache clear error: {e}")
+
+    def get_cache_info(self) -> Dict[str, Any]:
+        """Get information about cache status"""
+        redis_client = self._get_redis_client()
+        if not redis_client:
+            return {
+                'backend': 'none',
+                'available': False,
+                'ttl_seconds': self.CACHE_TTL,
+            }
+
+        try:
+            # Count cached tenants
+            pattern = f"{self.CACHE_PREFIX}*"
+            cursor, keys = redis_client.scan(0, match=pattern, count=1000)
+            count = len(keys)
+
+            return {
+                'backend': 'redis',
+                'available': True,
+                'ttl_seconds': self.CACHE_TTL,
+                'cached_tenants': count,
+            }
+        except Exception:
+            return {
+                'backend': 'redis',
+                'available': False,
+                'ttl_seconds': self.CACHE_TTL,
+            }
+
     def get_config(self, tenant_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get tenant configuration from database (primary source)
+        Get tenant configuration (cache -> database -> YAML fallback)
 
         Args:
             tenant_id: Tenant identifier
@@ -78,14 +223,28 @@ class TenantConfigService:
             logger.debug(f"Ignoring auto-generated test tenant: {tenant_id}")
             return None
 
-        # Try database first (primary source for migrated tenants)
+        # Check if YAML-only tenant (skip cache for these)
+        if tenant_id in self.YAML_ONLY_TENANTS:
+            return self._load_from_yaml(tenant_id)
+
+        # Try cache first
+        cached = self._get_from_cache(tenant_id)
+        if cached:
+            return cached
+
+        # Try database
         config = self._load_from_database(tenant_id)
         if config:
+            self._set_cache(tenant_id, config)
             return config
 
-        # Fall back to YAML only for backward compatibility during migration
+        # Fall back to YAML
         logger.debug(f"Tenant {tenant_id} not in database, falling back to YAML")
-        return self._load_from_yaml(tenant_id)
+        yaml_config = self._load_from_yaml(tenant_id)
+        if yaml_config:
+            # Cache YAML config too (same TTL)
+            self._set_cache(tenant_id, yaml_config)
+        return yaml_config
 
     def _load_from_database(self, tenant_id: str) -> Optional[Dict[str, Any]]:
         """Load config from Supabase tenants table"""
@@ -275,6 +434,9 @@ class TenantConfigService:
 
             # Upsert (insert or update)
             client.table("tenants").upsert(row, on_conflict='id').execute()
+
+            # Invalidate cache after successful save
+            self._invalidate_cache(tenant_id)
 
             logger.info(f"Saved config for tenant {tenant_id} to database")
             return True
