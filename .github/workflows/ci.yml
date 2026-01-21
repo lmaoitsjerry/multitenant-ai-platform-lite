@@ -30,9 +30,11 @@ jobs:
           flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          pytest tests/ -v --tb=short
+          # Target: 70% (aspirational). Current baseline: 15% (prevents major regression)
+          # Increase this threshold as coverage improves over time
+          pytest tests/ -v --tb=short --cov=src --cov=main --cov=config --cov-report=term-missing --cov-fail-under=15
         env:
           PYTHONPATH: ${{ github.workspace }}
 
