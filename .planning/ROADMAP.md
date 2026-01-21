@@ -1,162 +1,157 @@
-# Roadmap: Inbound Email Auto-Quote & Helpdesk RAG Enhancement
+# Roadmap: Multi-Tenant AI Travel Platform
+
+## Milestones
+
+- ✅ **v1.0 Bug Fixes** - Phases 1-3 (archived)
+- ✅ **v2.0 Inbound Email & Helpdesk RAG** - Phases 1-8 (shipped 2026-01-17)
+- 🚧 **v3.0 Production Hardening** - Phases 9-12 (in progress)
 
 ## Overview
 
-Fix two critical systems: (1) Inbound email pipeline that should auto-generate and send quotes, (2) Helpdesk RAG that should return natural, helpful responses instead of robotic lists.
+Production hardening based on comprehensive code review. Focus on security vulnerabilities, scalability blockers, and DevOps readiness. Transforms the platform from "good for 5-50 tenants" to production-ready with proper security controls.
 
 ## Phases
 
-- [x] **Phase 1: Diagnostics & Logging** - Verify current state, add logging, test webhook accessibility
-- [x] **Phase 2: Tenant Lookup & Email Parsing** - Robust tenant lookup, LLM-powered email parser
-- [x] **Phase 3: Quote Generation Pipeline** - Connect parser to quote generator, create quotes
-- [x] **Phase 4: Email Sending & Notifications** - Send quotes via SendGrid subuser, create notifications
-- [x] **Phase 5: Helpdesk RAG Enhancement** - Natural responses with context synthesis
-- [x] **Phase 6: Integration Testing** - End-to-end verification, production deployment
-- [x] **Phase 7: Login Fix** - Fix frontend dashboard login by creating test user
-- [x] **Phase 8: Security Hardening & Bug Fixes** - Fix critical security issues and invoice quote selection bug
+**Phase Numbering:**
+- Integer phases (9, 10, 11, 12): Planned v3.0 milestone work
+- Continues from v2.0 (phases 1-8 complete)
+
+- [ ] **Phase 9: Critical Security Fixes** - Admin auth, tenant validation, hardcoded tokens
+- [ ] **Phase 10: Security Hardening** - Error sanitization, security headers, Redis rate limiting
+- [ ] **Phase 11: Database-Backed Tenant Registry** - Replace YAML files with database config
+- [ ] **Phase 12: DevOps & Test Coverage** - CI/CD, Dockerfile hardening, test suite
+
+<details>
+<summary>✅ v2.0 Inbound Email & Helpdesk RAG (Phases 1-8) - SHIPPED 2026-01-17</summary>
+
+### Phase 1: Diagnostics & Logging
+**Status:** Complete
+**Plans:** 1/1 complete
+
+### Phase 2: Tenant Lookup & Email Parsing
+**Status:** Complete
+**Plans:** 2/2 complete
+
+### Phase 3: Quote Generation Pipeline
+**Status:** Complete
+**Plans:** 1/1 complete
+
+### Phase 4: Email Sending & Notifications
+**Status:** Complete
+**Plans:** 1/1 complete
+
+### Phase 5: Helpdesk RAG Enhancement
+**Status:** Complete
+**Plans:** 2/2 complete
+
+### Phase 6: Integration Testing
+**Status:** Complete
+**Plans:** 2/2 complete
+
+### Phase 7: Login Fix
+**Status:** Complete
+**Plans:** 1/1 complete
+
+### Phase 8: Security Hardening & Bug Fixes
+**Status:** Complete
+**Plans:** 3/3 complete
+
+</details>
 
 ## Phase Details
 
-### Phase 1: Diagnostics & Logging
-**Goal:** Understand current state of inbound email pipeline, add comprehensive logging
-**Depends on:** Nothing (first phase)
-**Requirements:** EMAIL-01
+### 🚧 v3.0 Production Hardening (In Progress)
+
+**Milestone Goal:** Address critical security vulnerabilities and scalability blockers identified in code review. Make the platform production-ready for current scale (5-50 tenants).
+
+#### Phase 9: Critical Security Fixes
+**Goal:** Fix authentication vulnerabilities that could allow unauthorized access
+**Depends on:** Phase 8 (v2.0 complete)
+**Requirements:** SEC-01, SEC-02, SEC-05, TEST-01
 **Success Criteria** (what must be TRUE):
-  1. Webhook endpoint exists and is accessible from external
-  2. SendGrid Inbound Parse configuration documented
-  3. Comprehensive logging added to webhook endpoint
-  4. Current failure point identified with evidence
-**Research:** Check SendGrid dashboard, MX records, Cloud Run logs
-**Plans:** 1 plan
+  1. Admin endpoints fail with 503 if ADMIN_API_TOKEN not set (not silently bypass)
+  2. X-Client-ID header validated against user's actual tenant_id from JWT claims
+  3. Frontend admin panel uses environment variable for admin token, not hardcoded
+  4. Unit tests verify auth middleware rejects tenant spoofing attempts
+**Research:** Unlikely (established patterns, security best practices)
+**Plans:** TBD
 
 Plans:
-- [x] 01-01: Diagnose inbound email pipeline + add logging
+- [ ] 09-01: Admin auth enforcement and startup validation
+- [ ] 09-02: X-Client-ID tenant validation in auth middleware
+- [ ] 09-03: Remove hardcoded admin token from frontend
 
-### Phase 2: Tenant Lookup & Email Parsing
-**Goal:** Emails correctly routed to tenants and parsed for trip details
-**Depends on:** Phase 1 (need working webhook first)
-**Requirements:** EMAIL-02, EMAIL-03
+#### Phase 10: Security Hardening
+**Goal:** Harden the application against common web vulnerabilities and prepare for scale
+**Depends on:** Phase 9
+**Requirements:** SEC-03, SEC-04, SCALE-02, TEST-02
 **Success Criteria** (what must be TRUE):
-  1. Tenant found by support_email OR sendgrid_username@zorah.ai
-  2. Email parser extracts: destination, dates, travelers, budget
-  3. Fallback rule-based parser handles LLM failures
-  4. Edge cases handled (malformed emails, missing fields)
-**Research:** Unlikely (existing patterns)
-**Plans:** 2 plans
+  1. Error responses use generic messages, no detail=str(e) exposing internals
+  2. Security headers (CSP, X-Frame-Options, HSTS, X-Content-Type-Options) on all responses
+  3. Rate limiting uses Redis backend (works across multiple instances)
+  4. Unit tests verify rate limiting behavior
+**Research:** Likely (Redis setup for Cloud Run)
+**Research topics:** Redis on Cloud Run, redis-py with slowapi
+**Plans:** TBD
 
 Plans:
-- [x] 02-01: Implement robust tenant lookup by email address
-- [x] 02-02: Implement LLM-powered email parser with fallback
+- [ ] 10-01: Sanitize error messages across all routes
+- [ ] 10-02: Add security headers middleware
+- [ ] 10-03: Redis-backed rate limiting
 
-### Phase 3: Quote Generation Pipeline
-**Goal:** Parsed trip details become quote records in database
-**Depends on:** Phase 2 (need parsed trip details)
-**Requirements:** EMAIL-04
+#### Phase 11: Database-Backed Tenant Registry
+**Goal:** Replace file-based tenant config with database for dynamic tenant management
+**Depends on:** Phase 10
+**Requirements:** SCALE-01, SCALE-03, TEST-03
 **Success Criteria** (what must be TRUE):
-  1. Quote created with correct destination, dates, travelers
-  2. Hotels queried for destination
-  3. Pricing calculated from rates
-  4. Quote record saved to database with status "draft"
-**Research:** Unlikely (existing quote generation code)
-**Plans:** 1 plan
+  1. Tenant configuration stored in database table (not YAML files)
+  2. Tenant provisioning API creates database records (no file deploy needed)
+  3. Redis caching for tenant config lookups with TTL
+  4. Existing tenants migrated from YAML to database
+  5. Unit tests verify tenant isolation at database level
+**Research:** Likely (Supabase schema design, migration strategy)
+**Research topics:** Tenant registry schema, YAML to database migration
+**Plans:** TBD
 
 Plans:
-- [x] 03-01: Connect email parser to quote generator
+- [ ] 11-01: Create tenants registry table and migration
+- [ ] 11-02: Tenant config service with database backend
+- [ ] 11-03: Migrate existing tenants from YAML to database
+- [ ] 11-04: Redis caching for tenant lookups
 
-### Phase 4: Email Sending & Notifications
-**Goal:** Quotes sent to customers, notifications shown in dashboard
-**Depends on:** Phase 3 (need generated quote)
-**Requirements:** EMAIL-05, EMAIL-06
+#### Phase 12: DevOps & Test Coverage
+**Goal:** Production-ready deployment with CI/CD and comprehensive tests
+**Depends on:** Phase 11
+**Requirements:** DEVOPS-01, DEVOPS-02, DEVOPS-03, TEST-04
 **Success Criteria** (what must be TRUE):
-  1. Email sent via tenant's SendGrid subuser (not main account)
-  2. Quote email includes quote details and PDF attachment
-  3. Notification created for tenant dashboard
-  4. Quote status updated to "sent"
-**Research:** Unlikely (existing SendGrid integration)
-**Plans:** 1 plan (consolidated - existing infrastructure covers most requirements)
+  1. Dockerfile runs as non-root user
+  2. GitHub Actions CI/CD pipeline runs tests and deploys
+  3. Structured logging with request IDs for tracing
+  4. Test coverage reaches 70% target
+**Research:** Likely (GitHub Actions for Cloud Run)
+**Research topics:** GitHub Actions Cloud Run deployment, pytest coverage
+**Plans:** TBD
 
 Plans:
-- [x] 04-01: Quote approval and sending workflow
-
-### Phase 5: Helpdesk RAG Enhancement
-**Goal:** Natural, helpful responses instead of robotic lists
-**Depends on:** Nothing (independent of email pipeline)
-**Requirements:** RAG-01, RAG-02, RAG-03, RAG-04
-**Success Criteria** (what must be TRUE):
-  1. Search returns 5-8 relevant documents
-  2. Response is conversational, not list-like
-  3. Response includes specific details from context
-  4. Unknown questions handled gracefully
-  5. Response time < 3 seconds
-**Research:** Unlikely (existing FAISS + OpenAI patterns)
-**Plans:** 2 plans
-
-Plans:
-- [x] 05-01: Enhance FAISS search to return more context
-- [x] 05-02: Implement RAG response generation with natural tone
-
-### Phase 6: Integration Testing
-**Goal:** End-to-end verification of both systems
-**Depends on:** Phases 1-5 (all features complete)
-**Requirements:** All EMAIL-*, RAG-*
-**Success Criteria** (what must be TRUE):
-  1. Email → Quote → Notification pipeline works end-to-end
-  2. Helpdesk returns natural responses for various queries
-  3. No regressions in existing functionality
-  4. Production deployment successful
-**Research:** None
-**Plans:** 2 plans
-
-Plans:
-- [x] 06-01: Core integration test suite
-- [x] 06-02: Human verification and deployment readiness
-
-### Phase 7: Login Fix
-**Goal:** Enable login to frontend dashboard for tenant users
-**Depends on:** Phase 6 (complete system)
-**Requirements:** User can login with valid credentials
-**Success Criteria** (what must be TRUE):
-  1. Test user exists in Supabase auth.users
-  2. Test user has organization_users record linked to tenant
-  3. Frontend login succeeds with test credentials
-  4. Dashboard loads after login
-**Research:** None
-**Plans:** 1 plan
-
-Plans:
-- [x] 07-01: Create test user and admin endpoint for user creation
-
-### Phase 8: Security Hardening & Bug Fixes
-**Goal:** Fix critical security vulnerabilities and invoice creation bug
-**Depends on:** Phase 7 (complete login system)
-**Requirements:** SEC-01, SEC-02, SEC-03, BUG-01
-**Success Criteria** (what must be TRUE):
-  1. JWT signature verification enabled
-  2. Rate limiting on authentication endpoints
-  3. Admin token bypass removed or restricted
-  4. Invoice creation modal shows quotes in dropdown
-  5. Password reset redirect URL configurable
-**Research:** None
-**Plans:** 3 plans
-
-Plans:
-- [x] 08-01: Enable JWT signature verification
-- [x] 08-02: Add rate limiting and CSRF protection
-- [x] 08-03: Fix invoice quote selection and password reset
+- [ ] 12-01: Dockerfile hardening (non-root user)
+- [ ] 12-02: GitHub Actions CI/CD pipeline
+- [ ] 12-03: Structured logging with request tracing
+- [ ] 12-04: Expand test coverage to 70%
 
 ## Progress
 
-| Phase | Plans | Status |
-|-------|-------|--------|
-| 1. Diagnostics & Logging | 1/1 | Complete |
-| 2. Tenant Lookup & Email Parsing | 2/2 | Complete |
-| 3. Quote Generation Pipeline | 1/1 | Complete |
-| 4. Email Sending & Notifications | 1/1 | Complete |
-| 5. Helpdesk RAG Enhancement | 2/2 | Complete |
-| 6. Integration Testing | 2/2 | Complete |
-| 7. Login Fix | 1/1 | Complete |
-| 8. Security Hardening & Bug Fixes | 3/3 | Complete |
+**Execution Order:**
+Phases execute in numeric order: 9 → 10 → 11 → 12
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1-8 | v2.0 | 13/13 | Complete | 2026-01-17 |
+| 9. Critical Security | v3.0 | 0/3 | Not started | - |
+| 10. Security Hardening | v3.0 | 0/3 | Not started | - |
+| 11. Tenant Registry | v3.0 | 0/4 | Not started | - |
+| 12. DevOps & Tests | v3.0 | 0/4 | Not started | - |
 
 ---
 *Created: 2026-01-16*
-*Milestone: v2.0 - Inbound Email & Helpdesk RAG*
+*Updated: 2026-01-21*
+*Current Milestone: v3.0 - Production Hardening*

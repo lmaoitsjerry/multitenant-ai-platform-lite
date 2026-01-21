@@ -2,327 +2,87 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-01-16)
+See: .planning/PROJECT.md (updated 2026-01-21)
 
-**Core value:** Automated inbound email -> quote pipeline + natural helpdesk RAG responses
-**Current focus:** Phase 8 - Security and Fixes
+**Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
+**Current focus:** Phase 9 — Critical Security Fixes
 
 ## Current Position
 
-Phase: 8 of 8 (Security and Fixes)
-Plan: 4 of 4 completed (08-02 Rate Limiting & Admin Security added)
-Status: Phase 8 COMPLETE
-Last activity: 2026-01-17 - Completed 08-02-PLAN.md (Rate Limiting & Admin Security)
+Phase: 9 of 12 (Critical Security Fixes)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-01-21 — v3.0 milestone roadmap created
 
-Progress: [##########] 100%
+Progress: [########░░] 80% (v2.0 complete, v3.0 starting)
 
 ## Milestones
 
-### v2.0: Inbound Email & Helpdesk RAG (COMPLETE)
-- 6 phases, 12 plans executed
-- Focus: Fix broken email pipeline, enhance helpdesk quality
-- Key wins:
-  - Email pipeline: Inbound -> Tenant Lookup -> LLM Parse -> Draft Quote -> Approve -> Send
-  - Helpdesk RAG: FAISS search -> GPT-4o-mini synthesis -> Natural responses
-  - 46 integration tests covering all core flows
-  - Human-verified E2E testing confirms production readiness
+### v3.0: Production Hardening (CURRENT)
+- 4 phases (9-12), 14 plans planned
+- Focus: Security vulnerabilities, scalability blockers, DevOps readiness
+- Source: Comprehensive code review findings
 
-### v1.0: Bug Fixes & Optimizations (Completed)
+### v2.0: Inbound Email & Helpdesk RAG (COMPLETE)
+- 8 phases, 13 plans executed
+- Focus: Fix broken email pipeline, enhance helpdesk quality
+- Shipped: 2026-01-17
+
+### v1.0: Bug Fixes & Optimizations (COMPLETE)
 - Archived: .planning/milestones/v1.0-bug-fixes.md
-- Key wins: Tenant dashboard caching, invoice revenue fix, admin performance
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 13 (v2.0)
+- Average duration: ~30 min
+- Total execution time: ~6.5 hours
+
+**By Phase (v2.0):**
+
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 1-8 | 13/13 | Complete |
 
 ## Accumulated Context
 
-### Systems to Fix
+### Code Review Findings (v3.0 Focus)
 
-**System 1: Inbound Email Auto-Quote Pipeline**
-- Expected: Email -> SendGrid Inbound Parse -> Webhook -> Tenant Lookup -> Parse -> Quote -> Send
-- Status: COMPLETE - Full workflow implemented
-- Workflow: Email -> Parse -> Draft Quote -> Consultant Review -> Approve (POST /send) -> Email Sent
-- Testing: 9 integration tests covering e2e flow
+**Critical Security Issues:**
+1. ADMIN_API_TOKEN bypass when not set (admin_routes.py)
+2. X-Client-ID not validated against user's actual tenant (auth_middleware.py)
+3. Hardcoded admin token in frontend (zorah-internal-admin-2024)
 
-**System 2: Helpdesk RAG**
-- Expected: Natural, conversational responses with specific details
-- Status: COMPLETE - RAG synthesis with GPT-4o-mini
-- Flow: Question -> FAISS search_with_context() -> RAGResponseService -> Natural response
-- Timing: Logged and validated against 3s target
-- Testing: 9 integration tests covering RAG flow
+**Scalability Blockers:**
+1. File-based tenant config (YAML per tenant) won't scale
+2. In-memory rate limiting won't work across instances
+3. No Redis caching
 
-### Technical Notes
+**DevOps Gaps:**
+1. No CI/CD pipeline
+2. Dockerfile runs as root
+3. No structured logging/tracing
 
-- SendGrid subusers per tenant (e.g., final-itc-3@zorah.ai)
-- FAISS index: 98,086 vectors in GCS bucket
-- OpenAI GPT-4o-mini for parsing and responses
-- Tenant lookup: NOW supports support_email, sendgrid_username@zorah.ai, primary_email
-- Email parsing: LLMEmailParser (primary) with UniversalEmailParser (fallback)
-- Quote generation: Draft status workflow complete, consultant review before send
-- Quote sending: POST /api/v1/quotes/{quote_id}/send - regenerates PDF, sends via SendGrid
-- Helpdesk search: search_with_context() returns 5-8 docs with min_score=0.3 filtering
-- Helpdesk synthesis: RAGResponseService with graceful fallback, timing in response
+### Decisions (v2.0 - Recent)
 
-### Decisions
+| ID | Decision | Date |
+|----|----------|------|
+| D-08-02-03 | 503 when ADMIN_API_TOKEN not configured | 2026-01-17 |
+| D-08-02-04 | 401 when X-Admin-Token header missing | 2026-01-17 |
+| D-08-01-01 | Use HS256 algorithm for JWT verification | 2026-01-17 |
 
-| ID | Decision | Context | Date |
-|----|----------|---------|------|
-| D-01-01-01 | Use database lookup for tenant resolution | Original code only parsed email structure | 2026-01-16 |
-| D-01-01-02 | Add 11-step diagnostic logging | Need visibility into email pipeline | 2026-01-16 |
-| D-02-01-01 | Use 5-minute cache TTL for tenant email mappings | Balance freshness and performance | 2026-01-16 |
-| D-02-01-02 | Return 3-tuple from find_tenant_by_email | Track cache hit status for diagnostics | 2026-01-16 |
-| D-02-02-01 | Use GPT-4o-mini for cost-efficient parsing | ~$0.15/1M tokens, fast response | 2026-01-16 |
-| D-02-02-02 | Always fallback to rule-based parser on LLM failure | Reliability over accuracy | 2026-01-16 |
-| D-03-01-01 | Auto-generated quotes from emails use draft status | Prevents incorrect quotes from being sent | 2026-01-16 |
-| D-03-01-02 | PDF still generated for draft quotes | Allows consultants to preview quote before approving | 2026-01-16 |
-| D-04-01-01 | Regenerate PDF on send rather than caching | Ensures latest quote data | 2026-01-16 |
-| D-04-01-02 | Use 'system' notification type for quote_sent | 'quote_sent' not in DB CHECK constraint | 2026-01-16 |
-| D-05-01-01 | Default top_k=8 for more RAG context | More documents = better LLM synthesis context | 2026-01-16 |
-| D-05-01-02 | min_score=0.3 with fallback to top 3 | Balance quality filtering with minimum context | 2026-01-16 |
-| D-05-02-01 | Temperature 0.7 for natural variation in responses | Natural language, not robotic | 2026-01-16 |
-| D-05-02-02 | 8 second timeout for LLM calls | Stay under 3s total target with network variance | 2026-01-16 |
-| D-05-02-03 | Include timing data in API response | Frontend debugging and performance monitoring | 2026-01-16 |
-| D-06-01-01 | Mock-based testing over FastAPI dependency injection | Simpler test isolation for integration tests | 2026-01-16 |
-| D-06-01-02 | Force-add test files to git | Test files excluded by gitignore but needed | 2026-01-16 |
-| D-08-01-01 | Use HS256 algorithm for JWT verification | Matches Supabase JWT signing algorithm | 2026-01-17 |
-| D-08-01-02 | Fall back to service key with warning if JWT secret not set | Allows development without config, warns for production | 2026-01-17 |
-| D-08-03-01 | Filter quotes by status for invoice creation | Only show sent, approved, draft quotes in dropdown | 2026-01-17 |
-| D-08-03-02 | Document Supabase URL config in frontend and backend | Password reset requires Supabase Dashboard settings | 2026-01-17 |
-| D-08-02-01 | 5 requests/minute for login rate limiting | Standard anti-brute-force threshold | 2026-01-17 |
-| D-08-02-02 | 3 requests/minute for password reset | Stricter to prevent email enumeration | 2026-01-17 |
-| D-08-02-03 | 503 when ADMIN_API_TOKEN not configured | Fail-closed security, not open bypass | 2026-01-17 |
-| D-08-02-04 | 401 when X-Admin-Token header missing | Explicit authentication required | 2026-01-17 |
+### Pending Todos
+
+None yet.
 
 ### Blockers/Concerns
 
-- Need to verify SendGrid Inbound Parse configuration
-- MX records may not be configured correctly
-- Webhook may not be publicly accessible
-- Need to verify tenant_settings.sendgrid_username populated for all tenants
+- Need Redis instance for Cloud Run (Memorystore or external)
+- Migration strategy for 60+ existing tenant YAML files
+- Test coverage currently at ~0% (target 70%)
 
 ## Session Continuity
 
-Last session: 2026-01-17
-Stopped at: Phase 8 Plan 02 complete - rate limiting and admin security applied
-Resume file: None - ready for next milestone planning
-
-## Recent Completions
-
-### 08-02: Rate Limiting & Admin Security (2026-01-17)
-
-**Summary:** Added rate limiting to auth endpoints and removed unsafe admin token bypass.
-
-**Key Changes:**
-- Login endpoint rate limited to 5 requests/minute per IP (prevents brute force)
-- Password reset rate limited to 3 requests/minute per IP (prevents email enumeration)
-- Password update rate limited to 5 requests/minute per IP (prevents token brute force)
-- Admin endpoints now return 503 if ADMIN_API_TOKEN not configured (fail-closed)
-- Admin endpoints return 401 if X-Admin-Token header missing (explicit auth required)
-- slowapi>=0.1.9 added to requirements.txt
-
-**Commits:**
-- bc5da9e: feat(08-02): add rate limiting to auth endpoints
-- aa331d6: fix(08-02): remove unsafe admin token bypass
-- f650227: feat(08-02): register rate limiter in FastAPI app
-
-### 08-03: Invoice Quote Dropdown and Password Reset (2026-01-17)
-
-**Summary:** Fixed quote dropdown in invoice creation modal and documented password reset URL configuration.
-
-**Key Changes:**
-- Fixed quote dropdown to show quotes with customer name, destination, and amount
-- Added debug logging to diagnose API response structure
-- Filtered quotes to only show convertible ones (sent, approved, draft)
-- Added helpful message when no quotes available
-- Created .env.example with environment variable documentation
-- Documented Supabase URL configuration for password reset
-
-**Commits:**
-- 7ca6f04: fix(08-03): improve quote dropdown with debug logging and helpful messaging
-- bcb3aac: docs(08-03): add .env.example with password reset configuration
-- 97e278a: docs(08-03): add Supabase URL configuration docs to password reset method
-
-### 08-01: JWT Signature Verification Security Fix (2026-01-17)
-
-**Summary:** Fixed critical security vulnerability - JWT tokens now cryptographically verified using HS256 algorithm.
-
-**Root Cause:** JWT verification had `verify_signature=False`, allowing anyone to forge valid-looking JWTs without the secret.
-
-**Key Changes:**
-- Changed `verify_signature` from `False` to `True`
-- Added `jwt_secret` as key parameter with `algorithms=["HS256"]`
-- Added `InvalidSignatureError` handler with tampering warning log
-- Added `SUPABASE_JWT_SECRET` environment variable with fallback warning
-
-**Commits:**
-- 2711cb4: fix(08-01): enable JWT signature verification
-- 85b93ad: fix(08-01): add JWT secret configuration with fallback warning
-
-### 07-01: Fix Frontend Dashboard Login (2026-01-17)
-
-**Summary:** Created test user and admin endpoint to enable login to frontend dashboard.
-
-**Root Cause:** Login requires both Supabase auth.users record AND organization_users record. 52 tenants had YAML configs but no database user records.
-
-**Key Changes:**
-- Added `POST /api/v1/admin/create-test-user` endpoint to admin_routes.py
-- Created `scripts/create_test_user.py` CLI tool for user creation
-- Created test user for tenant `tn_6bc9d287_84ce19011671`:
-  - Email: admin@test.com
-  - Password: Test123!
-  - Role: admin
-
-**Login Credentials:**
-- URL: http://localhost:5173
-- Email: admin@test.com
-- Password: Test123!
-
-### 06-02: E2E Testing & Verification (2026-01-17)
-
-**Summary:** Human-verified E2E testing confirming email pipeline and helpdesk RAG work correctly, with 3 bug fixes discovered during verification.
-
-**Key Changes:**
-- Generated deployment readiness report (46 tests passing)
-- Human verified helpdesk RAG natural responses
-- Human verified email pipeline processes inbound emails
-- Fixed legacy webhook routing, RAG source names, quote resend
-
-**Commits:**
-- 5602e16: fix(06): fix inbound email routing and RAG source names
-- e32a913: fix(06): add proper resend_quote method for existing quotes
-
-**v2.0 Milestone Complete** - All EMAIL-* and RAG-* requirements validated.
-
-### 06-01: Core Integration Test Suite (2026-01-16)
-
-**Summary:** 46 integration tests covering email pipeline, helpdesk RAG, quote generation, and tenant isolation security.
-
-**Key Changes:**
-- Created test_integration_email_pipeline.py (9 tests)
-- Created test_integration_helpdesk_rag.py (9 tests)
-- Created test_integration_quote_gen.py (12 tests)
-- Created test_integration_tenant_isolation.py (16 tests)
-
-**Commits:**
-- 76c9bb1: test(06-01): add email pipeline integration tests
-- 3653220: test(06-01): add helpdesk RAG integration tests
-- c7381f0: test(06-01): add quote generation integration tests
-- 41e0043: test(06-01): add tenant isolation integration tests
-
-**Next:** Phase 6 Plan 2 - E2E Testing & Verification
-
-### 05-02: LLM Response Synthesis (2026-01-16)
-
-**Summary:** GPT-4o-mini RAG synthesis service transforming FAISS search results into natural conversational responses with timing instrumentation.
-
-**Key Changes:**
-- Created RAGResponseService with lazy OpenAI client
-- Natural, conversational responses with specific details
-- Graceful fallback when LLM unavailable
-- Response time logging (search_ms, synthesis_ms, total_ms)
-- 3-second target validation with warnings
-
-**Commits:**
-- 4169289: feat(05-02): create RAG response synthesis service
-- 42d11c1: feat(05-02): integrate RAG synthesis into helpdesk routes
-- 84becff: feat(05-02): add response time logging and validation
-
-**Next:** Phase 6 - Verification Testing
-
-### 05-01: FAISS Search Context Enhancement (2026-01-16)
-
-**Summary:** search_with_context() method returning 5-8 relevance-filtered documents for improved RAG synthesis.
-
-**Key Changes:**
-- Added `search_with_context()` method to FAISSHelpdeskService
-- Relevance filtering with min_score threshold (default 0.3)
-- Fallback to top 3 results if fewer pass threshold
-- Updated helpdesk routes to use enhanced search
-
-**Commits:**
-- ef042b3: feat(05-01): add search_with_context method to FAISS service
-- 2654f63: feat(05-01): update helpdesk routes to use search_with_context
-
-**Next:** Phase 5 Plan 2 - LLM Response Synthesis
-
-### 04-01: Quote Sending Workflow (2026-01-16)
-
-**Summary:** Draft quote approval endpoint with PDF regeneration, SendGrid email, status update, and consultant notifications.
-
-**Key Changes:**
-- Added `send_draft_quote()` method to QuoteAgent
-- Added `notify_quote_sent()` method to NotificationService
-- Added POST `/api/v1/quotes/{quote_id}/send` endpoint with auth
-- Auto-schedules follow-up calls when customer has phone
-
-**Commits:**
-- 1ffe3a4: feat(04-01): add send_draft_quote method to QuoteAgent
-- 2cdb49f: feat(04-01): add notify_quote_sent to NotificationService
-- 78814ac: feat(04-01): add POST /api/v1/quotes/{quote_id}/send endpoint
-
-**Next:** Phase 5 - Helpdesk RAG Enhancement
-
-### 03-01: Quote Generation Pipeline (2026-01-16)
-
-**Summary:** Draft quote workflow with initial_status parameter, preventing auto-send and enabling consultant review.
-
-**Key Changes:**
-- Added `initial_status` parameter to QuoteAgent.generate_quote()
-- Draft quotes skip email sending and follow-up calls
-- Email webhook creates draft quotes for all inbound emails
-- 13 comprehensive tests added
-
-**Commits:**
-- adbb398: feat(03-01): add draft status support to QuoteAgent
-- e83d870: feat(03-01): wire email webhook to create draft quotes
-- 29db0e8: test(03-01): add comprehensive quote generation tests
-
-**Next:** Phase 4 - Helpdesk RAG Enhancement
-
-### 02-01: Tenant Lookup Optimization (2026-01-16)
-
-**Summary:** O(1) cached tenant email lookup with 5-minute TTL, diagnostic endpoint, and 10 unit tests.
-
-**Key Changes:**
-- Added `_tenant_email_cache` with 5-minute TTL
-- Added `_refresh_tenant_email_cache()` for building mappings
-- Added GET `/webhooks/email/lookup/{email}` diagnostic endpoint
-- Added 10 unit tests for tenant lookup
-
-**Commits:**
-- 39a951a: perf(02-01): add tenant email lookup caching
-- 4237861: feat(02-01): add tenant email lookup endpoint
-- 0641a24: test(02-01): add unit tests for tenant lookup
-
-**Next:** Phase 3 - Quote Generation & Sending
-
-### 02-02: LLM Email Parser (2026-01-16)
-
-**Summary:** GPT-4o-mini powered email parser with automatic fallback to rule-based UniversalEmailParser.
-
-**Key Changes:**
-- Created `LLMEmailParser` class with OpenAI integration
-- Integrated into email webhook as primary parser
-- Added `parse_method` field to diagnostic logging
-- Added 16 comprehensive tests
-
-**Commits:**
-- 203db0d: feat(02-02): create LLM-powered email parser
-- bf86bb0: feat(02-02): integrate LLM parser into email webhook
-- bb90f9b: test(02-02): add comprehensive email parser tests
-
-**Next:** Phase 3 - Quote Generation & Sending
-
-### 01-01: Email Pipeline Diagnostics (2026-01-16)
-
-**Summary:** Fixed tenant lookup to match SendGrid subuser emails and custom domains, added 11-step diagnostic logging.
-
-**Key Changes:**
-- Added `find_tenant_by_email()` for database-backed tenant resolution
-- Added diagnostic logging format: `[EMAIL_WEBHOOK][{ID}][STEP_{N}]`
-- Added `/webhooks/email/diagnose` endpoint
-- Created DIAGNOSTICS.md with analysis
-
-**Commits:**
-- 3837c93: feat(01-01): add comprehensive diagnostic logging
-- 8a3cb4a: docs(01-01): create diagnostics report
-- 23441a1: test(01-01): add local testing results
-
-**Next:** Verify SendGrid configuration, test e2e flow
+Last session: 2026-01-21
+Stopped at: v3.0 roadmap created, ready for Phase 9 planning
+Resume file: None - run `/gsd:plan-phase 9` to start
