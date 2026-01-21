@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Production-ready multi-tenant AI travel platform with secure tenant isolation
-**Current focus:** Phase 11 — Database-Backed Tenant Registry
+**Current focus:** Phase 12 — DevOps & CI/CD (Phase 11 Complete)
 
 ## Current Position
 
-Phase: 11 of 12 (Database-Backed Tenant Registry)
-Plan: 03 of 04 complete
-Status: In progress
-Last activity: 2026-01-21 — Completed 11-03-PLAN.md (YAML Migration Script)
+Phase: 11 of 12 (Database-Backed Tenant Registry) - COMPLETE
+Plan: 04 of 04 complete
+Status: Phase complete
+Last activity: 2026-01-21 — Completed 11-04-PLAN.md (Redis Caching & Unit Tests)
 
-Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
+Progress: [==============] 71% (v3.0: Phases 9-11 complete, 12 pending)
 
 ## Milestones
 
@@ -34,9 +34,9 @@ Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16 (v2.0: 13, v3.0: 3)
+- Total plans completed: 17 (v2.0: 13, v3.0: 4)
 - Average duration: ~30 min
-- Total execution time: ~6.8 hours
+- Total execution time: ~7.0 hours
 
 **By Phase (v3.0):**
 
@@ -44,7 +44,7 @@ Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 |-------|-------|--------|
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
-| 11 | 3/4 | In progress |
+| 11 | 4/4 | Complete |
 | 12 | 0/3 | Pending |
 
 ## Accumulated Context
@@ -59,7 +59,7 @@ Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 **Scalability Blockers:**
 1. ~~File-based tenant config (YAML per tenant) won't scale~~ FIXED (11-02: TenantConfigService with DB backend)
 2. ~~In-memory rate limiting won't work across instances~~ FIXED (10-03)
-3. No Redis caching
+3. ~~No Redis caching~~ FIXED (11-04: TenantConfigService Redis caching)
 
 **DevOps Gaps:**
 1. No CI/CD pipeline
@@ -87,6 +87,9 @@ Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 | D-11-03-01 | Only migrate 4 real tenants, delete 63 tn_* test directories | 2026-01-21 |
 | D-11-03-02 | Keep 'example' directory as template for new tenant setup | 2026-01-21 |
 | D-11-03-03 | Database migration requires SQL migration to be run first | 2026-01-21 |
+| D-11-04-01 | Set cache TTL to 300 seconds (5 minutes) | 2026-01-21 |
+| D-11-04-02 | Skip caching for YAML_ONLY_TENANTS | 2026-01-21 |
+| D-11-04-03 | Use redis.from_url() for connection | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -100,15 +103,16 @@ Progress: [=============] 65% (v3.0: Phases 9-10 complete, 11 at 75%)
 
 - Run 014_tenant_config.sql in Supabase SQL Editor
 - Re-run migration: `python scripts/migrate_tenants_to_db.py --force`
+- Set REDIS_URL in production environment for caching
 
 ### Blockers/Concerns
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - ~~Migration strategy for 60+ existing tenant YAML files~~ COMPLETE: 63 tn_* deleted, 4 real tenants ready
-- Test coverage improving: 19 auth middleware tests added (09-03), 44 rate limiter tests added (10-04)
+- Test coverage improving: 19 auth middleware tests (09-03), 44 rate limiter tests (10-04), 34 tenant config tests (11-04)
 
 ## Session Continuity
 
-Last session: 2026-01-21 16:40 UTC
-Stopped at: Completed 11-03-PLAN.md (YAML Migration Script)
-Resume file: None - continue with 11-04-PLAN.md (Admin API for Tenant CRUD)
+Last session: 2026-01-21 14:46 UTC
+Stopped at: Completed 11-04-PLAN.md (Redis Caching & Unit Tests)
+Resume file: None - Phase 11 complete, ready for Phase 12
