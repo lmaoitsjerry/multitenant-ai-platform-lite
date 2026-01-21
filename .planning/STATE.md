@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 10 of 12 (Security Hardening)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-01-21 — Phase 9 complete (3/3 plans)
+Plan: 02 of 05 complete
+Status: In progress
+Last activity: 2026-01-21 — Completed 10-02-PLAN.md (Security Headers Middleware)
 
-Progress: [#########░] 90% (v3.0 Phase 9: 3/3 plans complete)
+Progress: [#########░] 90% (v3.0 Phase 10: 2/5 plans complete)
 
 ## Milestones
 
@@ -70,6 +70,8 @@ Progress: [#########░] 90% (v3.0 Phase 9: 3/3 plans complete)
 | D-09-01-01 | Validate X-Client-ID only when explicitly provided | 2026-01-21 |
 | D-09-02-01 | Warn on missing token instead of throwing error | 2026-01-21 |
 | D-09-03-01 | Use pytest with pytest-asyncio for async middleware tests | 2026-01-21 |
+| D-10-02-01 | HSTS only added in non-development environments | 2026-01-21 |
+| D-10-02-02 | Default CSP restrictive with env var override | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -92,5 +94,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 09-03-PLAN.md (Auth Middleware Unit Tests)
-Resume file: None - Phase 9 complete, proceed to Phase 10
+Stopped at: Completed 10-02-PLAN.md (Security Headers Middleware)
+Resume file: None - continue with Phase 10 plans
