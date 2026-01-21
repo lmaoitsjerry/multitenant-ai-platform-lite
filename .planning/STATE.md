@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 12 of 12 (DevOps & CI/CD)
-Plan: 02 of 04 complete
+Plan: 03 of 04 complete
 Status: In progress
-Last activity: 2026-01-21 — Completed 12-02-PLAN.md (Structured Logging & Request ID Tracing)
+Last activity: 2026-01-21 — Completed 12-03-PLAN.md (GitHub Actions CI/CD Pipeline)
 
-Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progress)
+Progress: [================] 86% (v3.0: Phases 9-11 complete, Phase 12 in progress)
 
 ## Milestones
 
@@ -34,9 +34,9 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17 (v2.0: 13, v3.0: 4)
+- Total plans completed: 18 (v2.0: 13, v3.0: 5)
 - Average duration: ~30 min
-- Total execution time: ~7.0 hours
+- Total execution time: ~7.5 hours
 
 **By Phase (v3.0):**
 
@@ -45,7 +45,7 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 | 9 | 3/3 | Complete |
 | 10 | 4/4 | Complete |
 | 11 | 4/4 | Complete |
-| 12 | 2/4 | In Progress |
+| 12 | 3/4 | In Progress |
 
 ## Accumulated Context
 
@@ -62,7 +62,7 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 3. ~~No Redis caching~~ FIXED (11-04: TenantConfigService Redis caching)
 
 **DevOps Gaps:**
-1. No CI/CD pipeline
+1. ~~No CI/CD pipeline~~ FIXED (12-03: GitHub Actions CI/CD)
 2. ~~Dockerfile runs as root~~ FIXED (12-01: Non-root user uid 1000)
 3. ~~No structured logging/tracing~~ FIXED (12-02: JSON logging with request ID)
 
@@ -96,6 +96,9 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 | D-12-02-01 | Use contextvars for request ID propagation | 2026-01-21 |
 | D-12-02-02 | Add JSON_LOGS env var toggle (default true) | 2026-01-21 |
 | D-12-02-03 | RequestIdMiddleware added last in chain (runs first) | 2026-01-21 |
+| D-12-03-01 | Use workflow_run trigger for deploy after CI success | 2026-01-21 |
+| D-12-03-02 | Use Workload Identity Federation (no service account keys) | 2026-01-21 |
+| D-12-03-03 | Separate test and docker-build jobs (parallel execution) | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -110,6 +113,8 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 - ~~Run 014_tenant_config.sql in Supabase SQL Editor~~ DONE
 - ~~Re-run migration: `python scripts/migrate_tenants_to_db.py --force`~~ DONE (4 tenants migrated)
 - Set REDIS_URL in production environment for caching
+- Configure GitHub secrets for CI/CD: GCP_PROJECT_ID, WIF_PROVIDER, WIF_SERVICE_ACCOUNT
+- Set up Workload Identity Federation in GCP (see .github/workflows/README.md)
 
 ### Blockers/Concerns
 
@@ -119,6 +124,6 @@ Progress: [===============] 79% (v3.0: Phases 9-11 complete, Phase 12 in progres
 
 ## Session Continuity
 
-Last session: 2026-01-21 15:23 UTC
-Stopped at: Completed 12-02-PLAN.md (Structured Logging & Request ID Tracing)
-Resume file: None - Ready for 12-03-PLAN.md
+Last session: 2026-01-21 15:31 UTC
+Stopped at: Completed 12-03-PLAN.md (GitHub Actions CI/CD Pipeline)
+Resume file: None - Ready for 12-04-PLAN.md
