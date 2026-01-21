@@ -5,12 +5,13 @@ Reusable mock infrastructure for external API dependencies:
 - BigQuery client mocks and data generators
 - SendGrid API mocks and response generators
 - Twilio/VAPI API mocks and response generators
-- (Future) LLM/OpenAI mocks
+- Google GenAI (Gemini) mocks for LLM testing
 
 Usage:
     from tests.fixtures.bigquery_fixtures import create_mock_bigquery_client, generate_quotes
     from tests.fixtures.sendgrid_fixtures import create_mock_sendgrid_service, generate_subusers
     from tests.fixtures.twilio_vapi_fixtures import create_mock_provisioner, generate_available_numbers
+    from tests.fixtures.genai_fixtures import create_mock_genai_client, MockGenAIClient
 """
 
 # BigQuery fixtures
@@ -59,6 +60,21 @@ from tests.fixtures.twilio_vapi_fixtures import (
     ADDRESSES_LIST,
 )
 
+# GenAI fixtures
+from tests.fixtures.genai_fixtures import (
+    MockGenAIResponse,
+    MockGenAIModel,
+    MockGenAIModels,
+    MockGenAIClient,
+    create_mock_genai_client,
+    create_travel_inquiry_response,
+    create_quote_ready_response,
+    create_clarification_response,
+    create_greeting_response,
+    TRAVEL_CONSULTANT_RESPONSES,
+    FALLBACK_RESPONSE,
+)
+
 __all__ = [
     # BigQuery mocks
     "MockBigQueryRow",
@@ -102,4 +118,18 @@ __all__ = [
     "AVAILABLE_NUMBERS_US",
     "TWILIO_NUMBERS_LIST",
     "ADDRESSES_LIST",
+    # GenAI mocks
+    "MockGenAIResponse",
+    "MockGenAIModel",
+    "MockGenAIModels",
+    "MockGenAIClient",
+    "create_mock_genai_client",
+    # GenAI response generators
+    "create_travel_inquiry_response",
+    "create_quote_ready_response",
+    "create_clarification_response",
+    "create_greeting_response",
+    # GenAI response templates
+    "TRAVEL_CONSULTANT_RESPONSES",
+    "FALLBACK_RESPONSE",
 ]
