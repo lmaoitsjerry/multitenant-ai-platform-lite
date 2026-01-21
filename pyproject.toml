@@ -15,6 +15,11 @@ filterwarnings = [
     "ignore::UserWarning",
 ]
 addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
 
 [tool.coverage.run]
 source = ["src", "main.py", "config"]
@@ -23,8 +28,12 @@ omit = [
     "*/__pycache__/*",
     "*/site-packages/*",
     "venv/*",
+    "htmlcov/*",
+    ".planning/*",
 ]
 branch = true
+parallel = true
+concurrency = ["thread", "greenlet"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -33,11 +42,18 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
+    "pass",
+    "\\.\\.\\.",
 ]
-# Target: 70% (aspirational). Current baseline: 15% (prevents major regression)
+# Coverage threshold:
+# - Current: 30% (baseline as of 2026-01-21)
+# - Target: 70% (aspirational)
 # Increase this threshold as coverage improves over time
-fail_under = 15
+fail_under = 25
 show_missing = true
+precision = 1
 
 [tool.coverage.html]
 directory = "htmlcov"
+title = "Multi-Tenant AI Platform Test Coverage"
+show_contexts = true
