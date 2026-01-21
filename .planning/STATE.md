@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 9 of 12 (Critical Security Fixes)
-Plan: 1 of 3 complete (Tenant Spoofing Prevention)
-Status: In progress
-Last activity: 2026-01-21 — Completed 09-01-PLAN.md (Tenant Spoofing Prevention)
+Plan: 3 of 3 complete (Auth Middleware Unit Tests)
+Status: Phase complete
+Last activity: 2026-01-21 — Completed 09-03-PLAN.md (Auth Middleware Unit Tests)
 
-Progress: [########░░] 82% (v3.0 Phase 9: 1/3 plans complete)
+Progress: [#########░] 90% (v3.0 Phase 9: 3/3 plans complete)
 
 ## Milestones
 
@@ -69,6 +69,7 @@ Progress: [########░░] 82% (v3.0 Phase 9: 1/3 plans complete)
 |----|----------|------|
 | D-09-01-01 | Validate X-Client-ID only when explicitly provided | 2026-01-21 |
 | D-09-02-01 | Warn on missing token instead of throwing error | 2026-01-21 |
+| D-09-03-01 | Use pytest with pytest-asyncio for async middleware tests | 2026-01-21 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -86,10 +87,10 @@ None yet.
 
 - Need Redis instance for Cloud Run (Memorystore or external)
 - Migration strategy for 60+ existing tenant YAML files
-- Test coverage currently at ~0% (target 70%)
+- Test coverage improving: 19 auth middleware tests added (09-03)
 
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 09-01-PLAN.md (Tenant Spoofing Prevention)
-Resume file: None - continue with 09-03-PLAN.md
+Stopped at: Completed 09-03-PLAN.md (Auth Middleware Unit Tests)
+Resume file: None - Phase 9 complete, proceed to Phase 10
