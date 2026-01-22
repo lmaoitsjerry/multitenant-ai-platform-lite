@@ -47,9 +47,10 @@ exclude_lines = [
 ]
 # Coverage threshold:
 # - v3.0: 45% (achieved 2026-01-21, up from 27%)
-# - v4.0 target: 70% (requires extensive external API mocking)
+# - v4.0: 57% (achieved 2026-01-22, comprehensive mocking for agents, RAG, FAISS)
+# - Target: 70% (continued improvement requires additional route coverage)
 # Prevents regression below current coverage level
-fail_under = 45
+fail_under = 57
 show_missing = true
 precision = 1
 
