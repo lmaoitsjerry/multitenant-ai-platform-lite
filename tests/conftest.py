@@ -426,14 +426,35 @@ def mock_analytics_config():
 
 @pytest.fixture
 def test_client():
-    """Create a FastAPI TestClient.
+    """Create a FastAPI TestClient with FAISS service mocked.
+
+    This fixture mocks the FAISS service initialization to prevent
+    GCS network calls that would slow down or hang tests.
 
     Returns:
         TestClient: A test client for the application.
     """
-    from fastapi.testclient import TestClient
-    from main import app
-    return TestClient(app)
+    # Create a mock FAISS service
+    mock_faiss = MagicMock()
+    mock_faiss.initialize.return_value = False
+    mock_faiss.get_status.return_value = {
+        "initialized": False,
+        "error": "Mocked for tests",
+        "vector_count": 0,
+        "document_count": 0
+    }
+    mock_faiss.search.return_value = []
+    mock_faiss._initialized = False
+
+    # Mock the singleton and GCS client at multiple levels
+    with patch('src.services.faiss_helpdesk_service.FAISSHelpdeskService._instance', None):
+        with patch('src.services.faiss_helpdesk_service.FAISSHelpdeskService.__new__', return_value=mock_faiss):
+            with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss):
+                # Also mock GCS storage to prevent network calls
+                with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
+                    from fastapi.testclient import TestClient
+                    from main import app
+                    yield TestClient(app)
 
 
 @pytest.fixture
@@ -557,6 +578,29 @@ def reset_caches():
             TenantConfigService._instance = None
     except ImportError:
         pass
+
+
+# ==================== Fast Test Client Fixture ====================
+
+@pytest.fixture(scope="session")
+def fast_test_client():
+    """Create a FastAPI TestClient with mocked external services.
+
+    This fixture mocks FAISS and GCS services to prevent slow initialization
+    during tests. Use this for tests that don't need real external services.
+    """
+    # Mock FAISS service before app import
+    with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service') as mock_faiss:
+        mock_service = MagicMock()
+        mock_service.initialize.return_value = False
+        mock_service.get_status.return_value = {"initialized": False, "error": "Mocked for tests"}
+        mock_faiss.return_value = mock_service
+
+        # Mock GCS storage
+        with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
+            from fastapi.testclient import TestClient
+            from main import app
+            yield TestClient(app)
 
 
 # ==================== Pytest Configuration ====================
