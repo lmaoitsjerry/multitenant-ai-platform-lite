@@ -36,11 +36,13 @@ class TestConfiguration(unittest.TestCase):
     def test_database_abstraction(self):
         """Test that database tables are correctly abstracted"""
         db = DatabaseTables(self.config)
-        
-        expected_rates = 'your-gcp-project-123456.example_analytics.hotel_rates'
+
+        # hotel_rates uses shared_pricing_dataset (africastay_analytics)
+        expected_rates = '`your-gcp-project-123456.africastay_analytics.hotel_rates`'
         self.assertEqual(db.hotel_rates, expected_rates)
-        
-        expected_consultants = 'your-gcp-project-123456.example_analytics.consultants'
+
+        # consultants uses tenant-specific dataset (example_analytics)
+        expected_consultants = '`your-gcp-project-123456.example_analytics.consultants`'
         self.assertEqual(db.consultants, expected_consultants)
 
     def test_missing_client(self):

@@ -1221,7 +1221,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 1000}
@@ -1242,7 +1242,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
@@ -1261,7 +1261,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
@@ -1284,7 +1284,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {
                             "last_indexed": "2025-01-01T00:00:00",
@@ -1307,7 +1307,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test-bucket", "total_size_bytes": 0}
@@ -1327,7 +1327,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
@@ -1351,7 +1351,7 @@ class TestStatsEndpoint:
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
                 with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.api.admin_knowledge_routes.get_faiss_helpdesk_service") as mock_faiss:
+                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
                         mock_load.return_value = sample_documents
                         mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
                         mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
