@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 15 of 15 (Coverage Finalization)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-01-21 — Phase 14 complete (179 tests, 54.5% coverage)
+Plan: 1 of 3 (RAG and FAISS Module Coverage)
+Status: Complete
+Last activity: 2026-01-22 — Completed 15-01 (63 new tests, GCS/FAISS fixtures)
 
-Progress: [=============-------] 67% (v4.0: Phases 13-14 complete, Phase 15 remaining)
+Progress: [==============------] 70% (v4.0: Phases 13-14 complete, 15-01 complete)
 
 ## Milestones
 
@@ -149,6 +149,8 @@ Progress: [=============-------] 67% (v4.0: Phases 13-14 complete, Phase 15 rema
 | D-14-01-02 | Create MockConversationClient for sequential response testing | 2026-01-21 |
 | D-14-01-03 | Patch FAISS service at source module for inline imports | 2026-01-21 |
 | D-14-02-01 | Mock FAISS by pre-setting _index and _chunks instead of patching import | 2026-01-21 |
+| D-15-01-01 | Pre-inject mocks into sys.modules before Vertex AI import | 2026-01-22 |
+| D-15-01-02 | Support dict, list, and LangChain docstore formats in tests | 2026-01-22 |
 
 ### Decisions (v2.0 - Recent)
 
@@ -206,9 +208,11 @@ Progress: [=============-------] 67% (v4.0: Phases 13-14 complete, Phase 15 rema
 | test_twilio_vapi_provisioner.py | 58 | Passing (93.7% coverage) |
 | test_helpdesk_agent.py | 58 | Passing (99.4% coverage) |
 | test_inbound_agent.py | 63 | Passing (97% coverage) |
-| **Total** | **1385** | **Passing** |
+| test_rag_tool.py | 30 | Passing (new) |
+| test_faiss_service.py | 33 | Passing (new) |
+| **Total** | **1448** | **Passing** |
 
-Current coverage: ~50% (measured with pytest-cov)
+Current coverage: ~55% (measured with pytest-cov)
 Target coverage: 70% (aspirational - requires continued mocking work)
 
 ### Blockers/Concerns
@@ -229,6 +233,6 @@ Target coverage: 70% (aspirational - requires continued mocking work)
 
 ## Session Continuity
 
-Last session: 2026-01-21
-Stopped at: Completed 14-02-PLAN.md
-Resume file: None — ready for 14-03-PLAN.md
+Last session: 2026-01-22
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None — ready for 15-02-PLAN.md
