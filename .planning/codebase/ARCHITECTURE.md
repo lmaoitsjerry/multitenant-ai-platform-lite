@@ -1,212 +1,185 @@
 # Architecture
 
-**Analysis Date:** 2026-01-23
+**Analysis Date:** 2025-01-23
 
 ## Pattern Overview
 
-**Overall:** Multi-Tenant Monolith with Service Layer
+**Overall:** Multi-Tenant Monolith with Layered Service Architecture
 
 **Key Characteristics:**
-- Single FastAPI application serving multiple tenants via `X-Client-ID` header
-- Layered architecture: Routes -> Services/Agents -> Tools -> External Services
-- Row-level tenant isolation in shared Supabase/PostgreSQL database
-- Shared BigQuery pricing data, tenant-specific analytics datasets
-- Configuration-driven tenant customization via YAML files (migrating to database)
+- Single FastAPI application serving multiple travel agency clients (tenants)
+- Tenant isolation via `X-Client-ID` header and `tenant_id` column in all database tables
+- Agent-based AI orchestration for quote generation and email processing
+- YAML-based per-tenant configuration with database fallback support
+- Shared infrastructure (Supabase, BigQuery) with logical data separation
 
 ## Layers
 
-**API Layer (Routes):**
-- Purpose: HTTP endpoints, request validation, response formatting
+**API Layer:**
+- Purpose: HTTP endpoints, request validation, authentication, and routing
 - Location: `src/api/`
-- Contains: FastAPI routers, Pydantic models, endpoint handlers
-- Depends on: Services, Agents, Tools
-- Used by: Frontend clients, webhooks, external integrations
+- Contains: FastAPI routers organized by domain (quotes, CRM, invoices, admin, etc.)
+- Depends on: Services, Agents, Middleware
+- Used by: Frontend applications (React), webhooks (SendGrid), external clients
+
+**Middleware Layer:**
+- Purpose: Cross-cutting concerns - auth, rate limiting, timing, security headers
+- Location: `src/middleware/`
+- Contains: Request/response interceptors, JWT validation, PII auditing
+- Depends on: Config, Auth Service
+- Used by: All API requests
 
 **Agent Layer:**
-- Purpose: Orchestrate complex business workflows (quote generation, helpdesk, email parsing)
+- Purpose: AI-powered business logic orchestration (LLM interactions)
 - Location: `src/agents/`
-- Contains: QuoteAgent, HelpdeskAgent, InboundAgent, UniversalEmailParser
+- Contains: QuoteAgent, HelpdeskAgent, InboundAgent, EmailParsers
 - Depends on: Tools, Services, Config
-- Used by: API routes, webhooks
+- Used by: API routes, Webhooks
 
 **Service Layer:**
-- Purpose: Domain-specific business logic (CRM, Auth, RAG, Reranking)
+- Purpose: Business logic, data orchestration, caching
 - Location: `src/services/`
-- Contains: CRMService, AuthService, FAISSHelpdeskService, PerformanceService
+- Contains: CRMService, ProvisioningService, FAISSHelpdeskService, TenantConfigService
 - Depends on: Tools, Config
 - Used by: Agents, API routes
 
 **Tools Layer:**
-- Purpose: External service integrations (database clients, APIs)
+- Purpose: External system integrations (databases, APIs)
 - Location: `src/tools/`
 - Contains: SupabaseTool, BigQueryTool, RAGTool, TwilioVapiProvisioner
 - Depends on: Config
-- Used by: Agents, Services
-
-**Middleware Layer:**
-- Purpose: Cross-cutting concerns (auth, rate limiting, logging, security)
-- Location: `src/middleware/`
-- Contains: AuthMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware, PIIAuditMiddleware
-- Depends on: AuthService, Config
-- Used by: FastAPI app (applied to all requests)
-
-**Config Layer:**
-- Purpose: Tenant configuration loading, database table abstraction
-- Location: `config/`
-- Contains: ClientConfig, DatabaseTables, TenantConfigService
-- Depends on: YAML files, Supabase tenants table
-- Used by: All layers
-
-**Webhooks Layer:**
-- Purpose: Handle inbound events from external services
-- Location: `src/webhooks/`
-- Contains: Email webhook (SendGrid inbound parse)
-- Depends on: Agents, Config
-- Used by: External services (SendGrid)
+- Used by: Services, Agents
 
 **Utils Layer:**
-- Purpose: Shared utilities (logging, PDF generation, email sending, error handling)
+- Purpose: Shared utilities (PDF generation, email sending, logging)
 - Location: `src/utils/`
 - Contains: PDFGenerator, EmailSender, StructuredLogger, ErrorHandler
 - Depends on: Config
 - Used by: All layers
 
+**Config Layer:**
+- Purpose: Tenant configuration loading, validation, caching
+- Location: `config/`
+- Contains: ClientConfig class, DatabaseTables abstraction, JSON schema
+- Depends on: Environment variables, YAML files, Supabase (optional)
+- Used by: All layers
+
+**Webhooks Layer:**
+- Purpose: Inbound event processing (emails, callbacks)
+- Location: `src/webhooks/`
+- Contains: Email webhook for SendGrid Inbound Parse
+- Depends on: Agents, Config
+- Used by: External services (SendGrid)
+
 ## Data Flow
 
 **Quote Generation Flow:**
 
-1. API receives POST `/api/v1/quotes/generate` with customer data
-2. `QuoteAgent.generate_quote()` orchestrates the workflow
-3. `BigQueryTool.find_matching_hotels()` queries shared hotel_rates table
-4. Agent calculates pricing options based on travelers
-5. `PDFGenerator.generate_quote_pdf()` creates branded PDF
-6. `EmailSender.send_quote_email()` sends via tenant's SendGrid subuser
-7. `SupabaseTool.create_quote()` saves to quotes table with tenant_id
-8. `CRMService.get_or_create_client()` adds/updates CRM record
+1. Request arrives at `POST /api/v1/quotes/generate` with `X-Client-ID` header
+2. `get_client_config()` loads tenant configuration from YAML/database
+3. `QuoteAgent.generate_quote()` orchestrates the flow:
+   - Normalizes customer data
+   - Queries BigQuery `hotel_rates` table for matching hotels
+   - Calculates pricing via `BigQueryTool.calculate_quote_price()`
+   - Generates PDF via `PDFGenerator`
+   - Sends email via `EmailSender` (tenant's SendGrid subuser)
+   - Saves quote to Supabase `quotes` table with `tenant_id`
+   - Creates CRM client record via `CRMService`
+4. Response returned with quote details
 
-**Email Inbound Flow (Auto-Quote):**
+**Inbound Email Flow:**
 
-1. SendGrid inbound parse webhook hits `/webhooks/sendgrid-inbound`
-2. `email_webhook.resolve_tenant()` matches TO address to tenant
-3. `UniversalEmailParser.parse()` extracts travel details via LLM
-4. `QuoteAgent.generate_quote(initial_status='draft')` creates quote
-5. Quote saved as draft for consultant review
-
-**Authentication Flow:**
-
-1. User logs in via POST `/api/v1/auth/login`
-2. `AuthService.authenticate()` validates credentials against Supabase Auth
-3. JWT token returned with user_id, tenant_id, role claims
-4. Subsequent requests include `Authorization: Bearer <token>`
-5. `AuthMiddleware` validates token, sets `request.state.user`
-6. Protected routes access user via `get_current_user(request)`
+1. SendGrid Inbound Parse posts to `/webhooks/email/inbound`
+2. Email webhook extracts tenant from TO address (cache lookup -> database -> direct)
+3. Background task `process_inbound_email()` runs:
+   - `LLMEmailParser` extracts travel requirements via OpenAI
+   - Falls back to `UniversalEmailParser` (rule-based) on failure
+   - If travel inquiry detected, creates draft quote via `QuoteAgent`
+   - Logs to BigQuery for non-travel emails
 
 **State Management:**
-- No server-side session state (stateless JWT auth)
-- Tenant context passed via `X-Client-ID` header or JWT claims
-- Config cached per-tenant in memory (`_config_cache`)
-- Service instances cached per-tenant (`_quote_agents`, `_crm_services`)
+- Session state: Not used (stateless API)
+- Tenant config: LRU cached in `config.loader._config_cache`, Redis cache in `TenantConfigService`
+- Database connections: Cached per tenant in `_supabase_client_cache`
+- FAISS index: Singleton with file cache in `tempfile` directory
 
 ## Key Abstractions
 
 **ClientConfig:**
-- Purpose: Encapsulates all tenant-specific configuration
+- Purpose: Typed access to tenant configuration (destinations, credentials, branding)
 - Examples: `config/loader.py`
-- Pattern: Singleton per tenant with caching
+- Pattern: Property-based access with YAML/database dual-source
 
 **DatabaseTables:**
-- Purpose: Abstracts BigQuery table names (shared vs tenant-specific datasets)
+- Purpose: Centralized BigQuery table name management with tenant isolation
 - Examples: `config/database.py`
-- Pattern: Property-based access to fully-qualified table names
+- Pattern: Property methods returning fully-qualified table names
 
 **SupabaseTool:**
-- Purpose: Tenant-isolated database operations
+- Purpose: Tenant-scoped Supabase operations with automatic `tenant_id` filtering
 - Examples: `src/tools/supabase_tool.py`
-- Pattern: All queries filter by `tenant_id` column
+- Pattern: All queries include `.eq('tenant_id', self.tenant_id)`
 
-**Pipeline Stages:**
-- Purpose: CRM workflow states (QUOTED -> NEGOTIATING -> BOOKED -> PAID -> TRAVELLED)
+**PipelineStage:**
+- Purpose: CRM pipeline state machine (QUOTED -> NEGOTIATING -> BOOKED -> PAID -> TRAVELLED/LOST)
 - Examples: `src/services/crm_service.py`
-- Pattern: Enum-based state machine
+- Pattern: Enum with stage transitions tracked via activity logging
 
 ## Entry Points
 
 **Main Application:**
 - Location: `main.py`
-- Triggers: `uvicorn main:app` or `python main.py`
-- Responsibilities: FastAPI app creation, middleware setup, router inclusion, lifespan management
+- Triggers: `uvicorn.run()` or process manager
+- Responsibilities: FastAPI app setup, middleware registration, router inclusion, lifespan events
 
-**API Routers:**
-- Location: `src/api/routes.py` -> `include_routers(app)`
+**API Routes:**
+- Location: `src/api/routes.py` (includes all domain routers)
 - Triggers: HTTP requests
-- Responsibilities: Route registration for all API endpoints
+- Responsibilities: Quote generation, CRM operations, invoicing, admin functions
 
-**Webhooks:**
+**Email Webhook:**
 - Location: `src/webhooks/email_webhook.py`
-- Triggers: POST from SendGrid inbound parse
-- Responsibilities: Email processing, tenant resolution, auto-quote generation
+- Triggers: SendGrid Inbound Parse POST
+- Responsibilities: Tenant resolution, email parsing, draft quote creation
 
-**Scripts:**
-- Location: `scripts/`
-- Triggers: Manual CLI execution
-- Responsibilities: Tenant provisioning, data migration, user creation
+**Background Tasks:**
+- Location: Various (email processing, call scheduling)
+- Triggers: FastAPI `BackgroundTasks`
+- Responsibilities: Async processing after request completion
 
 ## Error Handling
 
-**Strategy:** Centralized error handling with structured logging
+**Strategy:** Centralized error handler with structured logging
 
 **Patterns:**
-- `log_and_raise()` utility for consistent error logging and HTTP exceptions
-- Global exception handler in `main.py` catches unhandled errors
-- Per-route try/except for specific error types (HTTPException raised early)
-- Structured JSON logging with request_id for tracing
-
-**Example:**
-```python
-from src.utils.error_handler import log_and_raise
-
-try:
-    result = await some_operation()
-except HTTPException:
-    raise  # Re-raise HTTP exceptions as-is
-except Exception as e:
-    log_and_raise(500, "performing operation", e, logger)
-```
+- `log_and_raise()` in `src/utils/error_handler.py` for consistent HTTP error responses
+- Global exception handler in `main.py` catches unhandled exceptions
+- Supabase operations wrapped in try/except with graceful fallbacks
+- BigQuery queries have 8-second timeout to stay under frontend limits
 
 ## Cross-Cutting Concerns
 
 **Logging:**
-- Structured JSON logging via `src/utils/structured_logger.py`
-- Request ID middleware adds unique ID to all logs
-- Log level configurable via `LOG_LEVEL` env var
+- `src/utils/structured_logger.py` for JSON-formatted logs
+- Request ID middleware for request tracing
+- `[TENANT_ID]` prefix pattern for tenant-scoped logs
 
 **Validation:**
 - Pydantic models for request/response validation
-- JSON Schema validation for client.yaml configs
-- Type hints throughout codebase
+- JSON schema validation for tenant config (`config/schema.json`)
+- Input sanitization in email parsers
 
 **Authentication:**
-- JWT-based auth via Supabase Auth
-- `AuthMiddleware` validates tokens on protected routes
-- Role-based access control (admin, consultant, user)
-- `X-Admin-Token` header for internal admin API
-
-**Multi-Tenancy:**
-- Tenant ID from `X-Client-ID` header or JWT claims
-- Row-level filtering via `tenant_id` column in all tables
-- Shared pricing data in BigQuery, tenant-specific CRM/quotes in Supabase
-- Per-tenant configuration via YAML or database
+- JWT validation via `AuthMiddleware` (Supabase auth)
+- `X-Client-ID` header for tenant identification
+- Admin routes use `X-Admin-Token` header
+- Public routes defined in `PUBLIC_PATHS` and `PUBLIC_PREFIXES`
 
 **Rate Limiting:**
-- `slowapi` for auth endpoints (brute force protection)
-- Custom `RateLimitMiddleware` for general API rate limiting
-- Per-tenant quotas supported
-
-**Security:**
-- CORS middleware with configurable origins
-- Security headers (CSP, X-Frame-Options, HSTS)
-- PII audit logging for compliance (GDPR/POPIA)
+- `RateLimitMiddleware` with SlowAPI
+- Auth endpoints have stricter limits (brute-force protection)
+- Per-endpoint rate limits configurable
 
 ---
 
-*Architecture analysis: 2026-01-23*
+*Architecture analysis: 2025-01-23*

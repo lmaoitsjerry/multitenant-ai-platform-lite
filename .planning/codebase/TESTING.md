@@ -5,8 +5,8 @@
 ## Test Framework
 
 **Runner:**
-- pytest 8.3.0
-- Config: `pyproject.toml` (tool.pytest.ini_options section)
+- pytest (version 8.3.0)
+- Config: `pyproject.toml` section `[tool.pytest.ini_options]`
 
 **Assertion Library:**
 - pytest built-in assertions
@@ -15,42 +15,43 @@
 **Run Commands:**
 ```bash
 pytest                           # Run all tests
-pytest -v                        # Verbose output
-pytest --tb=short               # Short traceback (default)
-pytest -m "not slow"            # Skip slow/integration tests
+pytest tests/test_services.py    # Run specific file
+pytest -v --tb=short             # Verbose with short traceback (default)
+pytest -m "not slow"             # Skip slow tests
+pytest -m "unit"                 # Run only unit tests
 pytest --cov=src --cov-report=html  # With coverage
-pytest tests/test_auth_middleware.py -v  # Single file
 ```
 
 ## Test File Organization
 
 **Location:**
-- All tests in `tests/` directory (co-located at project root)
-- Fixtures in `tests/fixtures/` subdirectory
+- Separate `tests/` directory at project root
+- Test fixtures in `tests/fixtures/`
 
 **Naming:**
-- Test files: `test_{module_name}.py`
-- Test classes: `Test{Feature}` (e.g., `TestAuthService`)
-- Test functions: `test_{behavior}_description` (e.g., `test_verify_jwt_with_valid_token`)
+- Test files: `test_{module}.py`
+- Test classes: `Test{ClassName}` or `Test{Feature}Endpoint`
+- Test functions: `test_{behavior_description}`
 
 **Structure:**
 ```
 tests/
-    conftest.py                      # Shared fixtures
-    utils.py                         # Test utilities
-    fixtures/
-        __init__.py                  # Re-exports all fixtures
-        bigquery_fixtures.py         # BigQuery mocks
-        sendgrid_fixtures.py         # SendGrid mocks
-        openai_fixtures.py           # OpenAI mocks
-        genai_fixtures.py            # Google GenAI mocks
-        twilio_vapi_fixtures.py      # Twilio/VAPI mocks
-        gcs_fixtures.py              # GCS/FAISS mocks
-    test_api_routes.py
-    test_auth_middleware.py
-    test_services.py
-    test_integration_*.py            # Integration tests
-    ...
+  conftest.py                    # Shared fixtures
+  utils.py                       # Test utilities
+  fixtures/
+    __init__.py
+    bigquery_fixtures.py         # BigQuery mock infrastructure
+    sendgrid_fixtures.py         # SendGrid mock data
+    openai_fixtures.py           # OpenAI mock responses
+    genai_fixtures.py            # Google AI fixtures
+    gcs_fixtures.py              # GCS storage fixtures
+    twilio_vapi_fixtures.py      # Twilio/VAPI fixtures
+  test_api_routes.py             # Core API route tests
+  test_services.py               # Service layer tests
+  test_crm_service.py            # CRM service unit tests
+  test_supabase_tool.py          # Supabase operations tests
+  test_integration_*.py          # Integration test suites
+  ...
 ```
 
 ## Test Structure
@@ -58,63 +59,53 @@ tests/
 **Suite Organization:**
 ```python
 """
-Unit Tests for Auth Middleware
-
-Tests for the AuthMiddleware class, specifically:
-1. X-Client-ID header validation against JWT user's tenant
-2. Tenant spoofing rejection (header != user's tenant)
-3. Normal flow when header matches or is absent
-4. Public path bypass
-5. Missing/invalid auth handling
-
-These tests verify SEC-02 security fix for tenant isolation.
+Module docstring explaining test scope
 """
 
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
 
-class TestPublicPathDetection:
-    """Test the is_public_path function"""
+# ==================== Fixtures ====================
 
-    def test_health_endpoint_is_public(self):
-        """Test that /health endpoint is public"""
-        from src.middleware.auth_middleware import is_public_path
-        assert is_public_path('/health') == True
+@pytest.fixture
+def mock_config():
+    """Create a mock ClientConfig."""
+    config = MagicMock()
+    config.client_id = "test_tenant"
+    config.supabase_url = "https://test.supabase.co"
+    config.supabase_service_key = "test-service-key"
+    config.currency = "USD"
+    return config
 
-    def test_protected_routes_are_not_public(self):
-        """Test that protected API routes are not public"""
-        from src.middleware.auth_middleware import is_public_path
-        assert is_public_path('/api/v1/quotes') == False
 
+# ==================== Test Classes ====================
 
-class TestTenantSpoofingRejection:
-    """
-    Test that tenant spoofing attempts are rejected.
-    Core SEC-02 security tests.
-    """
+class TestFeatureName:
+    """Test description."""
 
-    @pytest.mark.asyncio
-    async def test_mismatched_tenant_header_returns_403(self):
-        """
-        Test: User from tenant_a sends X-Client-ID: tenant_b
-        Expected: 403 Forbidden with "tenant mismatch" message
-        """
-        # Test implementation...
+    def test_behavior_description(self, mock_config):
+        """Should do X when Y happens."""
+        # Arrange
+
+        # Act
+
+        # Assert
 ```
 
 **Patterns:**
-- Group related tests in classes with descriptive names
-- Use docstrings to explain test purpose and expected behavior
-- Document security-related tests with ticket references (e.g., SEC-02)
+- Group related tests in classes
+- Use descriptive class names: `TestPipelineStage`, `TestQuoteListEndpoint`
+- Use section comments: `# ==================== Section Name ====================`
+- Docstrings explain test purpose
 
 ## Mocking
 
-**Framework:** `unittest.mock`
+**Framework:** `unittest.mock` (MagicMock, AsyncMock, patch)
 
 **Patterns:**
 
-**1. Chainable mock for Supabase queries (conftest.py):**
+1. **Chainable Mock for Supabase:**
 ```python
 def create_chainable_mock():
     """Create a mock that supports method chaining for Supabase queries."""
@@ -129,132 +120,118 @@ def create_chainable_mock():
     mock.gte.return_value = mock
     mock.lt.return_value = mock
     mock.lte.return_value = mock
+    mock.is_.return_value = mock
+    mock.in_.return_value = mock
     mock.order.return_value = mock
     mock.limit.return_value = mock
+    mock.range.return_value = mock
     mock.single.return_value = mock
     mock.execute.return_value = MagicMock(data=[])
     return mock
 ```
 
-**2. Environment variable patching:**
+2. **Service Initialization Mock:**
 ```python
-with patch.dict(os.environ, {'SUPABASE_JWT_SECRET': 'test-secret'}):
+@pytest.fixture
+def crm_service_with_mock_db(mock_config, mock_supabase):
+    """Create a CRMService with mocked Supabase."""
+    from src.services.crm_service import CRMService
+
+    with patch.object(CRMService, '__init__', return_value=None):
+        service = CRMService.__new__(CRMService)
+        service.config = mock_config
+        service.supabase = mock_supabase
+        return service
+```
+
+3. **Environment Variables:**
+```python
+@pytest.fixture
+def mock_env_vars():
+    """Set up common environment variables for testing."""
+    env_vars = {
+        'SUPABASE_URL': 'https://test.supabase.co',
+        'SUPABASE_SERVICE_KEY': 'test-service-key',
+        'OPENAI_API_KEY': 'test-openai-key',
+    }
+    with patch.dict(os.environ, env_vars):
+        yield env_vars
+```
+
+4. **External Service Mock:**
+```python
+with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+    mock_get_client.return_value = mock_supabase_client
     # Test code here
 ```
 
-**3. Module patching:**
-```python
-with patch('src.middleware.auth_middleware.get_config') as mock_get_config, \
-     patch('src.middleware.auth_middleware.AuthService') as MockAuthService:
-    mock_get_config.return_value = MockConfig('tenant_a')
-    mock_auth_instance = MagicMock()
-    mock_auth_instance.verify_jwt.return_value = (True, {'sub': 'auth_user_123'})
-    MockAuthService.return_value = mock_auth_instance
-```
-
-**4. AsyncMock for async functions:**
-```python
-mock_auth_instance.get_user_by_auth_id = AsyncMock(return_value=user_data)
-```
-
 **What to Mock:**
-- External services (Supabase, BigQuery, SendGrid, OpenAI)
-- Environment variables
-- File system operations
-- Network calls
+- External services: Supabase, BigQuery, SendGrid, OpenAI
+- Network calls: HTTP clients (httpx)
+- File system operations (when testing service logic)
+- Time-dependent operations
+- Singleton instances (FAISS service)
 
 **What NOT to Mock:**
-- Business logic under test
+- Business logic within the service under test
 - Pydantic model validation
-- FastAPI routing
+- Core Python functionality
+- The test subject itself
 
 ## Fixtures and Factories
 
-**Pytest Fixtures (conftest.py):**
-```python
-@pytest.fixture
-def mock_config():
-    """Create a mock ClientConfig for testing."""
-    config = MagicMock()
-    config.client_id = "test_tenant"
-    config.supabase_url = "https://test.supabase.co"
-    config.supabase_service_key = "test-service-key"
-    config.currency = "USD"
-    config.company_name = "Test Company"
-    return config
-
-@pytest.fixture
-def mock_user():
-    """Create a mock authenticated user."""
-    return {
-        'id': 'user_123',
-        'auth_user_id': 'auth_123',
-        'email': 'test@example.com',
-        'role': 'admin',
-        'tenant_id': 'test_tenant',
-        'is_active': True
-    }
-
-@pytest.fixture
-def authenticated_headers():
-    """Return headers for authenticated requests."""
-    return {
-        'Authorization': 'Bearer test-jwt-token',
-        'X-Client-ID': 'test_tenant',
-        'Content-Type': 'application/json'
-    }
-```
-
-**MockFactory Pattern (tests/utils.py):**
+**Test Data - MockFactory** (`tests/utils.py`):
 ```python
 class MockFactory:
-    """Factory for creating various mock objects."""
-
     @staticmethod
-    def create_supabase_response(data=None, error=None):
-        response = MagicMock()
-        response.data = data if data is not None else []
-        response.error = error
-        return response
-
-    @staticmethod
-    def create_config(client_id='test_tenant', **kwargs):
+    def create_config(client_id='test_tenant', currency='USD', **kwargs):
         config = MagicMock()
         config.client_id = client_id
+        config.currency = currency
         # ... set all attributes
         return config
+
+    @staticmethod
+    def create_user(user_id='user_123', role='admin', tenant_id='test_tenant'):
+        return {
+            'id': user_id,
+            'email': 'test@example.com',
+            'role': role,
+            'tenant_id': tenant_id,
+            'is_active': True
+        }
+
+    @staticmethod
+    def create_chainable_mock():
+        # Returns Supabase-style chainable mock
 ```
 
-**Data Generators (fixtures/bigquery_fixtures.py):**
+**Data Generators** (`tests/fixtures/bigquery_fixtures.py`):
 ```python
-def generate_quotes(n: int = 3, statuses: List[str] = None) -> List[Dict]:
+def generate_quotes(n=3, statuses=None, tenant_id="test_tenant"):
     """Generate realistic quote records."""
-    if statuses is None:
-        statuses = ["accepted", "sent", "draft"]
-    quotes = []
-    for i in range(n):
-        quotes.append({
-            "quote_id": f"QT-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}",
-            "tenant_id": "test_tenant",
-            "customer_name": f"Customer {i}",
-            "status": statuses[i % len(statuses)],
-            # ... more fields
-        })
-    return quotes
+    # Returns list of quote dicts
+
+def generate_invoices(n=3, statuses=None, tenant_id="test_tenant"):
+    """Generate realistic invoice records with aging data."""
+
+def generate_clients(n=5, stages=None, tenant_id="test_tenant"):
+    """Generate CRM client records."""
+
+def generate_call_records(n=5, outcomes=None, tenant_id="test_tenant"):
+    """Generate call record data."""
 ```
 
 **Location:**
 - Shared fixtures: `tests/conftest.py`
-- Utility functions: `tests/utils.py`
-- Domain-specific fixtures: `tests/fixtures/{domain}_fixtures.py`
+- Domain fixtures: `tests/fixtures/bigquery_fixtures.py`, etc.
+- Test utilities: `tests/utils.py`
 
 ## Coverage
 
-**Requirements:**
-- Current threshold: 57% (enforced in pyproject.toml)
-- Target: 70%
+**Requirements:** 57% minimum (enforced in CI)
 
-**Configuration (pyproject.toml):**
+**Configuration** (`pyproject.toml`):
 ```toml
 [tool.coverage.run]
 source = ["src", "main.py", "config"]
@@ -271,6 +248,7 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
+    "pass",
 ]
 ```
 
@@ -283,108 +261,146 @@ pytest --cov=src --cov-report=html
 ## Test Types
 
 **Unit Tests:**
-- Scope: Single function or method
-- Naming: `test_{function}_{scenario}`
-- Mock all external dependencies
-- Located in: `tests/test_{module}.py`
+- Scope: Single class/function isolation
+- Dependencies: All mocked
+- Location: `tests/test_{service}.py`
+- Marker: `@pytest.mark.unit`
+- Example: `test_crm_service.py`, `test_services.py`
 
 **Integration Tests:**
 - Scope: Multiple components working together
-- Naming: `test_integration_{feature}.py`
-- Marked with `@pytest.mark.integration`
-- May use real database connections (mocked in CI)
+- Dependencies: External services mocked, internal components real
+- Location: `tests/test_integration_*.py`
+- Marker: `@pytest.mark.integration`, `@pytest.mark.slow`
+- Example: `test_integration_email_pipeline.py`, `test_integration_tenant_isolation.py`
 
-**Test Markers:**
-```python
-@pytest.mark.slow        # Skip with -m "not slow"
-@pytest.mark.integration # Integration tests
-@pytest.mark.unit        # Unit tests
-@pytest.mark.asyncio     # Async tests
-```
+**Route Tests:**
+- Scope: HTTP endpoint behavior
+- Tool: `FastAPI TestClient`
+- Focus: Auth required, validation, response format
+- Example: `test_api_routes.py`, `test_core_routes.py`
+
+**E2E Tests:**
+- Framework: Not configured (no Playwright/Selenium)
+- Manual testing via frontend
 
 ## Common Patterns
 
 **Async Testing:**
 ```python
-@pytest.mark.asyncio
-async def test_async_function():
-    """Test async function with AsyncMock."""
-    mock_service = MagicMock()
-    mock_service.get_user = AsyncMock(return_value={'id': '123'})
+@pytest.fixture
+def event_loop():
+    """Create an event loop for async tests."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
-    result = await mock_service.get_user('123')
-    assert result['id'] == '123'
+# pytest-asyncio handles most async tests automatically via:
+# asyncio_mode = "auto" in pyproject.toml
 ```
 
 **Error Testing:**
 ```python
-def test_invalid_token_returns_401(self):
-    """verify_jwt should return False for invalid token."""
+def test_verify_jwt_with_expired_token(self):
+    """verify_jwt should return False for expired token."""
     from src.services.auth_service import AuthService
 
-    with patch.dict(os.environ, {'SUPABASE_JWT_SECRET': 'correct-secret'}):
-        service = AuthService(url='https://test.supabase.co', key='key')
-        token = jwt.encode({'sub': 'user123'}, 'wrong-secret', algorithm='HS256')
+    # Create expired token
+    exp = datetime.utcnow() - timedelta(hours=1)
+    token = jwt.encode({'sub': 'user123', 'exp': exp}, secret, algorithm='HS256')
 
-        valid, result = service.verify_jwt(token)
+    valid, result = service.verify_jwt(token)
 
-        assert valid is False
-        assert 'error' in result
+    assert valid is False
+    assert 'error' in result
 ```
 
-**HTTP Response Testing:**
+**Authentication Testing:**
 ```python
-def test_health_returns_healthy(self):
-    """GET /health should return healthy status."""
-    client = TestClient(app)
-    response = client.get("/health")
+class TestProtectedRoutes:
+    def test_quotes_requires_auth(self, test_client):
+        """GET /api/v1/quotes requires authentication."""
+        response = test_client.get("/api/v1/quotes")
+        assert response.status_code == 401
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "healthy"
+    def test_invoices_requires_auth(self, test_client):
+        """GET /api/v1/invoices requires authentication."""
+        response = test_client.get("/api/v1/invoices")
+        assert response.status_code == 401
 ```
 
-**Assertion Helpers (tests/utils.py):**
+**Tenant Isolation Testing:**
 ```python
-def assert_success_response(response, expected_status=200):
-    """Assert that a response indicates success."""
-    assert response.status_code == expected_status
-    if response.headers.get('content-type', '').startswith('application/json'):
-        data = response.json()
-        assert data.get('success', True) is True
-
-def assert_error_response(response, expected_status, expected_detail=None):
-    """Assert that a response indicates an error."""
-    assert response.status_code == expected_status
-    if expected_detail:
-        data = response.json()
-        assert expected_detail in str(data.get('detail', ''))
+def test_create_ticket_includes_tenant_id(self, mock_config):
+    """Created ticket should include tenant_id for isolation."""
+    # Verify tenant_id is in the inserted record
+    call_args = mock_client.table.return_value.insert.call_args
+    inserted_record = call_args[0][0]
+    assert inserted_record['tenant_id'] == 'test_tenant'
 ```
 
 ## Test Client Setup
 
-**FastAPI TestClient with mocked services:**
+**FastAPI TestClient with Mocked Services:**
 ```python
 @pytest.fixture
 def test_client():
     """Create a FastAPI TestClient with FAISS service mocked."""
     mock_faiss = MagicMock()
     mock_faiss.initialize.return_value = False
-    mock_faiss.get_status.return_value = {
-        "initialized": False,
-        "error": "Mocked for tests"
-    }
+    mock_faiss.get_status.return_value = {"initialized": False}
 
     with patch('src.services.faiss_helpdesk_service.FAISSHelpdeskService._instance', None):
         with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss):
-            from fastapi.testclient import TestClient
-            from main import app
-            yield TestClient(app)
+            with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
+                from fastapi.testclient import TestClient
+                from main import app
+                yield TestClient(app)
 ```
 
-## Singleton Reset Pattern
+**Authenticated Request Headers:**
+```python
+@pytest.fixture
+def authenticated_headers():
+    return {
+        'Authorization': 'Bearer test-jwt-token',
+        'X-Client-ID': 'test_tenant',
+        'Content-Type': 'application/json'
+    }
 
-For services using singleton pattern, reset between tests:
+@pytest.fixture
+def admin_headers():
+    return {
+        'X-Admin-Token': 'test-admin-token',
+        'Content-Type': 'application/json'
+    }
+```
+
+## Test Markers
+
+**Configuration** (`pyproject.toml`):
+```toml
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+```
+
+**Auto-marking** (`conftest.py`):
+```python
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if "integration" in item.nodeid:
+            item.add_marker(pytest.mark.integration)
+        if "slow" in item.nodeid or "test_integration" in item.nodeid:
+            item.add_marker(pytest.mark.slow)
+```
+
+## Cache Cleanup
+
+**Reset Between Tests:**
 ```python
 @pytest.fixture(autouse=True)
 def reset_caches():
@@ -406,32 +422,51 @@ def reset_caches():
         pass
 ```
 
-## External API Mock Fixtures
+## BigQuery Mock Infrastructure
 
-**Available in `tests/fixtures/`:**
-
-| Module | Purpose | Key Exports |
-|--------|---------|-------------|
-| `bigquery_fixtures.py` | BigQuery client mocks | `MockBigQueryClient`, `generate_quotes()` |
-| `sendgrid_fixtures.py` | SendGrid API mocks | `MockSendGridClient`, `generate_subusers()` |
-| `openai_fixtures.py` | OpenAI API mocks | `MockOpenAIClient`, `create_tool_call_response()` |
-| `genai_fixtures.py` | Google GenAI mocks | `MockGenAIClient`, `create_travel_inquiry_response()` |
-| `twilio_vapi_fixtures.py` | Twilio/VAPI mocks | `MockRequestsSession`, `generate_available_numbers()` |
-| `gcs_fixtures.py` | GCS/FAISS mocks | `MockGCSClient`, `MockFAISSIndex` |
-
-**Usage:**
+**Pattern-Based Response Matching** (`tests/fixtures/bigquery_fixtures.py`):
 ```python
-from tests.fixtures.bigquery_fixtures import (
-    create_mock_bigquery_client,
-    generate_quotes,
-)
+class MockBigQueryClient:
+    def set_response_for_pattern(self, pattern: str, rows: List[Dict]):
+        """Set response data for queries matching a pattern."""
+        self._pattern_responses[pattern.lower()] = rows
 
-def test_with_bigquery():
-    client = create_mock_bigquery_client()
-    client.set_response_for_pattern("quotes", generate_quotes(5))
+    def query(self, sql: str, job_config=None):
+        sql_lower = sql.lower()
+        for pattern, rows in self._pattern_responses.items():
+            if pattern in sql_lower:
+                return MockBigQueryQueryJob(rows)
+        return MockBigQueryQueryJob(self._default_response)
 
-    with patch('src.tools.bigquery_tool.get_client', return_value=client):
-        # Test code here
+# Usage in test:
+mock_client.set_response_for_pattern("hotel_rates", generate_hotel_rates(5))
+mock_client.set_response_for_pattern("COUNT(*)", [{'count': 42}])
+```
+
+## Assertion Helpers
+
+**From `tests/utils.py`:**
+```python
+def assert_success_response(response, expected_status=200):
+    """Assert that a response indicates success."""
+    assert response.status_code == expected_status
+    if response.headers.get('content-type', '').startswith('application/json'):
+        data = response.json()
+        assert data.get('success', True) is True
+
+def assert_error_response(response, expected_status, expected_detail=None):
+    """Assert that a response indicates an error."""
+    assert response.status_code == expected_status
+    if expected_detail:
+        data = response.json()
+        assert expected_detail in str(data.get('detail', ''))
+
+def assert_list_response(response, min_length=0, max_length=None):
+    """Assert that a response contains a list of items."""
+    assert_success_response(response)
+    data = response.json()
+    items = data.get('data', data.get('items', []))
+    assert isinstance(items, list)
 ```
 
 ---

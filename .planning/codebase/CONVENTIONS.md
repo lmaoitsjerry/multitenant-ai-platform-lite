@@ -5,279 +5,289 @@
 ## Naming Patterns
 
 **Files:**
-- Python modules: `snake_case.py` (e.g., `auth_middleware.py`, `crm_service.py`)
-- Test files: `test_{module_name}.py` (e.g., `test_auth_middleware.py`)
-- Fixture files: `{domain}_fixtures.py` (e.g., `bigquery_fixtures.py`)
+- `snake_case.py` for Python modules: `crm_service.py`, `quote_agent.py`, `auth_middleware.py`
+- `test_*.py` for test files: `test_crm_service.py`, `test_api_routes.py`
+- Routes named by domain: `{domain}_routes.py` (e.g., `pricing_routes.py`, `branding_routes.py`)
+- Services named by domain: `{domain}_service.py` (e.g., `crm_service.py`, `auth_service.py`)
 
 **Functions:**
-- Use `snake_case` for functions: `get_client_config()`, `create_chainable_mock()`
-- Async functions prefixed with operation: `async def get_user_by_auth_id()`
-- Private functions prefixed with underscore: `_get_client_id_filter()`
+- `snake_case` for all functions: `get_client()`, `create_invoice()`, `verify_jwt()`
+- Async functions prefixed with context: `async def list_quotes()`, `async def get_pipeline()`
+- Private helpers prefixed with underscore: `_get_client_id_filter()`, `_count_by_field()`
 
 **Variables:**
-- Local variables: `snake_case` (e.g., `client_id`, `mock_config`)
-- Constants: `UPPER_SNAKE_CASE` (e.g., `PUBLIC_PATHS`, `TABLE_INVOICES`)
-- Module-level caches: `_snake_case` (e.g., `_client_configs`, `_quote_agents`)
-
-**Classes:**
-- `PascalCase` for classes: `UserContext`, `AuthMiddleware`, `CRMService`
-- Test classes: `Test{Feature}` (e.g., `TestAuthService`, `TestPublicPathDetection`)
+- `snake_case` for local variables and parameters: `client_id`, `tenant_id`, `quote_data`
+- ALL_CAPS for constants: `PUBLIC_PATHS`, `TABLE_QUOTES`, `DEFAULT_QUERY_TIMEOUT`
+- Protected attributes with underscore: `_config_source`, `_executor`
 
 **Types:**
-- Enums: `PascalCase` with uppercase values: `PipelineStage.QUOTED`
+- `PascalCase` for classes: `CRMService`, `QuoteAgent`, `SupabaseTool`, `UserContext`
+- `PascalCase` for Pydantic models: `TravelInquiry`, `ClientCreate`, `InvoiceStatusUpdate`
+- `PascalCase` for Enums: `PipelineStage`, `PipelineStageEnum`
+
+**API Routes:**
+- Kebab-case for multi-word paths: `/api/v1/convert-quote`, `/api/v1/sendgrid-inbound`
+- Plural nouns for collections: `/api/v1/quotes`, `/api/v1/invoices`, `/api/v1/clients`
+- Nested resources for relationships: `/api/v1/clients/{client_id}/activities`
 
 ## Code Style
 
 **Formatting:**
-- Tool: Black (version 24.8.0)
-- Line length: 88 characters (Black default)
+- Tool: `black` (version 24.8.0)
+- Line length: 88 characters (black default)
 - Indentation: 4 spaces
-- Strings: Double quotes preferred for docstrings, single or double for regular strings
 
 **Linting:**
-- Tool: flake8 (version 7.1.1)
-- Type checking: mypy (version 1.11.2)
-- No project-specific config files detected - using defaults
+- Tool: `flake8` (version 7.1.1)
+- Type checking: `mypy` (version 1.11.2)
+- No explicit configuration files detected - using tool defaults
 
 ## Import Organization
 
 **Order:**
 1. Standard library imports
-2. Third-party imports (fastapi, pydantic, etc.)
-3. Local application imports
+2. Third-party imports (FastAPI, Pydantic, etc.)
+3. Local imports (config, src modules)
 
-**Pattern from `src/api/routes.py`:**
+**Pattern observed in `src/api/routes.py`:**
 ```python
-# Standard library
+# 1. Standard library
 import logging
-from typing import Optional, List, Dict, Any
+from functools import lru_cache
 from datetime import datetime, date
 from enum import Enum
 
-# Third-party
+# 2. Third-party
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Body, Request
-from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List, Dict, Any
 
-# Local imports
+# 3. Local
 from config.loader import ClientConfig
 from src.utils.error_handler import log_and_raise
 from src.services.crm_service import CRMService, PipelineStage
 ```
 
 **Path Aliases:**
-- No path aliases configured
-- Use relative imports from `src/` root: `from src.services.auth_service import AuthService`
+- No path aliases configured (tsconfig.json not used - Python project)
+- Direct relative imports: `from src.services.crm_service import CRMService`
 - Config imports: `from config.loader import ClientConfig, get_config`
 
 ## Error Handling
 
 **Patterns:**
 
-Use `src/utils/error_handler.py` for consistent error responses:
-
+1. **Centralized Error Handler** (`src/utils/error_handler.py`):
 ```python
 from src.utils.error_handler import log_and_raise, safe_error_response
 
-# Pattern 1: Log and raise in one call (preferred)
 try:
-    # risky operation
+    result = agent.generate_quote(...)
+except HTTPException:
+    raise  # Re-raise HTTPException as-is
 except Exception as e:
     log_and_raise(500, "generating quote", e, logger)
-
-# Pattern 2: Get HTTPException for more control
-try:
-    # risky operation
-except HTTPException:
-    raise  # Re-raise HTTP exceptions as-is
-except Exception as e:
-    raise safe_error_response(500, "processing request", e, logger)
 ```
 
-**HTTP Exception Pattern:**
+2. **Security-Conscious Error Messages:**
+- Internal details logged for debugging: `logger.error(f"{operation} failed: {exception}", exc_info=True)`
+- Generic messages returned to clients: `"An internal error occurred while {operation}. Please try again later."`
+- Never expose stack traces or internal paths to API consumers
+
+3. **Supabase Operation Pattern:**
 ```python
-# Always re-raise HTTPException before catching generic Exception
+if not self.client:
+    return None  # Graceful degradation
+
 try:
-    # operation
-except HTTPException:
-    raise
+    result = self.client.table(...).execute()
+    if result.data:
+        return result.data[0]
+    return None
 except Exception as e:
-    log_and_raise(500, "operation description", e, logger)
+    logger.error(f"Failed to {operation}: {e}")
+    return None
 ```
 
-**Security:** Never expose internal exception messages to clients. Use generic messages:
-- 5xx errors: "An internal error occurred while {operation}. Please try again later."
-- 4xx errors: "Error while {operation}. Please check your request and try again."
+4. **Timeout Protection** (`src/tools/supabase_tool.py`):
+```python
+def execute_with_timeout(self, query_func, timeout=10, operation="query"):
+    try:
+        future = self._executor.submit(query_func)
+        result = future.result(timeout=timeout)
+        return result
+    except FuturesTimeoutError:
+        raise TimeoutError(f"Query '{operation}' timed out after {timeout}s")
+```
 
 ## Logging
 
 **Framework:** Python `logging` module with structured JSON output
 
-**Setup from `main.py`:**
+**Setup** (`src/utils/structured_logger.py`):
 ```python
 from src.utils.structured_logger import setup_structured_logging, get_logger
 
-log_level = os.getenv("LOG_LEVEL", "INFO")
-json_logs = os.getenv("JSON_LOGS", "true").lower() == "true"
-setup_structured_logging(level=log_level, json_output=json_logs)
+setup_structured_logging(level="INFO", json_output=True)
 logger = get_logger(__name__)
 ```
 
 **Patterns:**
-- Create module-level logger: `logger = logging.getLogger(__name__)`
-- Use f-strings for log messages: `logger.info(f"Created QuoteAgent for {config.client_id}")`
-- Include context in brackets: `logger.info(f"[LIST_QUOTES] Returning {len(quotes)} quotes")`
-- Log errors with exc_info: `logger.error(f"Failed to get client: {e}", exc_info=True)`
+- Request ID propagation via `contextvars` (async-safe)
+- All log entries include: `timestamp`, `level`, `logger`, `message`, `request_id`, `service`
+- Slow query warnings for operations exceeding 3 seconds
+- Log levels used:
+  - `logger.debug()` - Detailed information for debugging
+  - `logger.info()` - Operational events (client created, quote generated)
+  - `logger.warning()` - Non-critical issues (FAISS not available, cache miss)
+  - `logger.error()` - Operation failures with `exc_info=True` for stack traces
 
-**Log Levels:**
-- `DEBUG`: Detailed diagnostic info (e.g., query results)
-- `INFO`: Normal operation events (e.g., service initialization)
-- `WARNING`: Recoverable issues (e.g., fallback to default config)
-- `ERROR`: Operation failures (always include exc_info=True)
+**Standard Log Format:**
+```python
+logger.info(f"[LIST_QUOTES] Returning {len(quotes)} quotes for tenant {config.client_id}")
+logger.error(f"Failed to create invoice: {e}", exc_info=True)
+```
 
 ## Comments
 
 **When to Comment:**
-- Module docstrings required at top of each file
-- Class docstrings explaining purpose and usage
-- Function docstrings for public APIs
-- Inline comments for non-obvious logic
+- Module docstrings at top of every file explaining purpose and usage
+- Class docstrings explaining responsibility
+- Function docstrings for public APIs with Args/Returns sections
+- Inline comments for non-obvious business logic
+- Security notes for sensitive operations
 
-**Docstring Format (Google style):**
+**JSDoc/TSDoc (Docstring Pattern):**
 ```python
-def create_mock_bigquery_client(
-    default_data: List[Dict[str, Any]] = None,
-    preset_patterns: Dict[str, List[Dict[str, Any]]] = None
-) -> MockBigQueryClient:
+def get_or_create_client(
+    self,
+    email: str,
+    name: str,
+    phone: Optional[str] = None,
+    source: str = "manual",
+    consultant_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
-    Create a configured MockBigQueryClient.
-
-    Args:
-        default_data: Default response for unmatched queries
-        preset_patterns: Dict of pattern -> response data to pre-configure
-
-    Returns:
-        Configured MockBigQueryClient instance
-
-    Example:
-        client = create_mock_bigquery_client()
+    Get existing client or create new one
+    New clients start in QUOTED stage
     """
 ```
 
-**Section Headers:**
-Use commented section headers for organization:
+**Security Comments Pattern:**
 ```python
-# ==================== Configuration Fixtures ====================
-
-# ==================== Public Paths ====================
+# SECURITY NOTE: The X-Client-ID header is initially trusted to load tenant config.
+# After JWT verification and user lookup, we validate that the header matches
+# the user's actual tenant_id. This prevents tenant spoofing attacks.
 ```
 
 ## Function Design
 
-**Size:** Functions should have single responsibility. Split large functions into helpers.
+**Size:**
+- Most functions under 50 lines
+- Complex functions like `search_clients()` up to 100 lines (acceptable for batch operations)
 
 **Parameters:**
-- Use type hints for all parameters: `def get_client(self, client_id: str) -> Optional[Dict[str, Any]]:`
-- Use `Optional[]` for nullable parameters
-- Provide defaults where sensible: `limit: int = 50`
+- Required parameters first, optional with defaults after
+- Use `Optional[Type]` for nullable parameters
+- Common pattern: `(config: ClientConfig, **kwargs)`
 
 **Return Values:**
-- Use type hints for returns
-- Return `None` for "not found" cases (not empty dict)
-- Return `{"success": True, "data": ...}` for API responses
-- Return `bool` for operations that succeed/fail
+- Single items: Return `Optional[Dict]` (None on failure/not found)
+- Collections: Return `List[Dict]` (empty list on failure)
+- Operations: Return `bool` (True on success)
+- Complex results: Return `Dict[str, Any]` with success indicator
+
+**Response Pattern for API routes:**
+```python
+return {
+    "success": True,
+    "data": result,
+    "count": len(result) if isinstance(result, list) else None
+}
+```
 
 ## Module Design
 
 **Exports:**
-- Use `__all__` in `__init__.py` to explicitly list public exports
-- See `tests/fixtures/__init__.py` for comprehensive example
+- Classes and functions exported at module level
+- No `__all__` declarations (implicit exports)
+
+**Barrel Files:**
+- `src/api/__init__.py`, `src/services/__init__.py` exist but are minimal
+- Direct imports preferred: `from src.services.crm_service import CRMService`
 
 **Service Pattern:**
 ```python
 class CRMService:
-    """Service class with dependency injection via config."""
-
     def __init__(self, config: ClientConfig):
         self.config = config
-        self.supabase = None
-
-        try:
-            from src.tools.supabase_tool import SupabaseTool
-            self.supabase = SupabaseTool(config)
-        except Exception as e:
-            logger.warning(f"Supabase not available: {e}")
+        self.tenant_id = config.client_id
+        # Initialize dependencies
 ```
 
 **Caching Pattern:**
-Module-level caches for expensive objects:
 ```python
-# Global caches for performance
-_client_configs = {}
-_quote_agents = {}
-
-def get_quote_agent(config: ClientConfig):
-    """Get cached QuoteAgent for client"""
-    if config.client_id not in _quote_agents:
-        _quote_agents[config.client_id] = QuoteAgent(config)
-    return _quote_agents[config.client_id]
+@lru_cache(maxsize=100)
+def _get_cached_config(client_id: str) -> ClientConfig:
+    """Thread-safe via lru_cache"""
+    return ClientConfig(client_id)
 ```
 
-## Pydantic Models
+## Pydantic Model Patterns
 
-**Pattern for API request/response models:**
+**Request Models:**
 ```python
-from pydantic import BaseModel, EmailStr, Field
-
 class TravelInquiry(BaseModel):
-    """Travel inquiry for quote generation"""
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
     phone: Optional[str] = None
     destination: str
     adults: int = Field(default=2, ge=1, le=20)
-    children_ages: Optional[List[int]] = None
 ```
 
-## FastAPI Router Pattern
-
+**Response Models** (`src/utils/response_models.py`):
 ```python
-from fastapi import APIRouter, HTTPException, Depends, Query
-
-router = APIRouter(prefix="/api/v1/quotes", tags=["Quotes"])
-
-@router.get("")
-async def list_quotes(
-    status: Optional[str] = None,
-    limit: int = Query(default=50, le=100),
-    offset: int = Query(default=0, ge=0),
-    config: ClientConfig = Depends(get_client_config)
-):
-    """List quotes with optional filtering"""
-    try:
-        # implementation
-        return {"success": True, "data": quotes, "count": len(quotes)}
-    except Exception as e:
-        log_and_raise(500, "listing quotes", e, logger)
+class APIResponse(BaseModel):
+    success: bool = True
+    data: Optional[Any] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
 ```
 
-## Middleware Pattern
+## Multi-Tenancy Patterns
 
-Use Starlette BaseHTTPMiddleware:
+**Tenant Identification:**
+- Header: `X-Client-ID` for tenant context
+- Always filter by `tenant_id` in database queries
+- Validate header matches JWT user's tenant
+
+**Tenant Isolation in Queries:**
 ```python
-from starlette.middleware.base import BaseHTTPMiddleware
+result = self.client.table('clients')\
+    .select("*")\
+    .eq('tenant_id', self.config.client_id)\  # Always filter
+    .eq('email', email)\
+    .execute()
+```
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Pre-processing
-        if is_public_path(request.url.path):
-            request.state.user = None
-            return await call_next(request)
+## Constants and Configuration
 
-        # Authentication logic
-        response = await call_next(request)
-        # Post-processing
-        return response
+**Table Constants:**
+```python
+class SupabaseTool:
+    TABLE_QUOTES = "quotes"
+    TABLE_INVOICES = "invoices"
+    TABLE_CLIENTS = "clients"
+```
+
+**Public Paths:**
+```python
+PUBLIC_PATHS = {
+    "/",
+    "/health",
+    "/api/v1/auth/login",
+    "/api/v1/branding",
+}
 ```
 
 ---

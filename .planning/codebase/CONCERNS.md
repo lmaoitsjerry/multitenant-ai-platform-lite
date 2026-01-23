@@ -1,191 +1,179 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-01-23
+**Analysis Date:** 2025-01-23
 
 ## Tech Debt
 
-**Bare Exception Handlers in Email Webhook:**
-- Issue: Multiple bare `except:` clauses swallow all exceptions without logging
-- Files: `src/webhooks/email_webhook.py` (lines 320, 334, 349, 368, 422, 761, 936, 1007)
-- Impact: Silent failures make debugging tenant lookup issues nearly impossible
-- Fix approach: Replace bare `except:` with `except Exception as e:` and add debug logging
+**Duplicate Config Caching Patterns:**
+- Issue: Multiple modules implement their own `_client_configs = {}` dict-based caching
+- Files: `src/api/analytics_routes.py:33`, `src/api/helpdesk_routes.py:37`, `src/api/branding_routes.py`, `src/api/knowledge_routes.py`
+- Impact: Inconsistent caching behavior; some use `lru_cache` (routes.py), others use plain dicts; memory leaks possible with unbounded dicts
+- Fix approach: Consolidate to single cached dependency in `src/api/routes.py` using `lru_cache` pattern already established there
 
-**Incomplete Tenant Deprovisioning:**
-- Issue: `deprovision_tenant()` method has three unimplemented TODOs
-- Files: `src/services/provisioning_service.py` (lines 735-737)
-- Impact: Cannot safely remove tenants; orphaned SendGrid subusers and BigQuery datasets accumulate
-- Fix approach: Implement SendGrid subuser deletion, BigQuery dataset deletion, and client directory cleanup
+**FAISS Index Rebuild Not Implemented:**
+- Issue: `rebuild_index` endpoint returns success but does not perform actual FAISS indexing
+- Files: `src/api/admin_knowledge_routes.py:648` - has `# TODO: Implement actual FAISS indexing`
+- Impact: Knowledge base documents marked as indexed but not actually searchable via FAISS
+- Fix approach: Implement actual embedding generation and FAISS index creation using SentenceTransformer
 
-**FAISS Index Rebuild is a Stub:**
-- Issue: `rebuild_faiss_index` endpoint marks documents as indexed but doesn't actually rebuild the index
-- Files: `src/api/admin_knowledge_routes.py` (lines 648-656)
-- Impact: Knowledge base updates don't reflect in search until manual intervention
-- Fix approach: Integrate with `src/services/faiss_helpdesk_service.py` to trigger actual index rebuild
+**Privacy Data Export Incomplete:**
+- Issue: DSAR data export generates data but does not upload to secure storage
+- Files: `src/api/privacy_routes.py:782` - has `# TODO: Upload to Supabase Storage`
+- Impact: GDPR compliance incomplete; users receive summary but not actual data file
+- Fix approach: Implement Supabase Storage upload and generate secure time-limited download link
 
-**Data Export Stores in DSAR Record (Not Downloadable):**
-- Issue: Privacy data export doesn't upload to storage; data sits in database record
-- Files: `src/api/privacy_routes.py` (lines 778-779)
-- Impact: GDPR data portability compliance incomplete; users can't download their data
-- Fix approach: Implement Supabase Storage upload and generate time-limited download URLs
+**Tenant Status Hardcoded:**
+- Issue: Tenant status always returns "active" rather than checking database
+- Files: `src/api/admin_tenants_routes.py:222` - has `status="active",  # TODO: Get from database`
+- Impact: Cannot distinguish suspended/inactive tenants in admin views
+- Fix approach: Add `status` column to tenant tracking table, query during list
 
-**Global Caches Without Invalidation:**
-- Issue: Route-level caches (`_client_configs`, `_quote_agents`, `_crm_services`) never invalidated
-- Files: `src/api/routes.py` (lines 132-134)
-- Impact: Config changes require server restart to take effect
-- Fix approach: Add cache invalidation endpoints or implement TTL-based expiry
+**Admin Analytics TODOs:**
+- Issue: Email and login tracking not implemented
+- Files: `src/api/admin_analytics_routes.py:380-381` - `emails=0,  # TODO: Get from SendGrid` and `logins=0   # TODO: Track logins`
+- Impact: Incomplete usage analytics for platform admin dashboard
+- Fix approach: Integrate SendGrid stats API; implement login event tracking in auth_service
 
-**Supabase Tool Returns None on All Errors:**
-- Issue: 80+ methods return `None` or `[]` on any exception, losing error context
-- Files: `src/tools/supabase_tool.py` (extensive - see lines 149, 170, 174, 179, etc.)
-- Impact: Callers can't distinguish between "no data" and "query failed"; silent data loss
-- Fix approach: Implement a Result type pattern or raise specific exceptions
+**Tenant Creation Date Tracking:**
+- Issue: No proper tracking of when tenants were created
+- Files: `src/api/admin_analytics_routes.py:517` - has `# TODO: Implement proper tracking`
+- Impact: Cannot generate tenant growth reports or cohort analysis
+- Fix approach: Add `created_at` to tenant config storage; backfill existing tenants
 
 ## Known Bugs
 
-**None identified during analysis**
+**None identified as critical** - v5.0 audit resolved major issues:
+- Bare exception handlers fixed
+- Async/sync mismatch resolved
+- Circuit breaker added for OpenAI
 
 ## Security Considerations
 
-**Admin Routes Bypass JWT Authentication:**
-- Risk: Admin endpoints use separate X-Admin-Token, skipping JWT middleware entirely
-- Files: `src/middleware/auth_middleware.py` (line 61), `src/api/admin_routes.py` (line 71)
-- Current mitigation: Admin token must be set via environment variable; 503 if missing
-- Recommendations: Consider requiring both JWT (for audit trail) and admin token; add rate limiting
+**Debug Endpoint in Production:**
+- Risk: `/webhooks/email/debug` endpoint logs all incoming data without processing
+- Files: `src/webhooks/email_webhook.py:1127-1161`
+- Current mitigation: None - endpoint is publicly accessible
+- Recommendations: Add admin token requirement; disable in production via env flag; or remove entirely
 
-**Onboarding Routes Fully Public:**
-- Risk: Tenant onboarding endpoints require no authentication
-- Files: `src/middleware/auth_middleware.py` (line 62)
-- Current mitigation: Some endpoints verify email domain; reCAPTCHA could be added
-- Recommendations: Implement CAPTCHA; rate limit by IP; add email verification step
+**Public Helpdesk Endpoints:**
+- Risk: Several helpdesk endpoints bypass JWT auth, relying only on X-Client-ID header
+- Files: `src/middleware/auth_middleware.py:48-52` - PUBLIC_PATHS includes `/api/v1/helpdesk/ask`, `/api/v1/helpdesk/search`, etc.
+- Current mitigation: Tenant isolation via X-Client-ID header
+- Recommendations: Consider rate limiting per IP on these endpoints; monitor for abuse
 
-**Helpdesk Endpoints Publicly Accessible:**
-- Risk: Search, ask, and topic endpoints have no authentication
-- Files: `src/middleware/auth_middleware.py` (lines 48-52)
-- Current mitigation: Uses X-Client-ID header for tenant context
-- Recommendations: Consider requiring at least API key for external access; add rate limits
+**SUPABASE_JWT_SECRET Warning Ignored:**
+- Risk: When JWT secret not set, verification is disabled with warning only
+- Files: `src/services/auth_service.py:68-74` - uses dummy secret when env var missing
+- Current mitigation: Warning logged
+- Recommendations: Fail startup in production mode if JWT secret not configured
 
-**Passwords in Memory During Provisioning:**
-- Risk: Auto-generated SendGrid passwords stored in result dict, logged at info level
-- Files: `src/services/provisioning_service.py` (lines 119-120)
-- Current mitigation: Passwords only in return value, not persisted
-- Recommendations: Return password once then discard; never log credentials
+**Admin Token in Environment Only:**
+- Risk: Single admin token for all admin operations
+- Files: `src/api/admin_routes.py:72-82` - `verify_admin_token` checks ADMIN_API_TOKEN env var
+- Current mitigation: Token validated on all admin routes
+- Recommendations: Consider per-user admin auth; add token rotation capability; audit logging for admin actions
 
 ## Performance Bottlenecks
 
-**Supabase Client Per-Request Pattern:**
-- Problem: Although cached, client initialization still happens per-tenant-per-restart
-- Files: `src/tools/supabase_tool.py` (lines 69-84)
-- Cause: Cache keyed by `client_id:url[:20]`, so different URLs create new clients
-- Improvement path: Pool connections; use singleton per-tenant client with connection reuse
+**Large File Sizes:**
+- Problem: Several core files exceed 1000 lines, making them harder to maintain and test
+- Files:
+  - `src/tools/supabase_tool.py` (1757 lines)
+  - `src/api/routes.py` (1450 lines)
+  - `src/webhooks/email_webhook.py` (1162 lines)
+  - `src/api/analytics_routes.py` (1161 lines)
+- Cause: Monolithic service classes; all CRUD operations in single files
+- Improvement path: Split into smaller focused modules (e.g., supabase_quotes.py, supabase_clients.py)
 
-**PDF Generation Low Coverage (6.7%):**
-- Problem: `pdf_generator.py` has 438 lines but only ~30 are covered by tests
-- Files: `src/utils/pdf_generator.py`
-- Cause: WeasyPrint/fpdf2 fallback logic untested; complex HTML rendering
-- Improvement path: Add unit tests with mocked PDF libraries; test both code paths
+**In-Memory Rate Limit Store in Multi-Worker:**
+- Problem: InMemoryRateLimitStore not shared across workers
+- Files: `src/middleware/rate_limiter.py:46-88`
+- Cause: Each worker has own dict; rate limits not effective with multiple processes
+- Improvement path: Redis store already implemented; ensure REDIS_URL is set in production
 
-**Template Renderer Low Coverage (31.4%):**
-- Problem: Template loading and agent prompt rendering untested
-- Files: `src/utils/template_renderer.py`
-- Cause: File I/O operations and Jinja2 integration need fixtures
-- Improvement path: Add tests with mock file system; test error paths
-
-**ReRanker Service Low Coverage (16.5%):**
-- Problem: Cross-encoder model loading/inference almost entirely untested
-- Files: `src/services/reranker_service.py`
-- Cause: Requires sentence-transformers model download at test time
-- Improvement path: Mock CrossEncoder class; test fallback behavior
+**Global Singleton Pattern for Services:**
+- Problem: Several services use global singletons that can't be reset in tests
+- Files: `src/services/faiss_helpdesk_service.py:586-599` - `_faiss_service` global
+- Cause: Performance optimization that complicates testing and hot-reload
+- Improvement path: Use dependency injection; provide reset function (already exists for FAISS)
 
 ## Fragile Areas
 
-**Tenant Lookup in Email Webhook:**
-- Files: `src/webhooks/email_webhook.py` (lines 290-370)
-- Why fragile: 5 different lookup strategies with bare exception handlers; silent failures
-- Safe modification: Add comprehensive logging before any changes; test all strategies
-- Test coverage: ~67.5% - critical paths around line 314-370 need more tests
+**Email Webhook Tenant Resolution:**
+- Files: `src/webhooks/email_webhook.py:196-286`
+- Why fragile: Complex multi-strategy tenant lookup (6 different strategies); silent fallbacks; cache with TTL
+- Safe modification: Add comprehensive logging; test each strategy independently; don't change order without testing all paths
+- Test coverage: Has tests but edge cases around cache expiry, concurrent refresh need more coverage
 
-**Config Loading Multi-Source:**
-- Files: `config/loader.py`, `src/services/tenant_config_service.py`
-- Why fragile: Config comes from YAML files, database, and environment variables with fallback chains
-- Safe modification: Always test with both database-backed and YAML-only tenants
-- Test coverage: 65.6% for tenant_config_service - cache invalidation paths untested
+**Quote Agent Hotel Calculation:**
+- Files: `src/agents/quote_agent.py:410-459`
+- Why fragile: Complex pricing logic with children ages, room types, meal plans
+- Safe modification: Add unit tests for specific scenarios before changes; verify calculation against known quotes
+- Test coverage: Basic tests exist; edge cases (single supplement, child sharing) need more
 
-**Quote Agent Orchestration:**
-- Files: `src/agents/quote_agent.py` (962 lines)
-- Why fragile: Coordinates 7 services (BigQuery, PDF, Email, Supabase, CRM, etc.)
-- Safe modification: Test with all services mocked; verify error handling for each failure mode
-- Test coverage: Check `test_quote_agent_expanded.py` for coverage gaps
+**CRM Client ID Formats:**
+- Files: `src/services/crm_service.py:154-188`
+- Why fragile: Supports both `CLI-XXXXXXXX` format and UUID format for backwards compatibility
+- Safe modification: Document which format is preferred; add migration path to consolidate
+- Test coverage: Tests exist for both formats
 
 ## Scaling Limits
 
-**In-Memory Knowledge Cache:**
-- Current capacity: All documents stored in `_knowledge_cache` dict
-- Limit: Process memory; ~1000 documents before significant memory pressure
-- Scaling path: Move to Redis cache; implement LRU eviction
+**Tenant Email Cache:**
+- Current capacity: All tenant emails cached in memory
+- Limit: With 100+ tenants, cache refresh (every 5 minutes) queries all tenant configs
+- Scaling path: Move to Redis cache; implement lazy loading per-tenant
 
-**Single-Process Architecture:**
-- Current capacity: Single FastAPI process handles all requests
-- Limit: ~500 concurrent requests before degradation
-- Scaling path: Horizontal scaling with Kubernetes; add Redis for shared state
-
-**BigQuery Rate Limits:**
-- Current capacity: Default BigQuery quotas (100 concurrent queries)
-- Limit: High-traffic quote generation could hit quota
-- Scaling path: Implement query caching; batch rate lookups; use slots
+**Supabase Client Cache:**
+- Current capacity: One client per tenant cached in dict
+- Limit: Unbounded growth with new tenants; no eviction policy
+- Scaling path: Add LRU eviction; consider connection pooling
 
 ## Dependencies at Risk
 
-**No Critical Dependency Issues Identified**
-
-All major dependencies (FastAPI, Supabase, BigQuery, SendGrid) are actively maintained.
+**None Critical** - Recent audit ensured all dependencies are stable:
+- Supabase Python client is maintained
+- FastAPI/Pydantic actively developed
+- OpenAI client updated with circuit breaker
 
 ## Missing Critical Features
 
-**No Rate Limiting on Public Endpoints:**
-- Problem: Helpdesk search, onboarding endpoints have no rate limiting
-- Blocks: Production deployment without DDoS protection
-- Note: `src/middleware/rate_limiter.py` exists but abstract methods unimplemented
+**Audit Logging for Admin Actions:**
+- Problem: Admin operations (tenant CRUD, user management) not logged
+- Blocks: Compliance requirements; security incident investigation
+- Priority: Medium - should implement before adding more admin capabilities
 
-**No Automated Backup/Recovery:**
-- Problem: No database backup orchestration
-- Blocks: Disaster recovery capability
-
-**No Metrics/APM Integration:**
-- Problem: Only logging; no structured metrics export
-- Blocks: Proactive performance monitoring
+**Webhook Delivery Retry:**
+- Problem: Outbound webhooks (if implemented) have no retry mechanism
+- Blocks: Reliable event delivery to external systems
+- Priority: Low - not currently using outbound webhooks
 
 ## Test Coverage Gaps
 
-**Email Webhook Critical Paths:**
-- What's not tested: Lines 164-193 (tenant settings loading), 757-913 (diagnostic endpoints)
-- Files: `src/webhooks/email_webhook.py`
-- Risk: Tenant lookup failures could go undetected
-- Priority: High
-
-**Supabase Tool (58.6% coverage):**
-- What's not tested: User management (lines 1266-1600), template settings, many error paths
+**Large Modules with Limited Coverage:**
+- What's not tested: Deep paths in supabase_tool.py (1757 lines), error handling branches
 - Files: `src/tools/supabase_tool.py`
-- Risk: Data operations could fail silently
-- Priority: High
-
-**PDF Generator (6.7% coverage):**
-- What's not tested: WeasyPrint path (lines 90-236), fpdf path (lines 289-697)
-- Files: `src/utils/pdf_generator.py`
-- Risk: Quote PDFs could generate incorrectly
+- Risk: Database operation failures may not be handled correctly
 - Priority: Medium
 
-**Logger Module (0% coverage):**
-- What's not tested: All lines (3-11)
-- Files: `src/utils/logger.py`
-- Risk: Low - simple config module
+**Email Webhook Edge Cases:**
+- What's not tested: Concurrent cache refresh race conditions; malformed email parsing; attachment handling failures
+- Files: `src/webhooks/email_webhook.py`
+- Risk: Production email processing failures hard to diagnose
+- Priority: Medium
+
+**Admin Analytics Aggregation:**
+- What's not tested: Large dataset aggregation performance; edge cases with missing data
+- Files: `src/api/admin_analytics_routes.py`
+- Risk: Dashboard timeouts with large tenant counts
 - Priority: Low
 
-**Tenant Config Service (65.6% coverage):**
-- What's not tested: Database sync (lines 268-295), secret stripping (lines 444-476)
-- Files: `src/services/tenant_config_service.py`
-- Risk: Config updates could corrupt tenant settings
-- Priority: High
+**PDF Generator Variations:**
+- What's not tested: Multi-page quotes; currency formatting edge cases; logo missing scenarios
+- Files: `src/utils/pdf_generator.py` (710 lines)
+- Risk: Broken quote PDFs for certain data combinations
+- Priority: Low
 
 ---
 
-*Concerns audit: 2026-01-23*
+*Concerns audit: 2025-01-23 - Post v5.0 Production Readiness Audit*

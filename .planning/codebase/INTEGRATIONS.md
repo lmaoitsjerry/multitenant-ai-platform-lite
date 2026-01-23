@@ -1,220 +1,223 @@
 # External Integrations
 
-**Analysis Date:** 2026-01-23
+**Analysis Date:** 2025-01-23
 
 ## APIs & External Services
 
-**AI/LLM:**
-- OpenAI GPT-4o-mini - Email parsing, helpdesk responses
-  - SDK/Client: `openai` Python package
-  - Auth: `OPENAI_API_KEY`
-  - Used in: `src/agents/llm_email_parser.py`, `src/services/rag_response_service.py`
+**OpenAI:**
+- Purpose: LLM for email parsing, helpdesk responses, and RAG synthesis
+- SDK: `openai 2.8.0`, `langchain-openai 1.0.3`
+- Models: GPT-4o-mini (default, configurable per tenant)
+- Auth: `OPENAI_API_KEY` env var
+- Implementation: `src/agents/llm_email_parser.py`, `src/services/rag_response_service.py`
 
-- Google Vertex AI - RAG corpus search (optional)
-  - SDK/Client: `google-cloud-aiplatform`, `vertexai.preview`
-  - Auth: GCP service account or ADC
-  - Used in: `src/tools/rag_tool.py`
+**Google Cloud Platform:**
+- BigQuery - Hotel rates, flight prices, analytics
+  - Client: `google-cloud-bigquery 3.26.0`
+  - Implementation: `src/tools/bigquery_tool.py`
+  - Project: `GCP_PROJECT_ID` env var
+  - Datasets: tenant-specific (`{tenant}_analytics`), shared pricing
+- Cloud Storage - FAISS index storage
+  - Client: `google-cloud-storage 2.18.2`
+  - Bucket: `zorah-475411-rag-documents` (default)
+  - Implementation: `src/services/faiss_helpdesk_service.py`
+- Vertex AI - RAG capabilities (optional)
+  - Client: `langchain-google-vertexai 3.0.3`
+  - Implementation: `src/tools/rag_tool.py`
 
-**Email:**
-- SendGrid - Transactional email (quotes, invoices, invitations)
-  - SDK/Client: `requests` direct API (not sendgrid SDK)
-  - Auth: `SENDGRID_MASTER_API_KEY`, per-tenant `sendgrid_api_key`
-  - Endpoints: `/v3/mail/send`
-  - Used in: `src/utils/email_sender.py`, `src/services/sendgrid_admin.py`
-  - Features: Multi-tenant subuser support, inbound parse webhooks
+**SendGrid:**
+- Purpose: Transactional email (quotes, invoices, invitations)
+- SDK: `sendgrid 6.12.5` (but uses direct API via requests)
+- Implementation: `src/utils/email_sender.py`
+- Auth: Per-tenant API keys in `tenant_settings` or `client.yaml`
+- Features:
+  - Inbound Parse webhook: `src/webhooks/email_webhook.py`
+  - Quote emails with PDF attachments
+  - Invoice emails with payment details
+  - User invitation emails
 
-- SendGrid Inbound Parse - Email-to-quote automation
-  - Webhook: `/webhooks/email/inbound`
-  - Used in: `src/webhooks/email_webhook.py`
-  - Receives: Travel inquiries, auto-generates draft quotes
+**Twilio:**
+- Purpose: Phone number provisioning
+- Implementation: `src/tools/twilio_vapi_provisioner.py`
+- Auth: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` env vars
+- Features:
+  - Search available numbers by country
+  - Purchase numbers
+  - Address registration for regulatory compliance
+  - Integration with VAPI for voice AI
 
-**Voice AI:**
-- VAPI - Voice AI assistants (optional)
-  - Auth: `VAPI_API_KEY`
-  - Used in: `src/tools/twilio_vapi_provisioner.py`
-  - Features: Inbound/outbound voice assistants
-
-- Twilio - Phone number provisioning (optional)
-  - Auth: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`
-  - Used in: `src/tools/twilio_vapi_provisioner.py`, `src/services/provisioning_service.py`
+**VAPI (Voice AI):**
+- Purpose: AI voice assistants for inbound/outbound calls
+- Implementation: `src/tools/twilio_vapi_provisioner.py`
+- Auth: `VAPI_API_KEY` env var
+- Features:
+  - Import Twilio numbers to VAPI
+  - Assign assistants to phone numbers
+  - Per-tenant webhook routing
 
 ## Data Storage
 
-**Primary Database:**
-- Supabase (PostgreSQL)
-  - Connection: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
-  - Client: `supabase-py` via `src/tools/supabase_tool.py`
-  - Tables: `quotes`, `invoices`, `clients`, `activities`, `organization_users`, `tenant_settings`, `tenant_branding`, `user_invitations`, etc.
-  - Auth: Supabase Auth with JWT tokens
-  - RLS: Row-level security by `tenant_id`
+**Supabase (PostgreSQL):**
+- Primary database for operational data
+- Client: `supabase >=2.9.0`
+- Implementation: `src/tools/supabase_tool.py`
+- Connection: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` env vars
+- Tables:
+  - `quotes` - Travel quotes
+  - `invoices` - Customer invoices
+  - `invoice_travelers` - Traveler details
+  - `clients` - CRM contacts
+  - `activities` - CRM activity log
+  - `inbound_tickets` - Support tickets
+  - `outbound_call_queue` - Scheduled calls
+  - `call_records` - Call transcripts
+  - `helpdesk_sessions` - Chat sessions
+  - `tenant_settings` - Tenant configuration overrides
+  - `tenant_branding` - UI customization
+  - `tenant_templates` - Quote/invoice templates
+  - `organization_users` - User accounts
+  - `user_invitations` - Pending invitations
 
-**Analytics/Pricing:**
-- Google BigQuery
-  - Connection: `GCP_PROJECT_ID`, GCP credentials
-  - Client: `google-cloud-bigquery` via `src/tools/bigquery_tool.py`
-  - Datasets: `africastay_analytics` (shared pricing), tenant-specific datasets
-  - Tables: `hotel_rates`, `flight_prices`, `consultants`
+**BigQuery:**
+- Analytics and pricing data
+- Client: `google-cloud-bigquery 3.26.0`
+- Implementation: `src/tools/bigquery_tool.py`
+- Tables:
+  - `hotel_rates` - Hotel pricing (shared across tenants)
+  - `flight_prices` - Flight pricing
+  - `consultants` - Sales team (optional)
 
-**File/Object Storage:**
-- Google Cloud Storage
-  - Connection: GCP credentials
-  - Client: `google-cloud-storage`
-  - Buckets:
-    - `zorah-475411-rag-documents` - FAISS indexes (`faiss_indexes/index.faiss`, `index.pkl`)
-  - Used in: `src/services/faiss_helpdesk_service.py`
+**Google Cloud Storage:**
+- FAISS index files for helpdesk knowledge base
+- Bucket: `zorah-475411-rag-documents`
+- Files: `faiss_indexes/index.faiss`, `faiss_indexes/index.pkl`
+- Local cache: System temp directory (`/tmp/zorah_faiss_cache`)
 
-- Supabase Storage
-  - Bucket: `tenant-assets`
-  - Used for: Tenant logos, branding assets
-  - Used in: `src/tools/supabase_tool.py` (upload_logo_to_storage)
-
-**Vector Search:**
-- FAISS (via GCS)
-  - Index: Shared helpdesk knowledge base
-  - Embeddings: 768-dim `all-mpnet-base-v2` (sentence-transformers)
-  - Cache: Local temp directory, 24-hour TTL
-  - Used in: `src/services/faiss_helpdesk_service.py`
+**File Storage (Supabase Storage):**
+- Bucket: `tenant-assets`
+- Purpose: Tenant logos and branding assets
+- Implementation: `SupabaseTool.upload_logo_to_storage()`
 
 **Caching:**
-- Redis (optional)
-  - Connection: `REDIS_URL`
-  - Used for: Rate limiting backend
-  - Fallback: In-memory rate limiting
+- In-memory caches for:
+  - Supabase clients (`_supabase_client_cache`)
+  - Auth clients (`_auth_client_cache`)
+  - User sessions (`_user_cache`, 60s TTL)
+  - Tenant email mappings (`_tenant_email_cache`, 300s TTL)
+  - Client configs (`_config_cache`)
+- Redis (optional) - Rate limiting storage via `slowapi`
 
 ## Authentication & Identity
 
-**Auth Provider:**
-- Supabase Auth
-  - Implementation: Email/password authentication
-  - JWT: HS256 tokens, optional signature verification
-  - Secret: `SUPABASE_JWT_SECRET`
-  - Used in: `src/services/auth_service.py`, `src/middleware/auth_middleware.py`
+**Supabase Auth:**
+- JWT-based authentication
+- Implementation: `src/services/auth_service.py`
+- Features:
+  - Email/password login
+  - Token refresh
+  - Password reset (via Supabase)
+  - Multi-tenant user management
+- Middleware: `src/middleware/auth_middleware.py`
+- Rate limiting: `src/api/auth_routes.py` with `slowapi`
 
-**Authorization:**
-- Multi-tenant via `tenant_id` claim in JWT
-- Role-based: `admin`, `consultant`, `user` roles
-- RLS: Database-level row isolation by tenant
-
-**Protected Routes:**
-- All `/api/v1/*` routes (except `/public/*`)
-- Auth middleware: `src/middleware/auth_middleware.py`
-- Rate limiting: `src/middleware/rate_limiter.py`
+**JWT Verification:**
+- Library: `pyjwt` (via supabase SDK)
+- Secret: `SUPABASE_JWT_SECRET` env var (production)
+- Development mode: Signature verification disabled if secret not set
 
 ## Monitoring & Observability
 
+**Structured Logging:**
+- Implementation: `src/utils/structured_logger.py`
+- JSON output for production (`JSON_LOGS=true`)
+- Request ID tracking via `src/middleware/request_id_middleware.py`
+- Performance timing via `src/middleware/timing_middleware.py`
+
+**PII Audit Logging:**
+- Implementation: `src/middleware/pii_audit_middleware.py`
+- GDPR/POPIA compliance logging
+- Enabled via `PII_AUDIT_ENABLED` env var
+
 **Error Tracking:**
-- None (use GCP Cloud Logging in production)
+- Global exception handler in `main.py`
+- Structured error responses via `src/utils/error_handler.py`
 
-**Logs:**
-- Structured JSON logging via `src/utils/structured_logger.py`
-- Configurable: `LOG_LEVEL`, `JSON_LOGS` env vars
-- PII audit logging: `src/middleware/pii_audit_middleware.py`
-
-**Metrics:**
-- Request timing middleware: `src/middleware/timing_middleware.py`
-- Health checks: `/health`, `/health/ready`, `/health/live`
+**Health Checks:**
+- `/health` - Basic liveness
+- `/health/ready` - Full readiness (DB + BigQuery)
+- `/health/live` - Kubernetes liveness probe
+- Docker HEALTHCHECK configured in `Dockerfile`
 
 ## CI/CD & Deployment
 
-**Hosting:**
-- Google Cloud Run (primary)
-  - Region: `us-central1`
-  - Memory: 2Gi
-  - CPU: 2
-  - Scale: 0-10 instances
-
-- Railway (alternative)
-  - Config: `railway.json`
-
-- Render (alternative)
-  - Config: `render.yaml`
-
-**CI Pipeline:**
-- GitHub Actions
-  - CI: `.github/workflows/ci.yml`
-    - Python 3.11
-    - Linting (flake8)
-    - Tests with coverage (57% threshold)
-    - Docker build verification
-  - Deploy: `.github/workflows/deploy.yml`
-    - Triggers on CI success
-    - Workload Identity Federation auth
-    - Artifact Registry push
-    - Cloud Run deployment
+**GitHub Actions:**
+- Configuration: `.github/workflows/ci.yml`
+- Jobs:
+  - `test` - Linting (flake8) + pytest with 57% coverage threshold
+  - `docker-build` - Docker image build validation
 
 **Container Registry:**
-- Google Artifact Registry
-  - Path: `{region}-docker.pkg.dev/{project}/{service}/{service}:{sha}`
+- Docker image tagged with git SHA
+- Build caching via GitHub Actions cache
 
-## Environment Configuration
-
-**Required env vars:**
-```
-SUPABASE_URL          # PostgreSQL/Auth
-SUPABASE_ANON_KEY     # Public operations
-SUPABASE_SERVICE_KEY  # Admin operations
-GCP_PROJECT_ID        # BigQuery, GCS, Vertex AI
-OPENAI_API_KEY        # LLM for email parsing
-SENDGRID_MASTER_API_KEY # Email delivery
-```
-
-**Optional env vars:**
-```
-SUPABASE_JWT_SECRET   # Enable JWT signature verification
-VAPI_API_KEY          # Voice AI
-TWILIO_ACCOUNT_SID    # Phone provisioning
-TWILIO_AUTH_TOKEN
-REDIS_URL             # Rate limiting backend
-LOG_LEVEL             # DEBUG, INFO, WARNING, ERROR
-JSON_LOGS             # true/false
-CORS_ORIGINS          # Comma-separated origins
-PII_AUDIT_ENABLED     # GDPR/POPIA audit logging
-```
-
-**Secrets location:**
-- GitHub Secrets (CI/CD)
-- GCP Secret Manager (production recommended)
-- `.env` file (development)
+**Hosting Platforms:**
+- Railway: `railway.json` configuration
+- Render: `render.yaml` configuration
+- Port: 8080 (container) / configurable via `PORT` env
 
 ## Webhooks & Callbacks
 
-**Incoming:**
-- `/webhooks/email/inbound` - SendGrid Inbound Parse
-  - Receives travel inquiry emails
-  - Routes to tenant by email address lookup
-  - Triggers background quote generation
-- `/api/webhooks/sendgrid-inbound` - Legacy endpoint (redirects)
+**Incoming Webhooks:**
+- `/webhooks/email/inbound` - SendGrid Inbound Parse (multi-tenant)
+- `/webhooks/email/inbound/{tenant_id}` - Per-tenant email webhook
+- `/webhooks/email/debug` - Debug endpoint for testing
 
-**Outgoing:**
-- SendGrid webhooks for email delivery status (optional)
-- VAPI call completion webhooks (optional)
+**Outgoing Webhooks:**
+- VAPI server URL per tenant: `https://api.zorahai.com/webhooks/vapi/{client_id}`
+- Configured during phone number provisioning
 
-## API Versioning
+## Environment Configuration
 
-**Current:** v1 (prefix `/api/v1/`)
+**Required Environment Variables:**
+```
+PORT=8000
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_KEY=eyJ...
+GCP_PROJECT_ID=project-id
+OPENAI_API_KEY=sk-...
+SENDGRID_MASTER_API_KEY=SG...
+VAPI_API_KEY=uuid
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+```
 
-**Endpoints by Domain:**
-- `/api/v1/quotes/*` - Quote management
-- `/api/v1/crm/*` - CRM clients and pipeline
-- `/api/v1/invoices/*` - Invoice management
-- `/api/v1/public/*` - Public shareable links (no auth)
-- `/api/v1/auth/*` - Authentication
-- `/api/v1/users/*` - User management
-- `/api/v1/admin/*` - Admin operations
-- `/api/v1/branding/*` - White-labeling
-- `/api/v1/settings/*` - Tenant settings
-- `/api/v1/helpdesk/*` - AI helpdesk
-- `/api/v1/knowledge/*` - Knowledge base
+**Optional Environment Variables:**
+```
+CORS_ORIGINS=https://app.example.com
+LOG_LEVEL=INFO
+JSON_LOGS=true
+PII_AUDIT_ENABLED=true
+SUPABASE_JWT_SECRET=...
+FAISS_BUCKET_NAME=bucket-name
+FAISS_INDEX_PREFIX=faiss_indexes/
+BASE_URL=https://api.example.com
+```
 
-## Integration Health Checks
+**Per-Tenant Configuration:**
+Stored in `clients/{tenant_id}/client.yaml` or database (`tenant_settings` table):
+- SendGrid API key and sender settings
+- Banking details for invoices
+- GCP dataset name
+- VAPI assistant IDs
+- OpenAI model preference
+- Branding colors and logo URLs
 
-**Readiness Check (`/health/ready`):**
-- Supabase connection test
-- BigQuery connection test
-
-**Liveness Check (`/health/live`):**
-- Basic application health
+**Secrets Management:**
+- Environment variables in production
+- `.env` file for local development (in `.gitignore`)
+- Supports `${VAR:-default}` syntax in YAML configs
 
 ---
 
-*Integration audit: 2026-01-23*
+*Integration audit: 2025-01-23*
