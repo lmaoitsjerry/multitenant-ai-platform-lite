@@ -548,5 +548,177 @@ class TestHelperMethods:
         assert result["unknown"] == 2
 
 
+# ==================== Batch Query Tests ====================
+
+class TestCRMServiceBatchQueries:
+    """Tests for batch query optimization in CRM service"""
+
+    @pytest.fixture
+    def mock_supabase_client(self):
+        """Create a mock Supabase client for testing"""
+        mock_client = MagicMock()
+        return mock_client
+
+    def test_search_clients_uses_batch_queries(self, mock_supabase_client):
+        """Verify search_clients uses batch queries instead of N+1"""
+        from src.services.crm_service import CRMService
+        from unittest.mock import patch, MagicMock
+
+        # Mock config
+        mock_config = MagicMock()
+        mock_config.client_id = 'test-tenant'
+
+        # Create service with mocked Supabase
+        service = CRMService.__new__(CRMService)
+        service.config = mock_config
+        service.supabase = MagicMock()
+        service.supabase.client = mock_supabase_client
+
+        # Setup mock responses
+        clients_data = [
+            {'client_id': 'cli-1', 'email': 'a@test.com', 'name': 'A', 'total_value': 100},
+            {'client_id': 'cli-2', 'email': 'b@test.com', 'name': 'B', 'total_value': 200},
+            {'client_id': 'cli-3', 'email': 'c@test.com', 'name': 'C', 'total_value': 300},
+        ]
+
+        quotes_data = [
+            {'customer_email': 'a@test.com', 'destination': 'Paris', 'total_price': 1500, 'created_at': '2024-01-01'},
+            {'customer_email': 'b@test.com', 'destination': 'Rome', 'total_price': 2000, 'created_at': '2024-01-02'},
+        ]
+
+        activities_data = [
+            {'client_id': 'cli-1', 'created_at': '2024-01-15'},
+            {'client_id': 'cli-2', 'created_at': '2024-01-16'},
+        ]
+
+        def table_handler(table_name):
+            table_mock = MagicMock()
+
+            if table_name == 'clients':
+                table_mock.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = clients_data
+            elif table_name == 'quotes':
+                table_mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = quotes_data
+            elif table_name == 'activities':
+                table_mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = activities_data
+
+            return table_mock
+
+        mock_supabase_client.table = table_handler
+
+        # Execute search
+        results = service.search_clients()
+
+        # Verify we got enriched results
+        assert len(results) == 3
+
+        # Verify client A got quote enrichment
+        client_a = next(r for r in results if r['client_id'] == 'cli-1')
+        assert client_a['destination'] == 'Paris'
+        assert client_a['value'] == 1500
+        assert client_a['last_activity'] == '2024-01-15'
+
+        # Verify client C has no quote but has fallback values
+        client_c = next(r for r in results if r['client_id'] == 'cli-3')
+        assert client_c['value'] == 300  # Original total_value
+
+    def test_search_clients_batch_handles_empty_results(self, mock_supabase_client):
+        """Verify search handles empty client list without errors"""
+        from src.services.crm_service import CRMService
+        from unittest.mock import MagicMock
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'test-tenant'
+
+        service = CRMService.__new__(CRMService)
+        service.config = mock_config
+        service.supabase = MagicMock()
+        service.supabase.client = mock_supabase_client
+
+        # Return empty clients
+        mock_supabase_client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = []
+
+        results = service.search_clients()
+
+        assert results == []
+
+    def test_search_clients_batch_query_count(self, mock_supabase_client):
+        """Verify maximum 3 queries are executed (clients + quotes + activities)"""
+        from src.services.crm_service import CRMService
+        from unittest.mock import MagicMock, call
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'test-tenant'
+
+        service = CRMService.__new__(CRMService)
+        service.config = mock_config
+        service.supabase = MagicMock()
+        service.supabase.client = mock_supabase_client
+
+        # Track table() calls
+        table_calls = []
+
+        def track_table(table_name):
+            table_calls.append(table_name)
+            mock = MagicMock()
+            if table_name == 'clients':
+                mock.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
+                    {'client_id': 'cli-1', 'email': 'a@test.com', 'name': 'A'}
+                ]
+            else:
+                mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = []
+            return mock
+
+        mock_supabase_client.table = track_table
+
+        service.search_clients()
+
+        # Should be exactly 3 table() calls: clients, quotes, activities
+        assert len(table_calls) == 3
+        assert table_calls[0] == 'clients'
+        assert 'quotes' in table_calls
+        assert 'activities' in table_calls
+
+    def test_search_clients_batch_enrichment_priority(self, mock_supabase_client):
+        """Verify quote data takes priority over client total_value when available"""
+        from src.services.crm_service import CRMService
+        from unittest.mock import MagicMock
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'test-tenant'
+
+        service = CRMService.__new__(CRMService)
+        service.config = mock_config
+        service.supabase = MagicMock()
+        service.supabase.client = mock_supabase_client
+
+        # Client has total_value but also has a quote with different total_price
+        clients_data = [
+            {'client_id': 'cli-1', 'email': 'a@test.com', 'name': 'A', 'total_value': 100, 'updated_at': '2024-01-01'},
+        ]
+
+        quotes_data = [
+            {'customer_email': 'a@test.com', 'destination': 'Bali', 'total_price': 5000, 'created_at': '2024-01-02'},
+        ]
+
+        def table_handler(table_name):
+            mock = MagicMock()
+            if table_name == 'clients':
+                mock.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = clients_data
+            elif table_name == 'quotes':
+                mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = quotes_data
+            else:
+                mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = []
+            return mock
+
+        mock_supabase_client.table = table_handler
+
+        results = service.search_clients()
+
+        assert len(results) == 1
+        # Quote value should override client total_value
+        assert results[0]['value'] == 5000
+        assert results[0]['destination'] == 'Bali'
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
