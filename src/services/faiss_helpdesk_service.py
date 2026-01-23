@@ -15,6 +15,7 @@ import os
 import pickle
 import tempfile
 import logging
+import threading
 from typing import List, Tuple, Optional, Dict, Any
 from functools import lru_cache
 from pathlib import Path
@@ -37,15 +38,20 @@ class FAISSHelpdeskService:
 
     The index is downloaded once and cached locally for performance.
     Uses the same embeddings model that was used to create the index.
+    Thread-safe singleton pattern with double-check locking.
     """
 
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls):
-        """Singleton pattern - only one instance of the service"""
+        """Singleton pattern with double-check locking for thread safety"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                # Double-check inside lock to prevent race condition
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
