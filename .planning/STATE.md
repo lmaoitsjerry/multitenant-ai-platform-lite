@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 16 of 18 (Critical Fixes)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-01-23 — Roadmap created with 3 phases
+Plan: 2 of 3 complete
+Status: In progress
+Last activity: 2026-01-23 - Completed 16-02-PLAN.md (admin token timing fix)
 
-Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 0/9 plans)
+Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0: 2/9 plans)
 
 ## Milestones
 
@@ -22,10 +22,11 @@ Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 
 - Goal: Comprehensive audit and optimization for production deployment
 - Focus: Code consistency, performance optimization, edge case handling
 - Started: 2026-01-23
-- Status: Ready to plan Phase 16
+- Status: Phase 16 in progress (2/3 plans complete)
 - Phases: 16 (Critical Fixes), 17 (Error Handling), 18 (Code Quality)
 - Requirements: 24 (8 blocking, 10 high, 6 medium)
 - Audit report: .planning/PRODUCTION-AUDIT.md
+- Phase 16: 16-01 (complete), 16-02 (complete), 16-03 (pending)
 
 ### v4.0: Test Coverage Push (COMPLETE)
 - Goal: Achieve comprehensive test coverage with external API mocking
@@ -71,6 +72,7 @@ Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 
 | 13 | 2/2 | Complete |
 | 14 | 3/3 | Complete |
 | 15 | 3/3 | Complete |
+| 16 | 2/3 | In progress |
 
 ## Accumulated Context
 
@@ -91,6 +93,12 @@ Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 
 2. ~~Dockerfile runs as root~~ FIXED (12-01: Non-root user uid 1000)
 3. ~~No structured logging/tracing~~ FIXED (12-02: JSON logging with request ID)
 4. ~~No test coverage enforcement~~ FIXED (12-04: pytest-cov with CI threshold)
+
+### Decisions (v5.0)
+
+| ID | Decision | Date |
+|----|----------|------|
+| D-16-02-01 | Use hmac.compare_digest with UTF-8 encoding for token comparison | 2026-01-23 |
 
 ### Decisions (v4.0)
 
@@ -185,7 +193,7 @@ Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 
 | test_templates_routes.py | 43 | Passing |
 | test_rag_services.py | 48 | Passing |
 | test_bigquery_tool.py | 40 | Passing |
-| test_admin_routes.py | 25 | 22 pass, 3 skip |
+| test_admin_routes.py | 30 | 27 pass, 3 skip |
 | test_notifications_routes.py | 22 | Passing |
 | test_settings_routes.py | 22 | Passing |
 | test_users_routes.py | 32 | Passing |
@@ -203,7 +211,7 @@ Progress: [====================] 100% (v4.0) | [                    ] 0% (v5.0: 
 | test_admin_knowledge_routes.py | 118 | 103 pass, 15 skip (84.3% coverage) |
 | test_config.py | 4 | Passing |
 | test_templates.py | 5 | 2 pass, 3 skip |
-| **Total** | **1554** | **Passing** |
+| **Total** | **1559** | **Passing** |
 
 Current coverage: 57.5% (measured with pytest-cov)
 CI threshold: 57% (enforced on all PRs)
@@ -230,5 +238,5 @@ Target coverage: 70% (aspirational - requires additional route testing)
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Created v5.0 roadmap with 3 phases (16-18)
-Resume file: None - ready to plan Phase 16
+Stopped at: Completed 16-02-PLAN.md (admin token timing attack fix)
+Resume file: .planning/phases/16-critical-fixes/16-03-PLAN.md
