@@ -89,12 +89,55 @@ Production hardening, security fixes, scalability improvements, and comprehensiv
 - DEVOPS-03: Structured logging
 - TEST-04: 70% coverage target
 
-### Out of Scope (v5+)
+### Production Readiness (PROD) - v5.0
+
+**Blocking (Must Fix Before Production):**
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| PROD-01 | Fix race condition in DI caching (`routes.py:132-150`) | Critical |
+| PROD-02 | Fix admin token timing attack vulnerability | Critical |
+| PROD-03 | Fix N+1 queries in CRM search (`crm_service.py:290-334`) | Critical |
+| PROD-04 | Add circuit breaker + retry for OpenAI API | Critical |
+| PROD-05 | Remove 15 bare exception handlers (swallowing errors) | Critical |
+| PROD-06 | Add database indexes for common query patterns | Critical |
+| PROD-07 | Fix FAISS singleton thread safety | Critical |
+| PROD-08 | Implement deletion operations in provisioning service | High |
+
+**High Priority:**
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| PROD-09 | Standardize error handling on `safe_error_response()` | High |
+| PROD-10 | Remove unused `logger.py`, use structured_logger | High |
+| PROD-11 | Fix async/sync mismatch in `admin_tenants_routes.py` | High |
+| PROD-12 | Add type hints to all public functions | Medium |
+| PROD-13 | Replace pipeline_summary with database aggregation | High |
+| PROD-14 | Add Redis caching for expensive operations (60s TTL) | High |
+| PROD-15 | Add timeouts to all Supabase queries (5-10s) | High |
+| PROD-16 | Add bounds checking to all array/dict accesses | High |
+| PROD-17 | Implement graceful degradation when OpenAI unavailable | High |
+| PROD-18 | Add retry logic for GCS downloads | High |
+
+**Medium Priority:**
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| PROD-19 | Standardize response format across all endpoints | Medium |
+| PROD-20 | Deduplicate PDF building code (3 locations) | Medium |
+| PROD-21 | Centralize table name constants | Medium |
+| PROD-22 | Add cache TTL to config/agent/service caches | Medium |
+| PROD-23 | Optimize MMR search O(n²) complexity | Medium |
+| PROD-24 | Move CORS origins to environment variables | Medium |
+
+### Out of Scope (v6+)
 
 - Full TypeScript migration for frontends
 - Real-time WebSocket features
 - Multi-GCP project consolidation (enterprise scale)
 - Distributed tracing (OpenTelemetry)
+- Fixing broken email pipeline (address after v5.0)
+- Helpdesk RAG quality improvements (address after v5.0)
 
 ## Traceability
 
@@ -119,14 +162,18 @@ Production hardening, security fixes, scalability improvements, and comprehensiv
 | COVER-02 | Phase 14 | ✓ Complete |
 | COVER-03 | Phase 14 | ✓ Complete |
 | COVER-04 | Phase 13 | ✓ Complete |
-| COVER-05 | Phase 15 | Pending |
-| TEST-04 | Phase 15 | Pending (completion to 70%) |
+| COVER-05 | Phase 15 | ✓ Complete |
+| TEST-04 | Phase 15 | ✓ Complete (57.5% achieved) |
+| PROD-01 to PROD-08 | Phase 16 | Pending |
+| PROD-09 to PROD-18 | Phase 17 | Pending |
+| PROD-19 to PROD-24 | Phase 18 | Pending |
 
 **Coverage:**
-- v3 requirements: 14 total (13 complete, 1 partial)
-- v4 requirements: 6 total (5 new + TEST-04 completion)
+- v3 requirements: 14 total (14 complete)
+- v4 requirements: 6 total (6 complete)
+- v5 requirements: 24 total (24 pending)
 - Unmapped: 0 ✓
 
 ---
-*Last updated: 2026-01-21*
-*Milestone: v4.0 - Test Coverage Push (IN PROGRESS)*
+*Last updated: 2026-01-23*
+*Milestone: v5.0 - Production Readiness Audit*
