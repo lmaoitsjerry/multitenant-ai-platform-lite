@@ -10,6 +10,7 @@ Endpoints for:
 These endpoints require admin authentication (X-Admin-Token header).
 """
 
+import hmac
 import logging
 import os
 import yaml
@@ -74,6 +75,8 @@ def verify_admin_token(x_admin_token: str = Header(None, alias="X-Admin-Token"))
 
     SECURITY: Always requires a valid token. If ADMIN_API_TOKEN is not configured,
     all admin requests are rejected. This prevents accidental exposure in production.
+
+    Uses constant-time comparison to prevent timing attacks.
     """
     admin_token = os.getenv("ADMIN_API_TOKEN")
 
@@ -90,7 +93,8 @@ def verify_admin_token(x_admin_token: str = Header(None, alias="X-Admin-Token"))
     if not x_admin_token:
         raise HTTPException(status_code=401, detail="X-Admin-Token header required")
 
-    if x_admin_token != admin_token:
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(x_admin_token.encode('utf-8'), admin_token.encode('utf-8')):
         logger.warning(f"Invalid admin token attempt from request")
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
