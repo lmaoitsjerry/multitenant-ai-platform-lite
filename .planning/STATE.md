@@ -110,6 +110,9 @@ Progress: [====================] 100% (v4.0) | [============        ] 67% (v5.0:
 | D-17-01-02 | Circuit breaker opens after 5 consecutive failures | 2026-01-23 |
 | D-17-01-03 | Recovery timeout of 60 seconds for circuit breaker | 2026-01-23 |
 | D-17-01-04 | Fallback to stale cache on GCS download failure | 2026-01-23 |
+| D-17-03-01 | Use ThreadPoolExecutor with 10s default timeout for Supabase queries | 2026-01-23 |
+| D-17-03-02 | Only fetch active pipeline stages for value calculations (skip LOST/TRAVELLED) | 2026-01-23 |
+| D-17-03-03 | Delete tables in dependency order during deprovisioning | 2026-01-23 |
 
 ### Decisions (v4.0)
 
@@ -251,5 +254,5 @@ Target coverage: 70% (aspirational - requires additional route testing)
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Phase 16 verified complete, ready for Phase 17
-Resume file: None - ready to plan Phase 17
+Stopped at: Completed 17-03-PLAN.md, Phase 17 complete
+Resume file: None - ready for Phase 18
