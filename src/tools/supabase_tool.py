@@ -1193,7 +1193,8 @@ class SupabaseTool:
                 try:
                     bucket = self.client.storage.from_("tenant-assets")
                     return bucket.get_public_url(storage_path)
-                except:
+                except Exception as e:
+                    logger.warning(f"Failed to get public URL for existing file: {e}")
                     raise Exception("File already exists and could not be replaced.")
             else:
                 raise Exception(f"Logo upload failed: {str(e)}")

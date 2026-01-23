@@ -644,7 +644,8 @@ class QuoteAgent:
         try:
             import pytz
             tz = pytz.timezone(self.config.timezone)
-        except:
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to parse date range: {e}")
             # Fallback to UTC if timezone not available
             import pytz
             tz = pytz.UTC
@@ -679,7 +680,8 @@ class QuoteAgent:
         try:
             import pytz
             tz = pytz.timezone(self.config.timezone)
-        except:
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to parse date string: {e}")
             import pytz
             tz = pytz.UTC
 

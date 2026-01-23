@@ -739,8 +739,8 @@ async def convert_quote_to_invoice(
                             })
                             total += opt.get('total_price', 0)
                             break  # Just use first option
-                    except:
-                        pass
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.debug(f"Failed to parse hotels JSON: {e}")
         else:
             total = sum(item.get('amount', 0) for item in items)
 

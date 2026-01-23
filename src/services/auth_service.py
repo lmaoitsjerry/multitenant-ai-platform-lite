@@ -356,8 +356,8 @@ class AuthService:
                     # Sign out to clean up the session
                     try:
                         self.client.auth.sign_out()
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"User lookup failed: {e}")
             except Exception as signin_err:
                 logger.warning(f"Could not sign in existing user: {signin_err}")
                 # If sign in fails, the password is wrong - can't proceed
