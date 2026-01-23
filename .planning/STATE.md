@@ -98,6 +98,8 @@ Progress: [====================] 100% (v4.0) | [===                 ] 33% (v5.0:
 
 | ID | Decision | Date |
 |----|----------|------|
+| D-16-01-01 | Use lru_cache(maxsize=100) for DI caching instead of unbounded cache | 2026-01-23 |
+| D-16-01-02 | Use double-check locking pattern for FAISS singleton | 2026-01-23 |
 | D-16-02-01 | Use hmac.compare_digest with UTF-8 encoding for token comparison | 2026-01-23 |
 | D-16-03-01 | Use in_() batch queries instead of N+1 per-client queries | 2026-01-23 |
 | D-16-03-02 | Group batch results by key (email/client_id) for O(1) enrichment | 2026-01-23 |
@@ -215,7 +217,8 @@ Progress: [====================] 100% (v4.0) | [===                 ] 33% (v5.0:
 | test_admin_knowledge_routes.py | 118 | 103 pass, 15 skip (84.3% coverage) |
 | test_config.py | 4 | Passing |
 | test_templates.py | 5 | 2 pass, 3 skip |
-| **Total** | **1563** | **Passing** |
+| test_thread_safety.py | 5 | Passing |
+| **Total** | **1568** | **Passing** |
 
 Current coverage: 57.5% (measured with pytest-cov)
 CI threshold: 57% (enforced on all PRs)
@@ -241,6 +244,6 @@ Target coverage: 70% (aspirational - requires additional route testing)
 
 ## Session Continuity
 
-Last session: 2026-01-23 (16-03 executed)
-Stopped at: Completed 16-02-PLAN.md (admin token timing attack fix)
-Resume file: .planning/phases/16-critical-fixes/16-03-PLAN.md
+Last session: 2026-01-23
+Stopped at: Completed 16-01-PLAN.md (thread-safety fixes)
+Resume file: None - Phase 16 complete
