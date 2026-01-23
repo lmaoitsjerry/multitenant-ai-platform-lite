@@ -138,6 +138,8 @@ Production hardening, security fixes, scalability improvements, and comprehensiv
 - Distributed tracing (OpenTelemetry)
 - Fixing broken email pipeline (address after v5.0)
 - Helpdesk RAG quality improvements (address after v5.0)
+- PROD-21: Centralize table name constants (deferred - current scale OK)
+- PROD-23: Optimize MMR O(n^2) complexity (deferred - current index size OK)
 
 ## Traceability
 
@@ -167,15 +169,18 @@ Production hardening, security fixes, scalability improvements, and comprehensiv
 | PROD-01, PROD-02, PROD-03, PROD-06, PROD-07 | Phase 16 | ✓ Complete |
 | PROD-04, PROD-05, PROD-08, PROD-09, PROD-10 | Phase 17 | ✓ Complete |
 | PROD-13, PROD-15, PROD-17, PROD-18 | Phase 17 | ✓ Complete |
-| PROD-11, PROD-12, PROD-14, PROD-16 | Phase 18 | Pending |
-| PROD-19 to PROD-24 | Phase 18 | Pending |
+| PROD-11, PROD-12, PROD-14, PROD-16 | Phase 18 | ✓ Complete |
+| PROD-19, PROD-20, PROD-24 | Phase 18 | ✓ Complete |
+| PROD-21 | v6 | Deferred (current scale OK) |
+| PROD-22 | Phase 16 | ✓ Addressed (lru_cache maxsize=100) |
+| PROD-23 | v6 | Deferred (current index size OK) |
 
 **Coverage:**
 - v3 requirements: 14 total (14 complete)
 - v4 requirements: 6 total (6 complete)
-- v5 requirements: 24 total (24 pending)
+- v5 requirements: 24 total (21 complete, 3 deferred/addressed)
 - Unmapped: 0 ✓
 
 ---
 *Last updated: 2026-01-23*
-*Milestone: v5.0 - Production Readiness Audit*
+*Milestone Complete: v5.0 - Production Readiness Audit*
