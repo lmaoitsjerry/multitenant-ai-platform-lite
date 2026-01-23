@@ -16,9 +16,12 @@ import pickle
 import tempfile
 import logging
 import threading
+import time
 from typing import List, Tuple, Optional, Dict, Any
 from functools import lru_cache
 from pathlib import Path
+
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,19 @@ class FAISSHelpdeskService:
             logger.error(f"Failed to create GCS client: {e}")
             return None
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((IOError, ConnectionError, TimeoutError)),
+        before_sleep=lambda retry_state: logger.warning(
+            f"GCS download failed, retrying in {retry_state.next_action.sleep} seconds..."
+        )
+    )
+    def _download_blob(self, blob, local_path: Path) -> bool:
+        """Download a blob with retry logic"""
+        blob.download_to_filename(str(local_path))
+        return True
+
     def _download_from_gcs(self, blob_name: str, local_path: Path) -> bool:
         """Download a file from GCS if not already cached or if stale"""
         try:
@@ -94,17 +110,24 @@ class FAISSHelpdeskService:
 
             # Check if local file exists and is recent (within 24 hours)
             if local_path.exists():
-                import time
                 file_age = time.time() - local_path.stat().st_mtime
                 if file_age < 86400:  # 24 hours
                     logger.info(f"Using cached {blob_name} (age: {file_age/3600:.1f} hours)")
                     return True
 
-            # Download file
+            # Download file with retry
             logger.info(f"Downloading {blob_name} from GCS bucket {GCS_BUCKET_NAME}...")
-            blob.download_to_filename(str(local_path))
-            logger.info(f"Downloaded {blob_name} ({local_path.stat().st_size / 1024 / 1024:.1f} MB)")
-            return True
+            try:
+                self._download_blob(blob, local_path)
+                logger.info(f"Downloaded {blob_name} ({local_path.stat().st_size / 1024 / 1024:.1f} MB)")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to download {blob_name} after retries: {e}")
+                # Try to use cached version if available
+                if local_path.exists():
+                    logger.warning(f"Using stale cached {blob_name} due to download failure")
+                    return True
+                return False
 
         except Exception as e:
             logger.error(f"Failed to download {blob_name} from GCS: {e}")
