@@ -58,14 +58,35 @@ Production-ready multi-tenant AI travel platform with secure tenant isolation, a
 
 ### Active
 
-- [ ] AUDIT-01: Verify and update codebase mapping
-- [ ] AUDIT-02: Define production-ready criteria from audit findings
-- [ ] CODE-01: Standardize code patterns and remove inconsistencies
-- [ ] CODE-02: Remove dead code and technical debt
-- [ ] PERF-01: Optimize slow database queries and API latency
-- [ ] PERF-02: Review and optimize caching strategy
-- [ ] EDGE-01: Audit and improve error handling across codebase
-- [ ] EDGE-02: Ensure graceful degradation for failure modes
+**Blocking (Must Fix):**
+- [ ] BLOCK-01: Fix race condition in DI caching (`routes.py:132-150`)
+- [ ] BLOCK-02: Fix admin token timing attack vulnerability (`admin_routes.py:71-97`)
+- [ ] BLOCK-03: Fix N+1 queries in CRM search (`crm_service.py:290-334`)
+- [ ] BLOCK-04: Add circuit breaker + retry for OpenAI API
+- [ ] BLOCK-05: Remove 15 bare exception handlers (8 in `email_webhook.py`, 7 in `analytics_routes.py`)
+- [ ] BLOCK-06: Add database indexes for common query patterns
+- [ ] BLOCK-07: Fix FAISS singleton thread safety
+- [ ] BLOCK-08: Implement deletion operations in provisioning service
+
+**High Priority:**
+- [ ] HIGH-01: Standardize error handling on `safe_error_response()` pattern
+- [ ] HIGH-02: Remove unused `logger.py`, use structured_logger everywhere
+- [ ] HIGH-03: Fix async/sync mismatch in `admin_tenants_routes.py`
+- [ ] HIGH-04: Add type hints to all public functions
+- [ ] HIGH-05: Replace pipeline_summary with database aggregation
+- [ ] HIGH-06: Add Redis caching for expensive operations (60s TTL)
+- [ ] HIGH-07: Add timeouts to all Supabase queries (5-10 seconds)
+- [ ] HIGH-08: Add bounds checking to all array/dict accesses
+- [ ] HIGH-09: Implement graceful degradation when OpenAI unavailable
+- [ ] HIGH-10: Add retry logic for GCS downloads
+
+**Medium Priority:**
+- [ ] MED-01: Standardize response format across all endpoints
+- [ ] MED-02: Deduplicate PDF building code (3 locations)
+- [ ] MED-03: Centralize table name constants
+- [ ] MED-04: Add cache TTL to config/agent/service caches
+- [ ] MED-05: Optimize MMR search O(n^2) complexity
+- [ ] MED-06: Move CORS origins to environment variables
 
 ### Out of Scope
 
@@ -73,16 +94,34 @@ Production-ready multi-tenant AI travel platform with secure tenant isolation, a
 - Adding new destinations/hotels — focus on pipeline, not data
 - Major refactoring of multi-tenant architecture — working fine
 - Real-time chat/WebSocket — async email pipeline is sufficient
-- Full TypeScript migration for frontends — deferred to v5.0
-- Distributed tracing (OpenTelemetry) — deferred to v5.0
+- Full TypeScript migration for frontends — deferred to v6.0
+- Distributed tracing (OpenTelemetry) — deferred to v6.0
 - Multi-GCP project consolidation — enterprise scale feature
+- Fixing broken email pipeline — address after production hardening
+- Helpdesk RAG quality improvements — address after production hardening
 
 ## Context
 
-**Current State:**
-1. **Inbound Email Pipeline (BROKEN)**: Emails sent to tenant SendGrid subusers (e.g., final-itc-3@zorah.ai) should trigger automatic quote generation. Currently no quotes are being generated or sent.
+**v5.0 Audit Summary (2026-01-23):**
 
-2. **Helpdesk RAG (POOR QUALITY)**: FAISS searches work but responses are robotic, list-like dumps of search results instead of natural, helpful answers.
+Deep-dive audit completed across code consistency, performance, and error handling. Full report: `.planning/PRODUCTION-AUDIT.md`
+
+| Area | Issues | Critical | High | Medium |
+|------|--------|----------|------|--------|
+| Code Consistency | 25+ | 2 | 5 | 18 |
+| Performance | 21 | 4 | 8 | 9 |
+| Error Handling | 47+ | 8 | 12 | 27 |
+
+**Key Findings:**
+- Race conditions in dependency injection caching and FAISS singleton
+- N+1 query patterns adding 1-5s latency to CRM operations
+- 15 bare exception handlers swallowing errors silently
+- No circuit breaker for OpenAI API (helpdesk crashes on outage)
+- Missing database indexes on common query patterns
+
+**Known Issues (Deferred to Later):**
+1. **Inbound Email Pipeline**: Emails to tenant subusers should trigger quote generation - currently broken
+2. **Helpdesk RAG Quality**: Responses are robotic list dumps instead of natural answers
 
 **Expected Inbound Email Flow:**
 ```
@@ -126,4 +165,4 @@ Email Parser (LLM) → Quote Generator → Email Sender → Notification
 | Redis rate limiting with fallback | Production resilience | ✓ Good |
 
 ---
-*Last updated: 2026-01-23 — v5.0 Production Readiness Audit started*
+*Last updated: 2026-01-23 — v5.0 deep-dive audit complete, production criteria defined*
