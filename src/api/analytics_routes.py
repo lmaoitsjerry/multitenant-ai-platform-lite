@@ -172,8 +172,8 @@ async def get_dashboard_stats(
                             due = datetime.fromisoformat(due_date.replace('Z', '+00:00'))
                             if due < now:
                                 stats["revenue"]["overdue"] += amount
-                        except:
-                            pass
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"Failed to parse due_date {due_date}: {e}")
         except Exception as e:
             logger.warning(f"Failed to get invoice stats: {e}")
 
@@ -444,8 +444,8 @@ async def get_quote_analytics(
                         key = dt.strftime('%Y-%m')
                     trend_data[key]["count"] += 1
                     trend_data[key]["value"] += q.get('total_price', 0) or 0
-                except:
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse quote created_at: {e}")
 
         result["trend"] = [
             {"date": date, **data}
@@ -559,7 +559,8 @@ async def get_invoice_analytics(
                         else:
                             result["aging"]["90_plus_days"] += amount
                             result["summary"]["overdue_value"] += amount
-                    except:
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Failed to parse invoice due_date: {e}")
                         result["aging"]["current"] += amount
                 else:
                     result["aging"]["current"] += amount
@@ -596,8 +597,8 @@ async def get_invoice_analytics(
 
                         if inv.get('status') == 'paid':
                             trend_data[key]["paid"] += amount
-                except:
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse invoice created_at: {e}")
 
         result["trend"] = [
             {"date": date, **data}
@@ -737,10 +738,10 @@ async def get_call_analytics(
                         if rec.get('call_status') == 'completed':
                             trend_data[key]["completed"] += 1
                             trend_data[key]["duration"] += rec.get('duration_seconds', 0) or 0
-                    except:
-                        pass
-        except:
-            pass
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Failed to parse call created_at: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to process call trend data: {e}")
 
         result["trend"] = [
             {"date": date, **data}
@@ -880,7 +881,8 @@ async def _refresh_dashboard_cache(config: ClientConfig, cache_key: str):
                         .execute()
                 )
                 return quotes.count or 0, clients.count or 0
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to fetch usage stats: {e}")
                 return 0, 0
 
         async def fetch_pricing_stats():
