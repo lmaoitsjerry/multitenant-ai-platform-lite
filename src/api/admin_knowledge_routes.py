@@ -123,7 +123,7 @@ class KnowledgeStats(BaseModel):
 
 # ==================== GCS Helper Functions ====================
 
-def get_gcs_client():
+def get_gcs_client() -> Optional[Any]:
     """Get Google Cloud Storage client"""
     try:
         from google.cloud import storage
@@ -133,7 +133,7 @@ def get_gcs_client():
         return None
 
 
-def get_gcs_bucket():
+def get_gcs_bucket() -> Optional[Any]:
     """Get the RAG documents bucket"""
     client = get_gcs_client()
     if client:
@@ -747,6 +747,6 @@ async def get_knowledge_stats(
 
 # ==================== Router Registration ====================
 
-def include_admin_knowledge_router(app):
+def include_admin_knowledge_router(app: Any) -> None:
     """Include admin knowledge router in the FastAPI app"""
     app.include_router(admin_knowledge_router)

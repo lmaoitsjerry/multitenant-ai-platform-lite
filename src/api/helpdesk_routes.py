@@ -15,7 +15,7 @@ Key features:
 import logging
 import os
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 
@@ -517,7 +517,7 @@ async def search_helpdesk(
 
 
 @helpdesk_router.get("/faiss-status")
-async def get_faiss_status():
+async def get_faiss_status() -> Dict[str, Any]:
     """
     Get status of the shared FAISS helpdesk index.
     Useful for debugging and monitoring.
@@ -584,7 +584,7 @@ async def test_faiss_search(q: str = "Maldives hotels"):
 
 
 @helpdesk_router.get("/health")
-async def helpdesk_health():
+async def helpdesk_health() -> Dict[str, Any]:
     """
     Health check endpoint for the helpdesk RAG system.
 
@@ -704,7 +704,7 @@ async def agent_chat(
 
 
 @helpdesk_router.post("/agent/reset")
-async def agent_reset():
+async def agent_reset() -> Dict[str, Any]:
     """Reset the agent's conversation history for a new session."""
     try:
         from src.agents.helpdesk_agent import get_helpdesk_agent
@@ -716,7 +716,7 @@ async def agent_reset():
 
 
 @helpdesk_router.get("/agent/stats")
-async def agent_stats():
+async def agent_stats() -> Dict[str, Any]:
     """Get agent statistics."""
     try:
         from src.agents.helpdesk_agent import get_helpdesk_agent
@@ -1065,7 +1065,7 @@ async def run_accuracy_tests(
 
 
 @helpdesk_router.get("/accuracy-test/cases")
-async def list_accuracy_test_cases():
+async def list_accuracy_test_cases() -> Dict[str, Any]:
     """List all available accuracy test cases."""
     return {
         "success": True,
@@ -1085,6 +1085,6 @@ async def list_accuracy_test_cases():
 # ROUTER REGISTRATION
 # ============================================================
 
-def include_helpdesk_router(app):
+def include_helpdesk_router(app: Any) -> None:
     """Include helpdesk router in the FastAPI app"""
     app.include_router(helpdesk_router)

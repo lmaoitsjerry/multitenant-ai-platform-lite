@@ -121,7 +121,7 @@ class GrowthMetrics(BaseModel):
 
 # ==================== Helper Functions ====================
 
-def get_supabase_admin_client():
+def get_supabase_admin_client() -> Optional[Any]:
     """Get Supabase client for admin operations"""
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
@@ -534,6 +534,6 @@ async def get_growth_metrics(
 
 # ==================== Router Registration ====================
 
-def include_admin_analytics_router(app):
+def include_admin_analytics_router(app: Any) -> None:
     """Include admin analytics router in the FastAPI app"""
     app.include_router(admin_analytics_router)
