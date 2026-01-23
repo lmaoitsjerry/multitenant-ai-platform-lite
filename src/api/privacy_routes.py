@@ -469,10 +469,11 @@ async def request_data_erasure(
         )
 
         # Notify admins for manual review (erasure requires verification)
-        background_tasks.add_task(
-            _notify_admins_of_dsar,
-            config, dsar_response.data[0]
-        )
+        if dsar_response.data:
+            background_tasks.add_task(
+                _notify_admins_of_dsar,
+                config, dsar_response.data[0]
+            )
 
         return {
             "success": True,
@@ -627,6 +628,9 @@ async def report_breach(
         }).execute()
 
         breach_record = response.data[0] if response.data else None
+
+        if not breach_record:
+            raise HTTPException(status_code=500, detail="Failed to create breach report")
 
         # For high/critical severity, send immediate alerts
         if breach.severity in ["high", "critical"]:
