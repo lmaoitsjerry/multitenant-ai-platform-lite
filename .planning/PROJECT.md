@@ -8,27 +8,21 @@ A multi-tenant AI-powered travel platform for property management companies, fea
 
 Production-ready multi-tenant AI travel platform with secure tenant isolation, automated email-to-quote pipeline, and natural helpdesk responses.
 
-## Current Milestone: v4.0 Test Coverage Push
+## Current Milestone: v5.0 Production Readiness Audit
 
-**Goal:** Achieve 70% test coverage by adding comprehensive mocks for external APIs (BigQuery, Twilio, SendGrid, LLM agents).
+**Goal:** Comprehensive audit and optimization to prepare for production deployment.
 
-**Target features:**
-- COVER-01: BigQuery analytics mock infrastructure
-- COVER-02: LLM agent testing (helpdesk, inbound, quote agents)
-- COVER-03: Twilio VAPI provisioner tests with API mocking
-- COVER-04: SendGrid advanced scenarios (templates, subusers)
-- COVER-05: File upload and RAG service integration tests
+**Focus areas:**
+- **Code consistency** — Standardize patterns, remove dead code, clean up technical debt
+- **Performance** — Optimize slow queries, API latency, caching gaps
+- **Edge case handling** — Error handling, failure modes, graceful degradation
 
-**Coverage gaps to close:**
-| Module | Current | Target |
-|--------|---------|--------|
-| analytics_routes.py | 9.4% | 70%+ |
-| admin_knowledge_routes.py | 17.9% | 70%+ |
-| helpdesk_agent.py | 0% | 70%+ |
-| inbound_agent.py | 0% | 70%+ |
-| twilio_vapi_provisioner.py | 0% | 70%+ |
+**Approach:**
+1. Verify codebase mapping is current
+2. Define production-ready criteria based on audit findings
+3. Execute optimization phases systematically
 
-**Estimated effort:** 20-25 hours
+**Status:** Staging only — free to refactor without breaking live users
 
 ## Requirements
 
@@ -59,15 +53,19 @@ Production-ready multi-tenant AI travel platform with secure tenant isolation, a
 - ✓ SCALE-01 to SCALE-03: Scalability (DB tenant registry, Redis rate limiting/caching) — v3.0
 - ✓ DEVOPS-01 to DEVOPS-03: CI/CD, non-root Docker, structured logging — v3.0
 - ✓ TEST-01 to TEST-03: Auth, rate limiting, tenant isolation tests — v3.0
+- ✓ COVER-01 to COVER-05: External API mocking (BigQuery, Twilio, SendGrid, LLM agents) — v4.0
+- ✓ TEST-04: 57.5% test coverage achieved with 1,554 tests — v4.0
 
 ### Active
 
-- [ ] COVER-01: BigQuery analytics mock infrastructure with realistic query responses
-- [ ] COVER-02: LLM agent test suite with OpenAI response mocking
-- [ ] COVER-03: Twilio VAPI provisioner tests with API mocking
-- [ ] COVER-04: SendGrid advanced scenarios (templates, dynamic content, subusers)
-- [ ] COVER-05: File upload and RAG service integration tests
-- [ ] TEST-04: Achieve 70% test coverage threshold (currently 45%)
+- [ ] AUDIT-01: Verify and update codebase mapping
+- [ ] AUDIT-02: Define production-ready criteria from audit findings
+- [ ] CODE-01: Standardize code patterns and remove inconsistencies
+- [ ] CODE-02: Remove dead code and technical debt
+- [ ] PERF-01: Optimize slow database queries and API latency
+- [ ] PERF-02: Review and optimize caching strategy
+- [ ] EDGE-01: Audit and improve error handling across codebase
+- [ ] EDGE-02: Ensure graceful degradation for failure modes
 
 ### Out of Scope
 
@@ -128,4 +126,4 @@ Email Parser (LLM) → Quote Generator → Email Sender → Notification
 | Redis rate limiting with fallback | Production resilience | ✓ Good |
 
 ---
-*Last updated: 2026-01-21 — v4.0 milestone started*
+*Last updated: 2026-01-23 — v5.0 Production Readiness Audit started*
