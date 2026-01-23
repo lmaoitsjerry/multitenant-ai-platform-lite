@@ -475,3 +475,66 @@ class TestPhoneSearchEndpoint:
             )
             assert response.status_code == 500
             assert "credentials not configured" in response.json()["detail"].lower()
+
+
+# ==================== Admin Token Timing Safety Tests ====================
+
+class TestAdminTokenTimingSafety:
+    """Tests for timing-safe admin token verification."""
+
+    def test_admin_token_uses_constant_time_comparison(self):
+        """Verify that hmac.compare_digest is used for token comparison."""
+        import inspect
+        from src.api.admin_routes import verify_admin_token
+
+        # Get the source code of the function
+        source = inspect.getsource(verify_admin_token)
+
+        # Verify it uses hmac.compare_digest
+        assert 'hmac.compare_digest' in source, \
+            "verify_admin_token must use hmac.compare_digest for constant-time comparison"
+
+    def test_admin_token_rejects_wrong_token_with_401(self):
+        """Verify wrong tokens are still rejected."""
+        from fastapi import HTTPException
+        import pytest
+        from src.api.admin_routes import verify_admin_token
+
+        with patch.dict(os.environ, {'ADMIN_API_TOKEN': 'correct-secret-token'}):
+            with pytest.raises(HTTPException) as exc_info:
+                verify_admin_token('wrong-token')
+
+            assert exc_info.value.status_code == 401
+            assert 'Invalid admin token' in exc_info.value.detail
+
+    def test_admin_token_accepts_correct_token(self):
+        """Verify correct tokens are accepted."""
+        from src.api.admin_routes import verify_admin_token
+
+        with patch.dict(os.environ, {'ADMIN_API_TOKEN': 'correct-secret-token'}):
+            result = verify_admin_token('correct-secret-token')
+            assert result is True
+
+    def test_admin_token_handles_unicode(self):
+        """Verify token comparison works with unicode characters."""
+        from src.api.admin_routes import verify_admin_token
+
+        unicode_token = 'secret-token-with-unicode-\u00e9\u00e8\u00ea'
+
+        with patch.dict(os.environ, {'ADMIN_API_TOKEN': unicode_token}):
+            result = verify_admin_token(unicode_token)
+            assert result is True
+
+    def test_admin_token_no_vulnerable_comparison_in_source(self):
+        """Ensure direct string comparison operators are not used for token check."""
+        import inspect
+        from src.api.admin_routes import verify_admin_token
+
+        source = inspect.getsource(verify_admin_token)
+
+        # The token comparison should NOT use != or == directly on the tokens
+        # We check that the pattern "x_admin_token != admin_token" is NOT present
+        assert 'x_admin_token != admin_token' not in source, \
+            "Direct string comparison (!=) should not be used for token comparison"
+        assert 'x_admin_token == admin_token' not in source, \
+            "Direct string comparison (==) should not be used for token comparison"
