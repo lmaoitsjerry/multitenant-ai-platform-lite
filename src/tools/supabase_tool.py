@@ -14,24 +14,29 @@ Usage:
 
     config = ClientConfig('africastay')
     sb = SupabaseTool(config)
-    
+
     # Queue a call
     sb.queue_outbound_call({...})
-    
+
     # Create ticket
     sb.create_ticket({...})
 """
 
 import logging
 import asyncio
+import time
 from typing import Dict, Any, List, Optional, Callable, TypeVar
 from datetime import datetime, timedelta
 import uuid
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from config.loader import ClientConfig
 
 T = TypeVar('T')
+
+# Default query timeout in seconds
+DEFAULT_QUERY_TIMEOUT = 10
 
 
 def run_sync(func: Callable[..., T]) -> Callable[..., T]:
@@ -115,8 +120,76 @@ class SupabaseTool:
             config.client_id
         )
 
+        # Thread pool executor for timeout-protected queries
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._default_timeout = DEFAULT_QUERY_TIMEOUT
+
         if not self.client and create_client is None:
             logger.warning("Supabase library not available")
+
+    def execute_with_timeout(self, query_func: Callable[[], T], timeout: float = None, operation: str = "query") -> T:
+        """
+        Execute a Supabase query with timeout protection.
+
+        Args:
+            query_func: Callable that performs the query and returns result
+            timeout: Timeout in seconds (default: 10s)
+            operation: Description of operation for logging
+
+        Returns:
+            Query result
+
+        Raises:
+            TimeoutError: If query exceeds timeout
+            Exception: If query fails
+
+        Usage:
+            result = self.execute_with_timeout(
+                lambda: self.client.table('quotes').select("*").eq('tenant_id', tenant_id).execute(),
+                timeout=5,
+                operation="fetch quotes"
+            )
+        """
+        timeout = timeout or self._default_timeout
+        start = time.time()
+
+        try:
+            future = self._executor.submit(query_func)
+            result = future.result(timeout=timeout)
+            elapsed = time.time() - start
+            if elapsed > 3:  # Log slow queries
+                logger.warning(f"Slow query ({operation}): {elapsed:.2f}s")
+            return result
+        except FuturesTimeoutError:
+            elapsed = time.time() - start
+            logger.error(f"Query timeout ({operation}): exceeded {timeout}s after {elapsed:.2f}s")
+            raise TimeoutError(f"Query '{operation}' timed out after {timeout}s")
+        except Exception as e:
+            logger.error(f"Query failed ({operation}): {e}")
+            raise
+
+    def query_with_timeout(self, table: str, select: str = "*", filters: dict = None, timeout: float = 10) -> list:
+        """
+        Execute a select query with timeout.
+
+        Args:
+            table: Table name
+            select: Columns to select
+            filters: Dict of column -> value filters
+            timeout: Timeout in seconds
+
+        Returns:
+            List of records
+        """
+        def do_query():
+            q = self.client.table(table).select(select).eq('tenant_id', self.tenant_id)
+            if filters:
+                for col, val in filters.items():
+                    q = q.eq(col, val)
+            return q.execute()
+
+        result = self.execute_with_timeout(do_query, timeout=timeout, operation=f"select from {table}")
+        return result.data or []
 
     # ==================== Call Queue Operations ====================
 
