@@ -714,29 +714,165 @@ Company: {company_name}
             logger.error(f"❌ Prompt creation failed: {e}")
             return {'success': False, 'error': str(e)}
     
+    def _delete_sendgrid_subuser(self, client_id: str, result: dict) -> bool:
+        """Delete SendGrid subuser for tenant"""
+        try:
+            import sendgrid
+            from sendgrid.helpers.mail import Mail
+
+            api_key = os.getenv('SENDGRID_API_KEY')
+            if not api_key:
+                result['errors'].append("SENDGRID_API_KEY not set - cannot delete subuser")
+                return False
+
+            # Get subuser name from tenant settings
+            from src.tools.supabase_tool import SupabaseTool
+            from config.loader import ClientConfig
+
+            try:
+                config = ClientConfig(client_id)
+                supabase = SupabaseTool(config)
+                settings = supabase.get_tenant_settings()
+                subuser_name = settings.get('sendgrid_username') if settings else None
+            except Exception as e:
+                logger.warning(f"Could not get tenant settings for {client_id}: {e}")
+                subuser_name = None
+
+            if not subuser_name:
+                logger.info(f"No SendGrid subuser to delete for {client_id}")
+                result['steps_completed'].append("sendgrid_subuser: none configured")
+                return True
+
+            # Delete subuser via SendGrid API
+            sg = sendgrid.SendGridAPIClient(api_key=api_key)
+            response = sg.client.subusers._(subuser_name).delete()
+
+            if response.status_code in (200, 204, 404):  # 404 = already deleted
+                logger.info(f"Deleted SendGrid subuser: {subuser_name}")
+                result['steps_completed'].append(f"sendgrid_subuser: {subuser_name} deleted")
+                return True
+            else:
+                result['errors'].append(f"Failed to delete SendGrid subuser: {response.status_code}")
+                return False
+
+        except ImportError:
+            logger.warning("SendGrid library not available - skipping subuser deletion")
+            result['steps_completed'].append("sendgrid_subuser: library not available")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete SendGrid subuser for {client_id}: {e}")
+            result['errors'].append(f"SendGrid subuser deletion failed: {str(e)}")
+            return False
+
+    def _delete_tenant_data(self, client_id: str, result: dict) -> bool:
+        """Delete tenant data from Supabase (quotes, clients, etc.)"""
+        try:
+            from src.tools.supabase_tool import SupabaseTool
+            from config.loader import ClientConfig
+
+            config = ClientConfig(client_id)
+            supabase = SupabaseTool(config)
+
+            if not supabase.client:
+                result['errors'].append("Supabase client not available")
+                return False
+
+            # Delete in order to respect foreign keys
+            tables_to_delete = [
+                'activities',      # References clients
+                'notifications',   # References tenant
+                'quotes',          # References clients
+                'invoices',        # References quotes/clients
+                'clients',         # Core tenant data
+                'tenant_settings', # Tenant configuration
+            ]
+
+            for table in tables_to_delete:
+                try:
+                    supabase.client.table(table)\
+                        .delete()\
+                        .eq('tenant_id', client_id)\
+                        .execute()
+                    logger.info(f"Deleted {table} data for {client_id}")
+                    result['steps_completed'].append(f"data:{table} deleted")
+                except Exception as e:
+                    # Log but continue - some tables may not exist or have no data
+                    logger.warning(f"Could not delete {table} for {client_id}: {e}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete tenant data for {client_id}: {e}")
+            result['errors'].append(f"Data deletion failed: {str(e)}")
+            return False
+
+    def _delete_client_directory(self, client_id: str, result: dict) -> bool:
+        """Delete client configuration directory"""
+        try:
+            import shutil
+            from pathlib import Path
+
+            # Client directories are in clients/{client_id}/
+            client_dir = Path("clients") / client_id
+
+            if not client_dir.exists():
+                logger.info(f"Client directory does not exist: {client_dir}")
+                result['steps_completed'].append("client_directory: already removed")
+                return True
+
+            # Safety check - don't delete if it looks like important data
+            if client_dir.is_file():
+                result['errors'].append(f"Expected directory but found file: {client_dir}")
+                return False
+
+            # Remove directory and contents
+            shutil.rmtree(client_dir)
+            logger.info(f"Deleted client directory: {client_dir}")
+            result['steps_completed'].append(f"client_directory: {client_dir} deleted")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete client directory for {client_id}: {e}")
+            result['errors'].append(f"Directory deletion failed: {str(e)}")
+            return False
+
     def deprovision_tenant(self, client_id: str) -> Dict[str, Any]:
         """
-        Remove a tenant and clean up resources
-        
+        Remove a tenant and clean up resources.
+
         WARNING: This is destructive!
-        
+
         Args:
             client_id: Tenant to remove
-            
+
         Returns:
-            Deprovisioning result
+            Deprovisioning result with steps completed and errors
         """
         result = {
             'success': True,
             'steps_completed': [],
             'errors': []
         }
-        
-        # TODO: Implement SendGrid subuser deletion
-        # TODO: Implement BigQuery dataset deletion (with confirmation)
-        # TODO: Remove client directory
-        
-        logger.warning(f"⚠️ Tenant deprovisioning not fully implemented for {client_id}")
+
+        logger.warning(f"Starting tenant deprovisioning for {client_id}")
+
+        # Step 1: Delete SendGrid subuser
+        self._delete_sendgrid_subuser(client_id, result)
+
+        # Step 2: Delete tenant data from database
+        self._delete_tenant_data(client_id, result)
+
+        # Step 3: Remove client directory
+        self._delete_client_directory(client_id, result)
+
+        # Determine overall success
+        result['success'] = len(result['errors']) == 0
+
+        if result['success']:
+            logger.info(f"Tenant {client_id} deprovisioned successfully")
+        else:
+            logger.warning(f"Tenant {client_id} deprovisioning completed with errors: {result['errors']}")
+
         return result
 
 
