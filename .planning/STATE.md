@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 16 of 18 (Critical Fixes)
-Plan: 2 of 3 complete
-Status: In progress
-Last activity: 2026-01-23 - Completed 16-02-PLAN.md (admin token timing fix)
+Plan: 3 of 3 complete
+Status: Phase complete
+Last activity: 2026-01-23 - Completed 16-03-PLAN.md (CRM N+1 query fix)
 
-Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0: 2/9 plans)
+Progress: [====================] 100% (v4.0) | [===                 ] 33% (v5.0: 3/9 plans)
 
 ## Milestones
 
@@ -22,11 +22,11 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 - Goal: Comprehensive audit and optimization for production deployment
 - Focus: Code consistency, performance optimization, edge case handling
 - Started: 2026-01-23
-- Status: Phase 16 in progress (2/3 plans complete)
+- Status: Phase 16 complete
 - Phases: 16 (Critical Fixes), 17 (Error Handling), 18 (Code Quality)
 - Requirements: 24 (8 blocking, 10 high, 6 medium)
 - Audit report: .planning/PRODUCTION-AUDIT.md
-- Phase 16: 16-01 (complete), 16-02 (complete), 16-03 (pending)
+- Phase 16: 16-01 (complete), 16-02 (complete), 16-03 (complete)
 
 ### v4.0: Test Coverage Push (COMPLETE)
 - Goal: Achieve comprehensive test coverage with external API mocking
@@ -72,7 +72,7 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 | 13 | 2/2 | Complete |
 | 14 | 3/3 | Complete |
 | 15 | 3/3 | Complete |
-| 16 | 2/3 | In progress |
+| 16 | 3/3 | Complete |
 
 ## Accumulated Context
 
@@ -99,6 +99,9 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 | ID | Decision | Date |
 |----|----------|------|
 | D-16-02-01 | Use hmac.compare_digest with UTF-8 encoding for token comparison | 2026-01-23 |
+| D-16-03-01 | Use in_() batch queries instead of N+1 per-client queries | 2026-01-23 |
+| D-16-03-02 | Group batch results by key (email/client_id) for O(1) enrichment | 2026-01-23 |
+| D-16-03-03 | Use CONCURRENTLY for index creation to avoid locking | 2026-01-23 |
 
 ### Decisions (v4.0)
 
@@ -162,6 +165,7 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 
 - ~~Run 014_tenant_config.sql in Supabase SQL Editor~~ DONE
 - ~~Re-run migration: `python scripts/migrate_tenants_to_db.py --force`~~ DONE (4 tenants migrated)
+- Run 015_production_indexes.sql in Supabase SQL Editor (CRM batch query indexes)
 - Set REDIS_URL in production environment for caching
 - Configure GitHub secrets for CI/CD: GCP_PROJECT_ID, WIF_PROVIDER, WIF_SERVICE_ACCOUNT
 - Set up Workload Identity Federation in GCP (see .github/workflows/README.md)
@@ -181,7 +185,7 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 | test_core_routes.py | 47 | Passing |
 | test_pricing_routes.py | 32 | Passing |
 | test_knowledge_routes.py | 35 | Passing |
-| test_crm_service.py | 31 | Passing |
+| test_crm_service.py | 35 | Passing |
 | test_email_sender.py | 31 | Passing |
 | test_pdf_generator.py | 30 | 7 pass, 23 skip |
 | test_email_webhook.py | 39 | Passing |
@@ -211,7 +215,7 @@ Progress: [====================] 100% (v4.0) | [==                  ] 22% (v5.0:
 | test_admin_knowledge_routes.py | 118 | 103 pass, 15 skip (84.3% coverage) |
 | test_config.py | 4 | Passing |
 | test_templates.py | 5 | 2 pass, 3 skip |
-| **Total** | **1559** | **Passing** |
+| **Total** | **1563** | **Passing** |
 
 Current coverage: 57.5% (measured with pytest-cov)
 CI threshold: 57% (enforced on all PRs)
@@ -237,6 +241,6 @@ Target coverage: 70% (aspirational - requires additional route testing)
 
 ## Session Continuity
 
-Last session: 2026-01-23
+Last session: 2026-01-23 (16-03 executed)
 Stopped at: Completed 16-02-PLAN.md (admin token timing attack fix)
 Resume file: .planning/phases/16-critical-fixes/16-03-PLAN.md
