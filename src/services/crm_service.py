@@ -13,7 +13,7 @@ Usage:
 
     config = ClientConfig('africastay')
     crm = CRMService(config)
-    
+
     client = crm.get_or_create_client(
         email='john@example.com',
         name='John Doe',
@@ -22,12 +22,26 @@ Usage:
 """
 
 import logging
+import os
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from enum import Enum
 import uuid
 
 from config.loader import ClientConfig
+
+
+def get_redis_client():
+    """Get Redis client for caching, returns None if unavailable."""
+    try:
+        import redis
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            return redis.from_url(redis_url)
+        return None
+    except Exception:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -394,9 +408,21 @@ class CRMService:
         - Query 3: Get quote totals only for active clients (batch query with in_())
 
         This is much more efficient than fetching all rows for large datasets.
+        Results are cached in Redis for 60 seconds.
         """
         if not self.supabase or not self.supabase.client:
             return {}
+
+        # Try to get from cache first
+        cache_key = f"crm:pipeline_summary:{self.config.client_id}"
+        redis_client = get_redis_client()
+        if redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception:
+                pass  # Continue without cache
 
         try:
             # Query 1: Get clients with pipeline stages (lightweight - minimal columns)
@@ -466,6 +492,14 @@ class CRMService:
                 }
 
             logger.info(f"[Pipeline] Summary: {len(clients)} clients, {len(active_client_emails)} active")
+
+            # Cache the result in Redis (60 second TTL)
+            if redis_client and summary:
+                try:
+                    redis_client.setex(cache_key, 60, json.dumps(summary))
+                except Exception:
+                    pass  # Continue without caching
+
             return summary
 
         except Exception as e:
@@ -476,9 +510,21 @@ class CRMService:
         """Get overall CRM statistics.
 
         Total value is calculated from quotes linked to clients.
+        Results are cached in Redis for 60 seconds.
         """
         if not self.supabase or not self.supabase.client:
             return {}
+
+        # Try to get from cache first
+        cache_key = f"crm:client_stats:{self.config.client_id}"
+        redis_client = get_redis_client()
+        if redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception:
+                pass  # Continue without cache
 
         try:
             # Get all clients
@@ -498,7 +544,7 @@ class CRMService:
             quotes = quotes_result.data or []
             total_quote_value = sum(q.get('total_price', 0) or 0 for q in quotes)
 
-            return {
+            result = {
                 'total_clients': len(clients),
                 'total_value': total_quote_value,
                 'by_stage': {
@@ -507,6 +553,15 @@ class CRMService:
                 },
                 'by_source': self._count_by_field(clients, 'source')
             }
+
+            # Cache the result in Redis (60 second TTL)
+            if redis_client and result:
+                try:
+                    redis_client.setex(cache_key, 60, json.dumps(result))
+                except Exception:
+                    pass  # Continue without caching
+
+            return result
 
         except Exception as e:
             logger.error(f"Failed to get client stats: {e}")
