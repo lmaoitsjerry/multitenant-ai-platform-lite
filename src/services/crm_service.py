@@ -386,74 +386,86 @@ class CRMService:
             return []
 
     def get_pipeline_summary(self) -> Dict[str, Any]:
-        """Get pipeline stage summary with counts and values.
+        """Get pipeline stage summary with counts and values using database aggregation.
 
-        Values are calculated from quotes linked to clients by email,
-        since total_value on clients may not always be updated.
+        Uses optimized queries:
+        - Query 1: Get client counts by stage (lightweight - only pipeline_stage column)
+        - Query 2: Get active pipeline clients with emails (for value calculation)
+        - Query 3: Get quote totals only for active clients (batch query with in_())
+
+        This is much more efficient than fetching all rows for large datasets.
         """
         if not self.supabase or not self.supabase.client:
             return {}
 
         try:
-            # Get all clients with their pipeline stages and emails
+            # Query 1: Get clients with pipeline stages (lightweight - minimal columns)
             clients_result = self.supabase.client.table('clients')\
-                .select("email, pipeline_stage")\
+                .select("pipeline_stage")\
                 .eq('tenant_id', self.config.client_id)\
                 .execute()
 
             clients = clients_result.data or []
-            logger.info(f"[Pipeline] Found {len(clients)} clients")
 
-            # Get all quotes to calculate values
-            quotes_result = self.supabase.client.table('quotes')\
-                .select("customer_email, total_price")\
+            # Count clients per stage
+            stage_counts = {}
+            for stage in PipelineStage:
+                stage_counts[stage.value] = 0
+
+            for c in clients:
+                stage = c.get('pipeline_stage')
+                if stage in stage_counts:
+                    stage_counts[stage] += 1
+
+            # Query 2: Get emails of clients in active pipeline stages only
+            # Skip LOST and TRAVELLED as they don't need value calculations
+            active_stages = [PipelineStage.QUOTED.value, PipelineStage.NEGOTIATING.value,
+                             PipelineStage.BOOKED.value, PipelineStage.PAID.value]
+
+            active_clients = self.supabase.client.table('clients')\
+                .select("email, pipeline_stage")\
                 .eq('tenant_id', self.config.client_id)\
+                .in_('pipeline_stage', active_stages)\
                 .execute()
 
-            quotes = quotes_result.data or []
-            logger.info(f"[Pipeline] Found {len(quotes)} quotes")
+            active_client_data = active_clients.data or []
+            active_client_emails = [c.get('email') for c in active_client_data if c.get('email')]
 
-            # Log first few quotes for debugging
-            for i, q in enumerate(quotes[:3]):
-                logger.info(f"[Pipeline] Quote {i}: email={q.get('customer_email')}, total_price={q.get('total_price')}")
+            # Initialize stage values
+            stage_values = {stage.value: 0 for stage in PipelineStage}
 
-            # Build a map of email -> total quote value
-            email_values = {}
-            for quote in quotes:
-                # Handle both 'customer_email' and potential variations
-                email = (quote.get('customer_email') or quote.get('email') or '').lower().strip()
-                price = quote.get('total_price') or quote.get('price') or 0
-                if email and price:
-                    email_values[email] = email_values.get(email, 0) + price
+            # Query 3: Get quote totals for active clients only (batch query)
+            if active_client_emails:
+                quotes_result = self.supabase.client.table('quotes')\
+                    .select("customer_email, total_price")\
+                    .eq('tenant_id', self.config.client_id)\
+                    .in_('customer_email', active_client_emails)\
+                    .execute()
 
-            logger.info(f"[Pipeline] Email->Value map: {len(email_values)} entries")
-            for email, value in list(email_values.items())[:3]:
-                logger.info(f"[Pipeline]   {email}: {value}")
+                # Build email -> total value map
+                email_values = {}
+                for quote in (quotes_result.data or []):
+                    email = (quote.get('customer_email') or '').lower().strip()
+                    price = quote.get('total_price') or 0
+                    if email and price:
+                        email_values[email] = email_values.get(email, 0) + price
 
-            # Log client emails for comparison
-            client_emails = [(c.get('email') or '').lower().strip() for c in clients]
-            logger.info(f"[Pipeline] Client emails: {client_emails[:5]}")
+                # Calculate stage values from active clients
+                for c in active_client_data:
+                    email = (c.get('email') or '').lower().strip()
+                    stage = c.get('pipeline_stage')
+                    if email and stage:
+                        stage_values[stage] += email_values.get(email, 0)
 
-            # Calculate summary by stage
+            # Build summary
             summary = {}
             for stage in PipelineStage:
-                stage_clients = [c for c in clients if c.get('pipeline_stage') == stage.value]
-                # Sum quote values for clients in this stage
-                stage_value = 0
-                for c in stage_clients:
-                    client_email = (c.get('email') or '').lower().strip()
-                    client_value = email_values.get(client_email, 0)
-                    if client_value > 0:
-                        logger.debug(f"Pipeline: Client {client_email} in {stage.value} has value {client_value}")
-                    stage_value += client_value
-
                 summary[stage.value] = {
-                    'count': len(stage_clients),
-                    'value': stage_value
+                    'count': stage_counts.get(stage.value, 0),
+                    'value': stage_values.get(stage.value, 0)
                 }
-                if stage_value > 0:
-                    logger.info(f"Pipeline summary: {stage.value} has {len(stage_clients)} clients, value {stage_value}")
 
+            logger.info(f"[Pipeline] Summary: {len(clients)} clients, {len(active_client_emails)} active")
             return summary
 
         except Exception as e:
