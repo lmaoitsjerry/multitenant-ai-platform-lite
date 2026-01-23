@@ -10,6 +10,7 @@ Each endpoint uses the X-Client-ID header for tenant identification.
 """
 
 import logging
+from functools import lru_cache
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Body, Request, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
@@ -128,10 +129,13 @@ class InvoiceSendRequest(BaseModel):
 
 # ==================== Dependency ====================
 
-# Global caches for performance - avoid re-initialization on every request
-_client_configs = {}
-_quote_agents = {}
-_crm_services = {}
+# Thread-safe caching using functools.lru_cache (GIL-protected atomic operations)
+
+
+@lru_cache(maxsize=100)
+def _get_cached_config(client_id: str) -> ClientConfig:
+    """Get cached client configuration - thread-safe via lru_cache"""
+    return ClientConfig(client_id)
 
 
 def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
@@ -139,35 +143,38 @@ def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> C
     import os
     client_id = x_client_id or os.getenv("CLIENT_ID", "example")
 
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-            logger.info(f"Loaded configuration for client: {client_id}")
-        except Exception as e:
-            logger.error(f"Failed to load config for {client_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
+    try:
+        config = _get_cached_config(client_id)
+        logger.info(f"Loaded configuration for client: {client_id}")
+        return config
+    except Exception as e:
+        logger.error(f"Failed to load config for {client_id}: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
 
-    return _client_configs[client_id]
+
+@lru_cache(maxsize=100)
+def _get_cached_quote_agent(client_id: str):
+    """Get cached QuoteAgent - thread-safe via lru_cache"""
+    from src.agents.quote_agent import QuoteAgent
+    config = _get_cached_config(client_id)
+    return QuoteAgent(config)
 
 
 def get_quote_agent(config: ClientConfig):
     """Get cached QuoteAgent for client"""
-    from src.agents.quote_agent import QuoteAgent
+    return _get_cached_quote_agent(config.client_id)
 
-    if config.client_id not in _quote_agents:
-        _quote_agents[config.client_id] = QuoteAgent(config)
-        logger.info(f"Created QuoteAgent for {config.client_id}")
 
-    return _quote_agents[config.client_id]
+@lru_cache(maxsize=100)
+def _get_cached_crm_service(client_id: str):
+    """Get cached CRMService - thread-safe via lru_cache"""
+    config = _get_cached_config(client_id)
+    return CRMService(config)
 
 
 def get_crm_service(config: ClientConfig):
     """Get cached CRMService for client"""
-    if config.client_id not in _crm_services:
-        _crm_services[config.client_id] = CRMService(config)
-        logger.info(f"Created CRMService for {config.client_id}")
-
-    return _crm_services[config.client_id]
+    return _get_cached_crm_service(config.client_id)
 
 
 # ==================== Legacy SendGrid Inbound Webhook ====================
