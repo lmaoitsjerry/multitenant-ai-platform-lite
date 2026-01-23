@@ -118,6 +118,8 @@ Progress: [====================] 100% (v4.0) | [===============     ] 78% (v5.0:
 | D-17-03-01 | Use ThreadPoolExecutor with 10s default timeout for Supabase queries | 2026-01-23 |
 | D-17-03-02 | Only fetch active pipeline stages for value calculations (skip LOST/TRAVELLED) | 2026-01-23 |
 | D-17-03-03 | Delete tables in dependency order during deprovisioning | 2026-01-23 |
+| D-18-01-01 | Use asyncio.to_thread() to wrap synchronous Supabase calls | 2026-01-23 |
+| D-18-01-02 | Use Optional[Any] for client return types to avoid importing Supabase/GCS types | 2026-01-23 |
 | D-18-02-01 | Use 60-second TTL for CRM cache (matching PROD-14 requirement) | 2026-01-23 |
 | D-18-02-02 | Cache keys include tenant_id for multi-tenant isolation | 2026-01-23 |
 | D-18-02-03 | Graceful fallback when Redis unavailable (continue without cache) | 2026-01-23 |
@@ -262,5 +264,5 @@ Target coverage: 70% (aspirational - requires additional route testing)
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 18-02-PLAN.md
+Stopped at: Completed 18-01-PLAN.md (async/sync fixes & type hints)
 Resume file: None - ready for 18-03
