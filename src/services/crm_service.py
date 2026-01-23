@@ -255,7 +255,7 @@ class CRMService:
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """Search and list clients with enriched data"""
+        """Search and list clients with enriched data using batch queries"""
         if not self.supabase or not self.supabase.client:
             return []
 
@@ -285,52 +285,74 @@ class CRMService:
                     or query_lower in (c.get('phone') or '').lower()
                 ]
 
-            # Enrich clients with quote and activity data
+            if not clients:
+                return []
+
+            # Collect emails and client_ids for batch queries
+            client_emails = [c.get('email') for c in clients if c.get('email')]
+            client_ids = [c.get('client_id') for c in clients if c.get('client_id')]
+
+            # Batch query 1: Get latest quotes for all clients in one query
+            quotes_by_email = {}
+            if client_emails:
+                try:
+                    quotes_result = self.supabase.client.table('quotes')\
+                        .select("customer_email, destination, total_price, created_at")\
+                        .eq('tenant_id', self.config.client_id)\
+                        .in_('customer_email', client_emails)\
+                        .order('created_at', desc=True)\
+                        .execute()
+
+                    # Group by email, keeping only the latest (first due to order)
+                    for quote in (quotes_result.data or []):
+                        email = quote.get('customer_email')
+                        if email and email not in quotes_by_email:
+                            quotes_by_email[email] = quote
+                except Exception as e:
+                    logger.debug(f"Could not batch fetch quotes: {e}")
+
+            # Batch query 2: Get latest activities for all clients in one query
+            activities_by_client = {}
+            if client_ids:
+                try:
+                    activities_result = self.supabase.client.table('activities')\
+                        .select("client_id, created_at")\
+                        .eq('tenant_id', self.config.client_id)\
+                        .in_('client_id', client_ids)\
+                        .order('created_at', desc=True)\
+                        .execute()
+
+                    # Group by client_id, keeping only the latest (first due to order)
+                    for activity in (activities_result.data or []):
+                        cid = activity.get('client_id')
+                        if cid and cid not in activities_by_client:
+                            activities_by_client[cid] = activity
+                except Exception as e:
+                    logger.debug(f"Could not batch fetch activities: {e}")
+
+            # Enrich clients with batch query results
             enriched_clients = []
             for client in clients:
                 enriched = {**client}
-                
+
                 # Map total_value to value for frontend
                 enriched['value'] = client.get('total_value', 0)
-                
-                # Get latest quote for destination and value
-                try:
-                    quote_result = self.supabase.client.table('quotes')\
-                        .select("destination, total_price, created_at")\
-                        .eq('tenant_id', self.config.client_id)\
-                        .eq('customer_email', client.get('email'))\
-                        .order('created_at', desc=True)\
-                        .limit(1)\
-                        .execute()
-                    
-                    if quote_result.data and len(quote_result.data) > 0:
-                        latest_quote = quote_result.data[0]
-                        enriched['destination'] = latest_quote.get('destination')
-                        # Update value if we have quote total
-                        if latest_quote.get('total_price'):
-                            enriched['value'] = latest_quote.get('total_price')
-                except Exception as e:
-                    logger.debug(f"Could not fetch quote for client {client.get('client_id')}: {e}")
-                
-                # Get last activity timestamp
-                try:
-                    activity_result = self.supabase.client.table('activities')\
-                        .select("created_at")\
-                        .eq('tenant_id', self.config.client_id)\
-                        .eq('client_id', client.get('client_id'))\
-                        .order('created_at', desc=True)\
-                        .limit(1)\
-                        .execute()
-                    
-                    if activity_result.data and len(activity_result.data) > 0:
-                        enriched['last_activity'] = activity_result.data[0].get('created_at')
-                    else:
-                        # Fall back to updated_at if no activities
-                        enriched['last_activity'] = client.get('updated_at')
-                except Exception as e:
-                    logger.debug(f"Could not fetch activity for client {client.get('client_id')}: {e}")
+
+                # Get latest quote from batch result
+                email = client.get('email')
+                if email and email in quotes_by_email:
+                    latest_quote = quotes_by_email[email]
+                    enriched['destination'] = latest_quote.get('destination')
+                    if latest_quote.get('total_price'):
+                        enriched['value'] = latest_quote.get('total_price')
+
+                # Get last activity from batch result
+                client_id = client.get('client_id')
+                if client_id and client_id in activities_by_client:
+                    enriched['last_activity'] = activities_by_client[client_id].get('created_at')
+                else:
                     enriched['last_activity'] = client.get('updated_at')
-                
+
                 enriched_clients.append(enriched)
 
             return enriched_clients
