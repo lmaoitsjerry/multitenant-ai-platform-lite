@@ -10,11 +10,12 @@ Endpoints for:
 These endpoints require admin authentication (X-Admin-Token header).
 """
 
+import asyncio
 import logging
 import os
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, FastAPI
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig, list_clients
@@ -115,7 +116,7 @@ class TenantListResponse(BaseModel):
 
 # ==================== Helper Functions ====================
 
-def get_supabase_admin_client():
+def get_supabase_admin_client() -> Optional[Any]:
     """Get Supabase client for admin operations (uses service key)"""
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
@@ -128,7 +129,7 @@ def get_supabase_admin_client():
 
 
 async def get_tenant_stats_from_db(tenant_id: str) -> Dict[str, Any]:
-    """Get tenant statistics from Supabase"""
+    """Get tenant statistics from Supabase using async executor"""
     client = get_supabase_admin_client()
     if not client:
         return {}
@@ -145,17 +146,23 @@ async def get_tenant_stats_from_db(tenant_id: str) -> Dict[str, Any]:
     }
 
     try:
-        # Get quotes count
-        quotes_result = client.table("quotes").select("id", count="exact").eq("tenant_id", tenant_id).execute()
+        # Get quotes count (wrap sync Supabase call in async executor)
+        quotes_result = await asyncio.to_thread(
+            lambda: client.table("quotes").select("id", count="exact").eq("tenant_id", tenant_id).execute()
+        )
         stats["quotes_count"] = quotes_result.count or 0
 
         # Get quotes this month
         month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        quotes_month = client.table("quotes").select("id", count="exact").eq("tenant_id", tenant_id).gte("created_at", month_start.isoformat()).execute()
+        quotes_month = await asyncio.to_thread(
+            lambda: client.table("quotes").select("id", count="exact").eq("tenant_id", tenant_id).gte("created_at", month_start.isoformat()).execute()
+        )
         stats["quotes_this_month"] = quotes_month.count or 0
 
         # Get invoices
-        invoices_result = client.table("invoices").select("id, status, total_amount, paid_amount").eq("tenant_id", tenant_id).execute()
+        invoices_result = await asyncio.to_thread(
+            lambda: client.table("invoices").select("id, status, total_amount, paid_amount").eq("tenant_id", tenant_id).execute()
+        )
         if invoices_result.data:
             stats["invoices_count"] = len(invoices_result.data)
             stats["invoices_paid"] = len([i for i in invoices_result.data if i.get("status") == "paid"])
@@ -163,11 +170,15 @@ async def get_tenant_stats_from_db(tenant_id: str) -> Dict[str, Any]:
             stats["total_paid"] = sum(i.get("paid_amount", 0) or 0 for i in invoices_result.data)
 
         # Get clients count
-        clients_result = client.table("clients").select("id", count="exact").eq("tenant_id", tenant_id).execute()
+        clients_result = await asyncio.to_thread(
+            lambda: client.table("clients").select("id", count="exact").eq("tenant_id", tenant_id).execute()
+        )
         stats["clients_count"] = clients_result.count or 0
 
         # Get users count
-        users_result = client.table("organization_users").select("id", count="exact").eq("tenant_id", tenant_id).eq("is_active", True).execute()
+        users_result = await asyncio.to_thread(
+            lambda: client.table("organization_users").select("id", count="exact").eq("tenant_id", tenant_id).eq("is_active", True).execute()
+        )
         stats["users_count"] = users_result.count or 0
 
     except Exception as e:
@@ -320,21 +331,23 @@ async def create_tenant(
         client = get_supabase_admin_client()
         if client:
             try:
-                # Update with additional fields
-                client.table("tenants").update({
-                    'admin_email': request.admin_email,
-                    'support_email': request.admin_email,
-                    'status': 'active',
-                    'plan': request.plan,
-                    'max_users': 5 if request.plan == 'lite' else 20,
-                    'max_monthly_quotes': 100 if request.plan == 'lite' else 1000,
-                    'max_storage_gb': 1 if request.plan == 'lite' else 10,
-                    'features_enabled': {
-                        'ai_helpdesk': True,
-                        'email_quotes': True,
-                        'voice_calls': request.plan != 'lite',
-                    },
-                }).eq('id', request.tenant_id).execute()
+                # Update with additional fields (async wrapper for sync Supabase call)
+                await asyncio.to_thread(
+                    lambda: client.table("tenants").update({
+                        'admin_email': request.admin_email,
+                        'support_email': request.admin_email,
+                        'status': 'active',
+                        'plan': request.plan,
+                        'max_users': 5 if request.plan == 'lite' else 20,
+                        'max_monthly_quotes': 100 if request.plan == 'lite' else 1000,
+                        'max_storage_gb': 1 if request.plan == 'lite' else 10,
+                        'features_enabled': {
+                            'ai_helpdesk': True,
+                            'email_quotes': True,
+                            'voice_calls': request.plan != 'lite',
+                        },
+                    }).eq('id', request.tenant_id).execute()
+                )
             except Exception as e:
                 logger.warning(f"Could not update additional tenant fields: {e}")
 
@@ -454,24 +467,30 @@ async def suspend_tenant(
         client = get_supabase_admin_client()
         if client:
             try:
-                # Check if tenant record exists in tenants table
-                existing = client.table("tenants").select("id").eq("tenant_id", tenant_id).execute()
+                # Check if tenant record exists in tenants table (async wrapper)
+                existing = await asyncio.to_thread(
+                    lambda: client.table("tenants").select("id").eq("tenant_id", tenant_id).execute()
+                )
 
                 if existing.data:
                     # Update existing record
-                    client.table("tenants").update({
-                        "status": "suspended",
-                        "suspended_at": datetime.now().isoformat(),
-                        "suspended_reason": request.reason
-                    }).eq("tenant_id", tenant_id).execute()
+                    await asyncio.to_thread(
+                        lambda: client.table("tenants").update({
+                            "status": "suspended",
+                            "suspended_at": datetime.now().isoformat(),
+                            "suspended_reason": request.reason
+                        }).eq("tenant_id", tenant_id).execute()
+                    )
                 else:
                     # Insert new record
-                    client.table("tenants").insert({
-                        "tenant_id": tenant_id,
-                        "status": "suspended",
-                        "suspended_at": datetime.now().isoformat(),
-                        "suspended_reason": request.reason
-                    }).execute()
+                    await asyncio.to_thread(
+                        lambda: client.table("tenants").insert({
+                            "tenant_id": tenant_id,
+                            "status": "suspended",
+                            "suspended_at": datetime.now().isoformat(),
+                            "suspended_reason": request.reason
+                        }).execute()
+                    )
 
             except Exception as e:
                 logger.warning(f"Could not update tenant status in DB: {e}")
@@ -511,14 +530,18 @@ async def activate_tenant(
         client = get_supabase_admin_client()
         if client:
             try:
-                existing = client.table("tenants").select("id").eq("tenant_id", tenant_id).execute()
+                existing = await asyncio.to_thread(
+                    lambda: client.table("tenants").select("id").eq("tenant_id", tenant_id).execute()
+                )
 
                 if existing.data:
-                    client.table("tenants").update({
-                        "status": "active",
-                        "suspended_at": None,
-                        "suspended_reason": None
-                    }).eq("tenant_id", tenant_id).execute()
+                    await asyncio.to_thread(
+                        lambda: client.table("tenants").update({
+                            "status": "active",
+                            "suspended_at": None,
+                            "suspended_reason": None
+                        }).eq("tenant_id", tenant_id).execute()
+                    )
 
             except Exception as e:
                 logger.warning(f"Could not update tenant status in DB: {e}")
@@ -572,13 +595,25 @@ async def delete_tenant(
         client = get_supabase_admin_client()
         if client:
             try:
-                # Delete in order to respect foreign keys
-                client.table("invoice_travelers").delete().eq("tenant_id", tenant_id).execute()
-                client.table("invoices").delete().eq("tenant_id", tenant_id).execute()
-                client.table("quotes").delete().eq("tenant_id", tenant_id).execute()
-                client.table("clients").delete().eq("tenant_id", tenant_id).execute()
-                client.table("organization_users").delete().eq("tenant_id", tenant_id).execute()
-                client.table("tenants").delete().eq("tenant_id", tenant_id).execute()
+                # Delete in order to respect foreign keys (async wrappers)
+                await asyncio.to_thread(
+                    lambda: client.table("invoice_travelers").delete().eq("tenant_id", tenant_id).execute()
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("invoices").delete().eq("tenant_id", tenant_id).execute()
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("quotes").delete().eq("tenant_id", tenant_id).execute()
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("clients").delete().eq("tenant_id", tenant_id).execute()
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("organization_users").delete().eq("tenant_id", tenant_id).execute()
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("tenants").delete().eq("tenant_id", tenant_id).execute()
+                )
 
                 logger.info(f"[ADMIN] Deleted database records for tenant {tenant_id}")
             except Exception as e:
@@ -602,6 +637,6 @@ async def delete_tenant(
 
 # ==================== Router Registration ====================
 
-def include_admin_tenants_router(app):
+def include_admin_tenants_router(app: FastAPI) -> None:
     """Include admin tenants router in the FastAPI app"""
     app.include_router(admin_tenants_router)
