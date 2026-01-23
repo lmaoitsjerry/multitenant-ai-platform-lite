@@ -1,8 +1,22 @@
 """
-PDF Generator - Multi-Tenant Version
+PDF Generator - Multi-Tenant Version (Centralized PDF Generation)
+
+This module is the SINGLE SOURCE for all PDF generation in the platform.
+Do NOT create inline PDF generation code elsewhere - use PDFGenerator class.
 
 Generates PDFs using WeasyPrint (preferred) or fpdf2 (fallback for Windows).
 Each tenant's branding is applied to the generated PDFs.
+
+Available Methods:
+    - generate_quote_pdf(): Generate travel quote PDFs with hotel options
+    - generate_invoice_pdf(): Generate invoices with line items and banking details
+
+Usage:
+    from src.utils.pdf_generator import PDFGenerator
+
+    pdf_gen = PDFGenerator(config)
+    pdf_bytes = pdf_gen.generate_quote_pdf(quote_data, hotels, customer_data)
+    pdf_bytes = pdf_gen.generate_invoice_pdf(invoice_data, items, customer_data)
 """
 
 import logging

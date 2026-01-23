@@ -105,7 +105,28 @@ app.add_middleware(SecurityHeadersMiddleware)
 # 6. CORS middleware - MUST be added LAST so it runs FIRST
 # This ensures CORS headers are added to ALL responses including errors
 def get_cors_origins() -> list:
-    """Get allowed CORS origins from environment or use defaults."""
+    """
+    Get allowed CORS origins from environment or use defaults.
+
+    Environment Variable:
+        CORS_ORIGINS: Comma-separated list of allowed origins.
+
+    Format Examples:
+        - Single origin: CORS_ORIGINS=https://app.example.com
+        - Multiple origins: CORS_ORIGINS=https://app.example.com,https://admin.example.com
+        - With ports: CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+    Production Recommendation:
+        Set CORS_ORIGINS explicitly in production to restrict access to known
+        frontend domains only. Avoid wildcards in production for security.
+
+    Development Default:
+        When CORS_ORIGINS is not set, allows localhost ports 5173-5180 (Vite),
+        3000 (React), and *.zorahai.com, *.holidaytoday.co.za subdomains.
+
+    Returns:
+        list: List of allowed origin strings.
+    """
     env_origins = os.getenv("CORS_ORIGINS", "")
     if env_origins:
         return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
