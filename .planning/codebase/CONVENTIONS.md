@@ -1,353 +1,285 @@
 # Coding Conventions
 
-**Analysis Date:** 2025-01-16
+**Analysis Date:** 2026-01-23
 
 ## Naming Patterns
 
-**Python Files:**
-- snake_case for modules: `quote_agent.py`, `auth_service.py`, `rate_limiter.py`
-- Prefix with domain: `admin_routes.py`, `crm_service.py`, `bigquery_tool.py`
+**Files:**
+- Python modules: `snake_case.py` (e.g., `auth_middleware.py`, `crm_service.py`)
+- Test files: `test_{module_name}.py` (e.g., `test_auth_middleware.py`)
+- Fixture files: `{domain}_fixtures.py` (e.g., `bigquery_fixtures.py`)
 
-**Python Functions:**
-- snake_case: `generate_quote()`, `get_client_by_email()`, `_normalize_customer_data()`
-- Private methods prefixed with underscore: `_make_key()`, `_clean_expired()`
+**Functions:**
+- Use `snake_case` for functions: `get_client_config()`, `create_chainable_mock()`
+- Async functions prefixed with operation: `async def get_user_by_auth_id()`
+- Private functions prefixed with underscore: `_get_client_id_filter()`
 
-**Python Classes:**
-- PascalCase: `QuoteAgent`, `ClientConfig`, `RateLimiter`, `DatabaseTables`
-- Pydantic models: `VAPIProvisionRequest`, `TenantConfigUpdate`
+**Variables:**
+- Local variables: `snake_case` (e.g., `client_id`, `mock_config`)
+- Constants: `UPPER_SNAKE_CASE` (e.g., `PUBLIC_PATHS`, `TABLE_INVOICES`)
+- Module-level caches: `_snake_case` (e.g., `_client_configs`, `_quote_agents`)
 
-**Python Variables:**
-- snake_case: `customer_data`, `quote_id`, `hotel_options`
-- Constants: UPPER_SNAKE_CASE: `ACCESS_TOKEN_KEY`, `CACHE_TTL`, `DEFAULT_REQUESTS_PER_MINUTE`
+**Classes:**
+- `PascalCase` for classes: `UserContext`, `AuthMiddleware`, `CRMService`
+- Test classes: `Test{Feature}` (e.g., `TestAuthService`, `TestPublicPathDetection`)
 
-**React Files:**
-- PascalCase for components: `Dashboard.jsx`, `QuoteDetail.jsx`, `AuthContext.jsx`
-- camelCase for utilities: `api.js`, `usePrefetch.js`
-
-**React Components:**
-- PascalCase: `StatCard`, `QuickAction`, `SkeletonTable`
-- Hooks: `useApp()`, `useAuth()`, prefix with `use`
-
-**React Variables:**
-- camelCase: `dashboardData`, `isStale`, `sidebarExpanded`
-- State setters: `setUser`, `setLoading`, `setSidebarOpen`
+**Types:**
+- Enums: `PascalCase` with uppercase values: `PipelineStage.QUOTED`
 
 ## Code Style
 
-**Python Formatting:**
-- No explicit formatter configured (recommend adding `black` or `ruff`)
-- 4-space indentation (standard Python)
-- Max line length: ~100-120 chars (implicit)
+**Formatting:**
+- Tool: Black (version 24.8.0)
+- Line length: 88 characters (Black default)
+- Indentation: 4 spaces
+- Strings: Double quotes preferred for docstrings, single or double for regular strings
 
-**Python Linting:**
-- No linter configured (recommend adding `flake8` or `ruff`)
-
-**JavaScript/React Formatting:**
-- No Prettier configured
-- Uses ESLint with React hooks plugin
-- Config: `frontend/tenant-dashboard/eslint.config.js`
-
-**JavaScript Linting:**
-- ESLint 9.x with flat config
-- React hooks recommended rules
-- React Refresh plugin for Vite HMR
-- Rule: `no-unused-vars` ignores capitalized variables (component patterns)
+**Linting:**
+- Tool: flake8 (version 7.1.1)
+- Type checking: mypy (version 1.11.2)
+- No project-specific config files detected - using defaults
 
 ## Import Organization
 
-**Python Import Order:**
-1. Standard library imports (`os`, `logging`, `uuid`, `datetime`)
-2. Third-party imports (`fastapi`, `pydantic`, `jwt`)
-3. Local imports (`config.loader`, `src.services`, `src.tools`)
+**Order:**
+1. Standard library imports
+2. Third-party imports (fastapi, pydantic, etc.)
+3. Local application imports
 
-**Python Example:**
+**Pattern from `src/api/routes.py`:**
 ```python
+# Standard library
 import logging
-import os
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+from datetime import datetime, date
+from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+# Third-party
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Body, Request
+from fastapi.responses import Response
+from pydantic import BaseModel, EmailStr, Field
 
+# Local imports
 from config.loader import ClientConfig
-from src.tools.supabase_tool import SupabaseTool
-```
-
-**React Import Order:**
-1. React core imports
-2. React Router imports
-3. Third-party libraries
-4. Local contexts
-5. Local components
-6. Local services/utilities
-
-**React Example:**
-```jsx
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { DocumentTextIcon, UsersIcon } from '@heroicons/react/24/outline';
-import { useApp } from '../context/AppContext';
-import { dashboardApi, quotesApi } from '../services/api';
+from src.utils.error_handler import log_and_raise
+from src.services.crm_service import CRMService, PipelineStage
 ```
 
 **Path Aliases:**
-- None configured (use relative paths)
-- Common pattern: `../context/`, `../services/`, `../../components/`
+- No path aliases configured
+- Use relative imports from `src/` root: `from src.services.auth_service import AuthService`
+- Config imports: `from config.loader import ClientConfig, get_config`
 
 ## Error Handling
 
-**Python API Routes:**
+**Patterns:**
+
+Use `src/utils/error_handler.py` for consistent error responses:
+
 ```python
+from src.utils.error_handler import log_and_raise, safe_error_response
+
+# Pattern 1: Log and raise in one call (preferred)
 try:
-    # Business logic
-    result = service.do_something()
-    return {"success": True, "data": result}
-except SomeSpecificError as e:
-    logger.error(f"Specific error: {e}")
-    raise HTTPException(status_code=400, detail=str(e))
+    # risky operation
 except Exception as e:
-    logger.error(f"Unexpected error: {e}")
-    raise HTTPException(status_code=500, detail=str(e))
+    log_and_raise(500, "generating quote", e, logger)
+
+# Pattern 2: Get HTTPException for more control
+try:
+    # risky operation
+except HTTPException:
+    raise  # Re-raise HTTP exceptions as-is
+except Exception as e:
+    raise safe_error_response(500, "processing request", e, logger)
 ```
 
-**Python Services:**
+**HTTP Exception Pattern:**
 ```python
+# Always re-raise HTTPException before catching generic Exception
 try:
-    # Service logic
-    return result
+    # operation
+except HTTPException:
+    raise
 except Exception as e:
-    logger.error(f"Failed to {action}: {e}")
-    return None  # or empty dict/list
+    log_and_raise(500, "operation description", e, logger)
 ```
 
-**React API Calls:**
-```jsx
-try {
-  const response = await api.someMethod();
-  if (response.data?.success) {
-    setData(response.data.data);
-  }
-} catch (error) {
-  console.error('Operation failed:', error);
-  // Often silently fail or show error state
-}
-```
-
-**React API Service Pattern:**
-```javascript
-export const someApi = {
-  action: async () => {
-    try {
-      const response = await api.post('/endpoint');
-      return response;
-    } catch (error) {
-      return { data: { success: false, error: error.message } };
-    }
-  },
-};
-```
+**Security:** Never expose internal exception messages to clients. Use generic messages:
+- 5xx errors: "An internal error occurred while {operation}. Please try again later."
+- 4xx errors: "Error while {operation}. Please check your request and try again."
 
 ## Logging
 
-**Python Framework:** Standard `logging` module
+**Framework:** Python `logging` module with structured JSON output
 
-**Logger Setup:**
+**Setup from `main.py`:**
 ```python
-import logging
-logger = logging.getLogger(__name__)
+from src.utils.structured_logger import setup_structured_logging, get_logger
+
+log_level = os.getenv("LOG_LEVEL", "INFO")
+json_logs = os.getenv("JSON_LOGS", "true").lower() == "true"
+setup_structured_logging(level=log_level, json_output=json_logs)
+logger = get_logger(__name__)
 ```
 
-**Log Levels Used:**
-- `logger.info()`: Normal operations, state changes
-- `logger.warning()`: Recoverable issues, fallbacks
-- `logger.error()`: Failures, exceptions
+**Patterns:**
+- Create module-level logger: `logger = logging.getLogger(__name__)`
+- Use f-strings for log messages: `logger.info(f"Created QuoteAgent for {config.client_id}")`
+- Include context in brackets: `logger.info(f"[LIST_QUOTES] Returning {len(quotes)} quotes")`
+- Log errors with exc_info: `logger.error(f"Failed to get client: {e}", exc_info=True)`
 
-**Pattern Examples:**
-```python
-logger.info(f"Quote {quote_id} generated successfully")
-logger.warning(f"Supabase not available: {e}")
-logger.error(f"Failed to save quote to Supabase: {e}")
-```
-
-**React/JavaScript:**
-- Uses `console.log()`, `console.debug()`, `console.error()`
-- Debug messages use prefix: `console.log('[Auth] Initializing...')`
-- Cache operations use `console.debug()`
+**Log Levels:**
+- `DEBUG`: Detailed diagnostic info (e.g., query results)
+- `INFO`: Normal operation events (e.g., service initialization)
+- `WARNING`: Recoverable issues (e.g., fallback to default config)
+- `ERROR`: Operation failures (always include exc_info=True)
 
 ## Comments
 
-**Python Docstrings:**
-- Multi-line docstrings for classes and public methods
-- Brief description, Args section, Returns section
-
-```python
-def generate_quote(
-    self,
-    customer_data: Dict[str, Any],
-    send_email: bool = True,
-) -> Dict[str, Any]:
-    """
-    Generate a complete quote for customer
-
-    Args:
-        customer_data: Customer travel requirements
-        send_email: Whether to send quote email
-
-    Returns:
-        Dict with quote details and status
-    """
-```
-
-**Module Headers:**
-```python
-"""
-Quote Agent - Multi-Tenant Version
-
-Orchestrates the full quote generation flow:
-1. Parse customer requirements
-2. Find matching hotels
-...
-
-Usage:
-    from config.loader import ClientConfig
-    from src.agents.quote_agent import QuoteAgent
-    ...
-"""
-```
-
-**React/JSX Comments:**
-- JSDoc for complex components/functions
+**When to Comment:**
+- Module docstrings required at top of each file
+- Class docstrings explaining purpose and usage
+- Function docstrings for public APIs
 - Inline comments for non-obvious logic
 
-```jsx
-/**
- * Skeleton Loading Components
- *
- * Provides visual placeholders while content is loading,
- * creating a smoother perceived loading experience.
- */
+**Docstring Format (Google style):**
+```python
+def create_mock_bigquery_client(
+    default_data: List[Dict[str, Any]] = None,
+    preset_patterns: Dict[str, List[Dict[str, Any]]] = None
+) -> MockBigQueryClient:
+    """
+    Create a configured MockBigQueryClient.
+
+    Args:
+        default_data: Default response for unmatched queries
+        preset_patterns: Dict of pattern -> response data to pre-configure
+
+    Returns:
+        Configured MockBigQueryClient instance
+
+    Example:
+        client = create_mock_bigquery_client()
+    """
+```
+
+**Section Headers:**
+Use commented section headers for organization:
+```python
+# ==================== Configuration Fixtures ====================
+
+# ==================== Public Paths ====================
 ```
 
 ## Function Design
 
-**Python Functions:**
-- Use type hints for parameters and return values
-- Default parameters for optional behavior
-- Return dictionaries with `success` boolean for API responses
+**Size:** Functions should have single responsibility. Split large functions into helpers.
 
-```python
-def get_client(
-    self,
-    client_id: str,
-    include_activities: bool = False
-) -> Optional[Dict[str, Any]]:
-```
+**Parameters:**
+- Use type hints for all parameters: `def get_client(self, client_id: str) -> Optional[Dict[str, Any]]:`
+- Use `Optional[]` for nullable parameters
+- Provide defaults where sensible: `limit: int = 50`
 
-**Python API Response Pattern:**
-```python
-return {
-    'success': True,
-    'data': result,
-    'message': 'Operation completed'
-}
-```
-
-**React Hooks:**
-- Use `useState` for local state
-- Use `useEffect` for side effects with proper dependencies
-- Use `useMemo` for expensive computations
-- Use `useCallback` for stable function references
-
-```jsx
-const loadDashboard = useCallback(async (isBackgroundRefresh = false) => {
-  // ...implementation
-}, [dashboardData]);
-```
+**Return Values:**
+- Use type hints for returns
+- Return `None` for "not found" cases (not empty dict)
+- Return `{"success": True, "data": ...}` for API responses
+- Return `bool` for operations that succeed/fail
 
 ## Module Design
 
-**Python Modules:**
-- Single responsibility per module
-- Class-based services with `__init__` accepting `ClientConfig`
-- Standalone utility functions for simple operations
+**Exports:**
+- Use `__all__` in `__init__.py` to explicitly list public exports
+- See `tests/fixtures/__init__.py` for comprehensive example
 
 **Service Pattern:**
 ```python
-class SomeService:
+class CRMService:
+    """Service class with dependency injection via config."""
+
     def __init__(self, config: ClientConfig):
         self.config = config
-        self.db = DatabaseTables(config)
-        # Initialize dependencies
+        self.supabase = None
+
+        try:
+            from src.tools.supabase_tool import SupabaseTool
+            self.supabase = SupabaseTool(config)
+        except Exception as e:
+            logger.warning(f"Supabase not available: {e}")
 ```
 
-**React Context Pattern:**
-```jsx
-const SomeContext = createContext(null);
+**Caching Pattern:**
+Module-level caches for expensive objects:
+```python
+# Global caches for performance
+_client_configs = {}
+_quote_agents = {}
 
-export function SomeProvider({ children }) {
-  const [state, setState] = useState(null);
-
-  const value = {
-    state,
-    action: () => { /* ... */ },
-  };
-
-  return (
-    <SomeContext.Provider value={value}>
-      {children}
-    </SomeContext.Provider>
-  );
-}
-
-export function useSome() {
-  const context = useContext(SomeContext);
-  if (!context) {
-    throw new Error('useSome must be used within SomeProvider');
-  }
-  return context;
-}
+def get_quote_agent(config: ClientConfig):
+    """Get cached QuoteAgent for client"""
+    if config.client_id not in _quote_agents:
+        _quote_agents[config.client_id] = QuoteAgent(config)
+    return _quote_agents[config.client_id]
 ```
 
-**React API Module Pattern (api.js):**
-- Single axios instance with interceptors
-- Domain-specific API objects: `quotesApi`, `crmApi`, `invoicesApi`
-- Caching built into API methods
-- Export named functions and default axios instance
+## Pydantic Models
 
-## Component Patterns
+**Pattern for API request/response models:**
+```python
+from pydantic import BaseModel, EmailStr, Field
 
-**React Functional Components:**
-```jsx
-export default function ComponentName({ prop1, prop2 }) {
-  const [state, setState] = useState(null);
-
-  useEffect(() => {
-    // Side effects
-  }, [dependencies]);
-
-  return (
-    <div className="...">
-      {/* JSX */}
-    </div>
-  );
-}
+class TravelInquiry(BaseModel):
+    """Travel inquiry for quote generation"""
+    name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    phone: Optional[str] = None
+    destination: str
+    adults: int = Field(default=2, ge=1, le=20)
+    children_ages: Optional[List[int]] = None
 ```
 
-**Tailwind CSS Classes:**
-- Use utility classes directly in JSX
-- Custom theme classes: `bg-theme-background`, `text-theme-primary`, `card`, `btn-primary`
-- Responsive prefixes: `md:grid-cols-2`, `lg:grid-cols-4`
+## FastAPI Router Pattern
 
-**Skeleton Loading Pattern:**
-```jsx
-{loading ? (
-  <div className="animate-pulse bg-gray-200 rounded h-8 w-16"></div>
-) : (
-  <p className="text-2xl font-bold">{value}</p>
-)}
+```python
+from fastapi import APIRouter, HTTPException, Depends, Query
+
+router = APIRouter(prefix="/api/v1/quotes", tags=["Quotes"])
+
+@router.get("")
+async def list_quotes(
+    status: Optional[str] = None,
+    limit: int = Query(default=50, le=100),
+    offset: int = Query(default=0, ge=0),
+    config: ClientConfig = Depends(get_client_config)
+):
+    """List quotes with optional filtering"""
+    try:
+        # implementation
+        return {"success": True, "data": quotes, "count": len(quotes)}
+    except Exception as e:
+        log_and_raise(500, "listing quotes", e, logger)
+```
+
+## Middleware Pattern
+
+Use Starlette BaseHTTPMiddleware:
+```python
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Pre-processing
+        if is_public_path(request.url.path):
+            request.state.user = None
+            return await call_next(request)
+
+        # Authentication logic
+        response = await call_next(request)
+        # Post-processing
+        return response
 ```
 
 ---
 
-*Convention analysis: 2025-01-16*
+*Convention analysis: 2026-01-23*

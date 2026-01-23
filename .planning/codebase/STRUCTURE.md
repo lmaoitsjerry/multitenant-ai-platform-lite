@@ -1,224 +1,320 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-01-16
+**Analysis Date:** 2026-01-23
 
 ## Directory Layout
 
 ```
 multitenant-ai-platform-lite/
-├── main.py                     # FastAPI app entry point
-├── requirements.txt            # Python dependencies
-├── Dockerfile                  # Container build
-├── .env                        # Environment variables (not committed)
-├── config/                     # Configuration system
-│   ├── loader.py              # ClientConfig class
-│   ├── database.py            # DatabaseTables abstraction
-│   └── schema.json            # YAML validation schema
-├── clients/                    # Per-tenant configurations
-│   ├── example/               # Template tenant
-│   │   └── client.yaml       # Tenant config
-│   ├── africastay/            # Production tenant
-│   └── tn_*/                   # Auto-provisioned tenants
-├── src/                        # Backend source code
-│   ├── api/                   # FastAPI route handlers
-│   ├── services/              # Business logic
-│   ├── agents/                # AI orchestration
-│   ├── tools/                 # External integrations
-│   ├── middleware/            # Request middleware
-│   ├── webhooks/              # Inbound webhooks
-│   ├── utils/                 # Utilities (PDF, email)
-│   └── constants/             # Shared constants
-├── frontend/                   # React applications
-│   ├── tenant-dashboard/      # Tenant-facing SPA
-│   └── internal-admin/        # Internal admin SPA
-├── database/                   # Database artifacts
-│   └── migrations/            # Supabase SQL migrations
-├── templates/                  # Document templates
-│   ├── emails/                # Email HTML templates
-│   └── pdf/                   # PDF templates
-├── tests/                      # Test suite
-├── scripts/                    # Utility scripts
-└── docs/                       # Documentation
+├── main.py                          # FastAPI application entry point
+├── requirements.txt                 # Python dependencies
+├── pyproject.toml                   # Project configuration, pytest settings
+├── Dockerfile                       # Container build configuration
+├── .env                             # Environment variables (local)
+├── config/                          # Configuration loading
+│   ├── loader.py                    # ClientConfig class, tenant config
+│   ├── database.py                  # DatabaseTables abstraction
+│   └── schema.json                  # JSON Schema for client.yaml
+├── src/                             # Application source code
+│   ├── api/                         # FastAPI route handlers
+│   ├── agents/                      # AI agent orchestrators
+│   ├── services/                    # Business logic services
+│   ├── tools/                       # External service integrations
+│   ├── middleware/                  # Request/response middleware
+│   ├── webhooks/                    # Inbound webhook handlers
+│   ├── utils/                       # Shared utilities
+│   └── constants/                   # Constants and presets
+├── clients/                         # Per-tenant configuration
+│   ├── africastay/                  # Production tenant
+│   ├── beachresorts/                # Demo tenant
+│   ├── example/                     # Template tenant
+│   └── {tenant_id}/                 # Each tenant has its own folder
+├── tests/                           # Test suite
+│   ├── conftest.py                  # Shared fixtures
+│   ├── fixtures/                    # Test data generators
+│   └── test_*.py                    # Test modules
+├── templates/                       # Document templates
+│   ├── emails/                      # Email HTML templates
+│   └── pdf/                         # PDF generation templates
+├── database/                        # Database schema
+│   └── migrations/                  # SQL migration files
+├── scripts/                         # Utility scripts
+├── frontend/                        # Frontend applications
+│   ├── tenant-dashboard/            # React dashboard for tenants
+│   └── internal-admin/              # Internal admin panel
+├── docs/                            # Documentation
+└── .planning/                       # Planning documents
 ```
 
 ## Directory Purposes
 
-**`config/`:**
-- Purpose: Configuration loading and validation system
-- Contains: ClientConfig class, DatabaseTables abstraction, JSON schema
-- Key files: `loader.py` (main), `database.py` (BigQuery table names), `schema.json` (validation)
+**`config/`**
+- Purpose: Tenant configuration management
+- Contains: ClientConfig loader, DatabaseTables abstraction, JSON schema
+- Key files:
+  - `loader.py`: Main configuration class with all tenant properties
+  - `database.py`: BigQuery/Supabase table name abstraction
+  - `schema.json`: Validates client.yaml structure
 
-**`clients/`:**
-- Purpose: Per-tenant configuration storage
-- Contains: YAML config files, agent prompts, tenant-specific assets
-- Key files: `{tenant_id}/client.yaml` defines all tenant settings
-
-**`src/api/`:**
-- Purpose: REST API endpoint definitions
+**`src/api/`**
+- Purpose: HTTP API endpoints
 - Contains: FastAPI routers organized by domain
-- Key files: `routes.py` (quotes, CRM, invoices), `admin_routes.py`, `auth_routes.py`, `analytics_routes.py`
+- Key files:
+  - `routes.py`: Main router aggregation, quote/CRM/invoice endpoints
+  - `auth_routes.py`: Login, password reset, token refresh
+  - `admin_routes.py`: Platform provisioning endpoints
+  - `analytics_routes.py`: Dashboard statistics
+  - `knowledge_routes.py`: Knowledge base management
+  - `helpdesk_routes.py`: AI helpdesk chat endpoints
 
-**`src/services/`:**
-- Purpose: Business logic layer
-- Contains: Domain-specific service classes
-- Key files: `auth_service.py`, `crm_service.py`, `performance_service.py`, `provisioning_service.py`
+**`src/agents/`**
+- Purpose: AI-powered workflow orchestration
+- Contains: Business logic agents that coordinate multiple tools/services
+- Key files:
+  - `quote_agent.py`: Full quote generation pipeline
+  - `helpdesk_agent.py`: AI chatbot with function calling
+  - `inbound_agent.py`: Voice/chat customer agent
+  - `universal_email_parser.py`: LLM-based email parsing
+  - `llm_email_parser.py`: Email detail extraction
 
-**`src/agents/`:**
-- Purpose: AI-orchestrated workflows
-- Contains: Agent classes that coordinate multiple services
-- Key files: `quote_agent.py` (primary orchestrator for quote generation)
+**`src/services/`**
+- Purpose: Domain-specific business logic
+- Contains: Services for specific capabilities
+- Key files:
+  - `crm_service.py`: Client management, pipeline operations
+  - `auth_service.py`: JWT validation, user management
+  - `faiss_helpdesk_service.py`: FAISS vector search (singleton)
+  - `tenant_config_service.py`: Database-backed tenant config
+  - `rag_response_service.py`: RAG response generation
+  - `reranker_service.py`: Search result reranking
 
-**`src/tools/`:**
-- Purpose: External service client wrappers
-- Contains: Database tools, API clients
-- Key files: `supabase_tool.py` (PostgreSQL ops), `bigquery_tool.py` (analytics), `rag_tool.py` (knowledge search)
+**`src/tools/`**
+- Purpose: External service integrations
+- Contains: Wrappers for databases and APIs
+- Key files:
+  - `supabase_tool.py`: PostgreSQL operations (quotes, invoices, CRM)
+  - `bigquery_tool.py`: Analytics queries, hotel rate search
+  - `rag_tool.py`: RAG/vector search operations
+  - `twilio_vapi_provisioner.py`: Phone number provisioning
 
-**`src/middleware/`:**
-- Purpose: Request processing middleware
-- Contains: Auth, rate limiting, PII audit, timing
-- Key files: `auth_middleware.py`, `rate_limiter.py`, `pii_audit_middleware.py`, `timing_middleware.py`
+**`src/middleware/`**
+- Purpose: Cross-cutting request/response processing
+- Contains: Middleware classes for FastAPI
+- Key files:
+  - `auth_middleware.py`: JWT validation, user context
+  - `rate_limiter.py`: Request rate limiting
+  - `security_headers.py`: CSP, HSTS, X-Frame-Options
+  - `pii_audit_middleware.py`: GDPR/POPIA compliance logging
+  - `timing_middleware.py`: Request duration logging
+  - `request_id_middleware.py`: Unique request ID generation
 
-**`src/webhooks/`:**
-- Purpose: Inbound webhook handlers
-- Contains: Email webhook processing
-- Key files: `email_webhook.py` (SendGrid inbound parse)
+**`src/utils/`**
+- Purpose: Shared utility functions
+- Contains: Helpers used across layers
+- Key files:
+  - `pdf_generator.py`: Quote/invoice PDF generation
+  - `email_sender.py`: SendGrid email sending
+  - `structured_logger.py`: JSON logging setup
+  - `error_handler.py`: Centralized error handling
+  - `template_renderer.py`: Jinja2 template rendering
 
-**`src/utils/`:**
-- Purpose: Shared utilities
-- Contains: PDF generation, email sending, template rendering
-- Key files: `pdf_generator.py`, `email_sender.py`, `template_renderer.py`
+**`src/webhooks/`**
+- Purpose: Inbound event processing
+- Contains: Handlers for external webhooks
+- Key files:
+  - `email_webhook.py`: SendGrid inbound parse handler
 
-**`frontend/tenant-dashboard/`:**
-- Purpose: Tenant-facing React SPA
-- Contains: Pages, components, context, services, hooks
-- Key files: `src/App.jsx` (routing), `src/services/api.js` (API client), `src/context/AuthContext.jsx`
+**`src/constants/`**
+- Purpose: Static configuration values
+- Contains: Enums, presets, constant definitions
+- Key files:
+  - `theme_presets.py`: Branding color presets
 
-**`frontend/internal-admin/`:**
-- Purpose: Internal platform admin dashboard
-- Contains: Admin-only pages (tenants, usage, knowledge)
-- Key files: `src/App.jsx` (routing), `src/pages/TenantsList.jsx`, `src/pages/Dashboard.jsx`
+**`clients/`**
+- Purpose: Per-tenant configuration and assets
+- Contains: One folder per tenant with config and prompts
+- Structure per tenant:
+  - `client.yaml`: Tenant configuration
+  - `prompts/`: Agent prompt templates
+  - `data/knowledge/`: Knowledge base documents (optional)
 
-**`database/migrations/`:**
-- Purpose: Supabase schema migrations
-- Contains: Numbered SQL migration files
-- Key files: `001_user_management.sql` through `013_logo_email_url.sql`
+**`tests/`**
+- Purpose: Automated test suite
+- Contains: Unit tests, integration tests, fixtures
+- Key files:
+  - `conftest.py`: Shared pytest fixtures
+  - `fixtures/`: Test data generators (bigquery, sendgrid, openai)
+  - `test_*.py`: Test modules matching source modules
 
-**`templates/`:**
-- Purpose: Document templates for PDF/email generation
-- Contains: HTML templates with Jinja2 syntax
-- Key files: `emails/quote.html`, `pdf/quote.html`, `pdf/invoice.html`
+**`templates/`**
+- Purpose: Document generation templates
+- Contains: HTML/Jinja2 templates
+- Key files:
+  - `emails/quote.html`: Quote email template
+  - `pdf/`: PDF layout templates
+
+**`database/migrations/`**
+- Purpose: Database schema changes
+- Contains: Sequential SQL migration files
+- Key files:
+  - `001_user_management.sql` through `014_tenant_config.sql`
+  - Applied manually via Supabase SQL editor
+
+**`scripts/`**
+- Purpose: Development and admin utilities
+- Contains: Python scripts for common tasks
+- Key files:
+  - `create_test_user.py`: Create users for testing
+  - `migrate_tenants_to_db.py`: Move configs to database
+  - `setup_client.py`: Provision new tenant
+
+**`frontend/tenant-dashboard/`**
+- Purpose: React dashboard for travel agencies
+- Contains: Vite + React application
+- Key locations:
+  - `src/pages/`: Page components (Dashboard, Quotes, CRM)
+  - `src/components/`: Reusable UI components
+  - `src/context/`: React context providers (Auth, Theme, App)
+  - `src/services/api.js`: Axios API client
+
+**`frontend/internal-admin/`**
+- Purpose: Internal platform admin panel
+- Contains: Vite + React application
+- Key locations:
+  - `src/pages/`: Admin pages
+  - `src/components/`: Admin UI components
 
 ## Key File Locations
 
 **Entry Points:**
-- `main.py`: Backend FastAPI application
-- `frontend/tenant-dashboard/src/main.jsx`: Tenant dashboard React entry
-- `frontend/internal-admin/src/main.jsx`: Admin dashboard React entry
+- `main.py`: FastAPI application startup
+- `frontend/tenant-dashboard/src/main.jsx`: Dashboard app entry
+- `frontend/internal-admin/src/main.jsx`: Admin app entry
 
 **Configuration:**
-- `config/loader.py`: ClientConfig class definition
-- `config/database.py`: DatabaseTables abstraction
-- `config/schema.json`: YAML validation schema
-- `clients/{tenant_id}/client.yaml`: Per-tenant configuration
+- `.env`: Environment variables (API keys, URLs)
+- `config/loader.py`: ClientConfig class
+- `clients/{tenant}/client.yaml`: Per-tenant config
+- `pyproject.toml`: Pytest and build configuration
 
 **Core Logic:**
-- `src/agents/quote_agent.py`: Quote generation orchestrator
+- `src/agents/quote_agent.py`: Quote generation workflow
 - `src/services/crm_service.py`: CRM business logic
-- `src/services/auth_service.py`: Authentication logic
-- `src/tools/supabase_tool.py`: Supabase database operations
-- `src/tools/bigquery_tool.py`: BigQuery analytics queries
-
-**API Routes:**
-- `src/api/routes.py`: Main routes (quotes, CRM, invoices)
-- `src/api/auth_routes.py`: Authentication endpoints
-- `src/api/admin_routes.py`: Admin/provisioning endpoints
-- `src/api/analytics_routes.py`: Dashboard analytics
-- `src/api/helpdesk_routes.py`: AI helpdesk search
+- `src/tools/supabase_tool.py`: Database operations
+- `src/api/routes.py`: API endpoint definitions
 
 **Testing:**
-- `tests/`: Test directory (limited coverage)
-- Root-level `test_*.py`: Ad-hoc integration tests
+- `tests/conftest.py`: Test fixtures and configuration
+- `tests/fixtures/`: Mock data generators
+- `tests/test_*.py`: Test modules
 
 ## Naming Conventions
 
 **Files:**
-- Python: `snake_case.py` (e.g., `quote_agent.py`, `auth_service.py`)
-- React components: `PascalCase.jsx` (e.g., `Dashboard.jsx`, `ClientsList.jsx`)
-- React services: `camelCase.js` (e.g., `api.js`)
-- SQL migrations: `NNN_description.sql` (e.g., `007_notifications.sql`)
+- Python modules: `snake_case.py` (e.g., `quote_agent.py`)
+- React components: `PascalCase.jsx` (e.g., `Dashboard.jsx`)
+- Test files: `test_{module_name}.py` (e.g., `test_quote_agent.py`)
+- Config files: `lowercase` (e.g., `client.yaml`, `schema.json`)
 
 **Directories:**
-- Python packages: `snake_case` (e.g., `src/services`, `src/middleware`)
-- React: `camelCase` (e.g., `components/common`, `pages/quotes`)
-- Tenant configs: `{tenant_id}` format (e.g., `africastay`, `tn_092bb439_003b8ded5fe4`)
+- Python packages: `snake_case` (e.g., `src/services/`)
+- React folders: `kebab-case` or `lowercase` (e.g., `tenant-dashboard/`)
+- Tenant folders: Exact tenant ID (e.g., `africastay/`)
 
-**Classes and Functions:**
-- Python classes: `PascalCase` (e.g., `QuoteAgent`, `CRMService`)
-- Python functions: `snake_case` (e.g., `get_client_config`, `generate_quote`)
-- React components: `PascalCase` (e.g., `QuotesList`, `ProtectedRoute`)
-- React hooks: `useCamelCase` (e.g., `useAuth`)
+**Classes:**
+- Service classes: `{Domain}Service` (e.g., `CRMService`, `AuthService`)
+- Agent classes: `{Purpose}Agent` (e.g., `QuoteAgent`, `HelpdeskAgent`)
+- Tool classes: `{Service}Tool` (e.g., `SupabaseTool`, `BigQueryTool`)
+- Middleware: `{Feature}Middleware` (e.g., `AuthMiddleware`)
+
+**Functions:**
+- Public functions: `snake_case` (e.g., `generate_quote()`)
+- Private functions: `_snake_case` (e.g., `_validate_config()`)
+- Route handlers: Descriptive verb-noun (e.g., `get_quote()`, `create_invoice()`)
 
 ## Where to Add New Code
 
 **New API Endpoint:**
-- Create route in `src/api/{domain}_routes.py` or add to existing router
-- Add router to `src/api/routes.py` in `include_routers()` function
-- Use Pydantic models for request/response validation
-- Inject dependencies via `Depends(get_client_config)`
+- Create router in `src/api/{domain}_routes.py`
+- Add router to `src/api/routes.py` -> `include_routers()`
+- Add Pydantic models in same file or `src/api/routes.py`
+- Add tests in `tests/test_{domain}_routes.py`
+
+**New Agent:**
+- Create `src/agents/{purpose}_agent.py`
+- Follow pattern from `quote_agent.py` (config injection, logging)
+- Add tests in `tests/test_{purpose}_agent.py`
 
 **New Service:**
-- Create `src/services/{name}_service.py`
-- Initialize with `ClientConfig` parameter
-- Use SupabaseTool/BigQueryTool for data access
-- Import and use from routes or agents
+- Create `src/services/{domain}_service.py`
+- Inject `ClientConfig` in constructor
+- Add mock fixture in `tests/conftest.py`
+- Add tests in `tests/test_{domain}_service.py`
 
-**New Tenant Dashboard Page:**
-- Create `frontend/tenant-dashboard/src/pages/{Name}.jsx`
-- Add lazy import in `src/App.jsx`
-- Add route in the Routes section
-- Use `api.js` functions for backend calls
+**New Tool (External Integration):**
+- Create `src/tools/{service}_tool.py`
+- Use connection caching pattern from `supabase_tool.py`
+- Add mock fixtures in `tests/fixtures/{service}_fixtures.py`
+- Add tests in `tests/test_{service}_tool.py`
 
-**New Admin Dashboard Page:**
-- Create `frontend/internal-admin/src/pages/{Name}.jsx`
-- Import in `src/App.jsx`
-- Add route and navigation item
+**New Middleware:**
+- Create `src/middleware/{feature}_middleware.py`
+- Add to `main.py` middleware stack (order matters!)
+- Document execution order in `main.py` comments
+
+**New Tenant:**
+- Create `clients/{tenant_id}/client.yaml` from `clients/example/`
+- Add prompts in `clients/{tenant_id}/prompts/`
+- Register in Supabase `tenants` table
+- Run `scripts/setup_client.py` for provisioning
 
 **New Database Migration:**
-- Create `database/migrations/NNN_{description}.sql`
-- Number sequentially after last migration
-- Run via Supabase dashboard or CLI
+- Create `database/migrations/{NNN}_{description}.sql`
+- Apply via Supabase SQL editor
+- Document schema changes
 
-**New Utility:**
-- Add to `src/utils/` for shared utilities
-- Keep focused on single responsibility
+**New Test Fixture:**
+- Add to `tests/conftest.py` for shared fixtures
+- Add to `tests/fixtures/` for domain-specific generators
+- Follow existing mock patterns (chainable Supabase, BigQuery)
+
+**New Frontend Page:**
+- Create `frontend/tenant-dashboard/src/pages/{Page}.jsx`
+- Add route in `App.jsx`
+- Create components in `src/components/{domain}/`
 
 ## Special Directories
 
-**`clients/`:**
-- Purpose: Tenant-specific YAML configurations
-- Generated: Yes (by provisioning service for new tenants)
-- Committed: Partial (example committed, production tenants in .gitignore)
+**`.planning/`**
+- Purpose: Development planning documents
+- Generated: No (manually created)
+- Committed: Yes
 
-**`venv/` and `node_modules/`:**
-- Purpose: Dependency installations
-- Generated: Yes
+**`htmlcov/`**
+- Purpose: Test coverage HTML reports
+- Generated: Yes (by `pytest --cov`)
 - Committed: No (in .gitignore)
 
-**`__pycache__/`:**
+**`__pycache__/`**
 - Purpose: Python bytecode cache
 - Generated: Yes
 - Committed: No (in .gitignore)
 
-**`frontend/*/dist/`:**
-- Purpose: Built frontend bundles
-- Generated: Yes (by Vite build)
-- Committed: No typically
+**`frontend/*/node_modules/`**
+- Purpose: NPM dependencies
+- Generated: Yes (by `npm install`)
+- Committed: No (in .gitignore)
 
-**`.planning/`:**
-- Purpose: GSD planning documents
-- Generated: Yes (by Claude Code agents)
-- Committed: Yes
+**`frontend/*/dist/`**
+- Purpose: Built frontend assets
+- Generated: Yes (by `npm run build`)
+- Committed: Varies (may be included for simple deployments)
+
+**`venv/`**
+- Purpose: Python virtual environment
+- Generated: Yes
+- Committed: No (in .gitignore)
 
 ---
 
-*Structure analysis: 2026-01-16*
+*Structure analysis: 2026-01-23*
