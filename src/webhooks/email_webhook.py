@@ -317,8 +317,8 @@ def extract_tenant_from_email(to_email: str, headers: Dict[str, str] = None, dia
                         'local_part': local_part
                     })
                 return local_part, "direct_tenant_id"
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Config lookup failed for {local_part}: {e}")
 
     # Strategy 3: Plus addressing (quotes+africastay@domain.com)
     if '+' in local_part:
@@ -331,8 +331,8 @@ def extract_tenant_from_email(to_email: str, headers: Dict[str, str] = None, dia
                         'extracted_tenant': tenant
                     })
                 return tenant, "plus_addressing"
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Plus addressing config lookup failed for {tenant}: {e}")
 
     # Strategy 4: Check X-Tenant-ID header
     if headers:
@@ -346,8 +346,8 @@ def extract_tenant_from_email(to_email: str, headers: Dict[str, str] = None, dia
                             'header_value': tenant_header
                         })
                     return tenant_header, "x_tenant_id_header"
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"X-Tenant-ID header config lookup failed for {tenant_header}: {e}")
 
     return None, "none"
 
@@ -365,8 +365,8 @@ def extract_tenant_from_subject(subject: str, diagnostic_id: str = None) -> Tupl
                         'extracted_tenant': tenant
                     })
                 return tenant, "subject_pattern"
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Subject pattern config lookup failed for {tenant}: {e}")
     return None, "none"
 
 
@@ -419,7 +419,8 @@ async def receive_inbound_email(
 
         try:
             envelope = json.loads(envelope_str)
-        except:
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse envelope JSON: {e}")
             envelope = {}
 
         # Parse headers
@@ -758,7 +759,8 @@ async def lookup_tenant_by_email(email: str):
                 matched_email = emails.get('sendgrid_email')
             elif strategy == 'primary_email':
                 matched_email = emails.get('primary_email')
-        except:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant emails for {tenant_id}: {e}")
             matched_email = email
 
         return {
@@ -933,7 +935,8 @@ async def receive_tenant_email(
         # Verify tenant exists
         try:
             config = get_config(tenant_id)
-        except:
+        except Exception as e:
+            logger.warning(f"Tenant config lookup failed for {tenant_id}: {e}")
             raise HTTPException(status_code=404, detail=f"Tenant not found: {tenant_id}")
 
         diagnostic_log(diagnostic_id, 1, f"Direct tenant email received for {tenant_id}")
@@ -1004,7 +1007,8 @@ async def test_email_processing(tenant_id: str, email: str, subject: str = "Test
 
     try:
         config = get_config(tenant_id)
-    except:
+    except Exception as e:
+        logger.warning(f"Test endpoint tenant lookup failed for {tenant_id}: {e}")
         raise HTTPException(status_code=404, detail=f"Tenant not found: {tenant_id}")
 
     diagnostic_log(diagnostic_id, 1, f"Test email processing for {tenant_id}", {
