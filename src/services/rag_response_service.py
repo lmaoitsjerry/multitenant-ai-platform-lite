@@ -10,13 +10,78 @@ Key improvements:
 - Better error handling and API key validation
 - Source name cleanup
 - Content cleaning for better context
+- Circuit breaker and retry logic for resilience
 """
 
 import os
 import logging
+import threading
+import time
 from typing import List, Dict, Any, Optional
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 logger = logging.getLogger(__name__)
+
+
+class CircuitBreaker:
+    """Simple circuit breaker for external service calls"""
+
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failures = 0
+        self.last_failure_time = 0
+        self.state = "closed"  # closed, open, half-open
+        self._lock = threading.Lock()
+
+    def record_success(self):
+        with self._lock:
+            self.failures = 0
+            self.state = "closed"
+
+    def record_failure(self):
+        with self._lock:
+            self.failures += 1
+            self.last_failure_time = time.time()
+            if self.failures >= self.failure_threshold:
+                self.state = "open"
+                logger.warning(f"Circuit breaker OPEN after {self.failures} failures")
+
+    def can_execute(self) -> bool:
+        with self._lock:
+            if self.state == "closed":
+                return True
+            if self.state == "open":
+                if time.time() - self.last_failure_time >= self.recovery_timeout:
+                    self.state = "half-open"
+                    logger.info("Circuit breaker HALF-OPEN, allowing test request")
+                    return True
+                return False
+            return True  # half-open allows requests
+
+    def get_status(self) -> dict:
+        return {
+            "state": self.state,
+            "failures": self.failures,
+            "threshold": self.failure_threshold
+        }
+
+
+# Global circuit breaker for OpenAI
+_openai_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+
+
+def _is_retryable_openai_error(exception: Exception) -> bool:
+    """Determine if an OpenAI error is retryable"""
+    import openai
+    retryable_types = (
+        openai.RateLimitError,
+        openai.APIConnectionError,
+        openai.APITimeoutError,
+        openai.InternalServerError,
+    )
+    return isinstance(exception, retryable_types)
 
 
 # ============================================================
@@ -150,7 +215,8 @@ class RAGResponseService:
             "api_key_valid": self._api_status.get("valid", False),
             "api_status": self._api_status,
             "synthesis_available": self.client is not None,
-            "mode": "llm" if self.client else "fallback"
+            "mode": "llm" if self.client else "fallback",
+            "circuit_breaker": _openai_circuit_breaker.get_status()
         }
 
     def generate_response(
@@ -323,7 +389,34 @@ class RAGResponseService:
         return "\n\n---\n\n".join(context_parts)
 
     def _call_llm(self, question: str, context: str, query_type: str = "general") -> str:
-        """Call GPT-4o-mini to synthesize response"""
+        """Call GPT-4o-mini to synthesize response with retry and circuit breaker"""
+        global _openai_circuit_breaker
+
+        # Check circuit breaker
+        if not _openai_circuit_breaker.can_execute():
+            logger.warning("Circuit breaker OPEN - returning fallback response")
+            raise Exception("OpenAI circuit breaker open")
+
+        try:
+            response = self._call_llm_with_retry(question, context, query_type)
+            _openai_circuit_breaker.record_success()
+            return response
+        except Exception as e:
+            _openai_circuit_breaker.record_failure()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        before_sleep=lambda retry_state: logger.warning(
+            f"OpenAI call failed, retrying in {retry_state.next_action.sleep} seconds..."
+        )
+    )
+    def _call_llm_with_retry(self, question: str, context: str, query_type: str = "general") -> str:
+        """Internal method with retry decorator"""
+        import openai
+
         # Build system prompt with query-specific guidance
         query_guidance = QUERY_TYPE_PROMPTS.get(query_type, QUERY_TYPE_PROMPTS["general"])
         full_system_prompt = SYSTEM_PROMPT + "\n" + query_guidance
@@ -335,18 +428,30 @@ Context from knowledge base:
 
 Provide a helpful, natural response using the information above. If the context doesn't contain relevant information, honestly acknowledge that."""
 
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": full_system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.6,  # Balanced for natural but accurate
-            max_tokens=500,
-            timeout=15.0  # Generous timeout
-        )
-
-        return response.choices[0].message.content
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": full_system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.6,
+                max_tokens=500,
+                timeout=15.0
+            )
+            return response.choices[0].message.content
+        except openai.RateLimitError as e:
+            logger.warning(f"OpenAI rate limit hit: {e}")
+            raise
+        except openai.APIConnectionError as e:
+            logger.warning(f"OpenAI connection error: {e}")
+            raise
+        except openai.APITimeoutError as e:
+            logger.warning(f"OpenAI timeout: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise
 
     def _fallback_response(self, question: str, results: List[Dict]) -> Dict[str, Any]:
         """Fallback when LLM unavailable - return improved formatted results"""
