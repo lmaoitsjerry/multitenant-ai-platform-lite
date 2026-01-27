@@ -48,8 +48,7 @@ class TravelPlatformRAGClient:
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
-            "Authorization": f"ApiKey {self.api_key}" if self.api_key else "",
-            "X-Tenant-Slug": self.tenant_slug
+            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
         })
 
         self._initialized = True
