@@ -24,6 +24,7 @@ from src.middleware.auth_middleware import get_current_user_optional
 from src.services.rag_response_service import generate_rag_response, get_rag_service
 from src.services.query_classifier import get_query_classifier, QueryType
 from src.services.reranker_service import get_reranker
+from src.services.travel_platform_rag_client import get_travel_platform_rag_client
 
 logger = logging.getLogger(__name__)
 
@@ -184,115 +185,101 @@ Just ask me anything - like "How do I create a quote?" or "What are the pipeline
 # KNOWLEDGE BASE SEARCH HELPER
 # ============================================================
 
-def search_shared_faiss_index(
+def search_travel_platform_rag(
     query: str,
-    top_k: int = 8,
-    use_mmr: bool = False,
-    lambda_mmr: float = 0.7,
-    fetch_k: int = 15,
-    use_rerank: bool = False
-) -> List[Dict[str, Any]]:
+    top_k: int = 10,
+    use_rerank: bool = True
+) -> Dict[str, Any]:
     """
-    Search the shared FAISS helpdesk index (stored in GCS).
-    This is the primary knowledge base for helpdesk queries.
+    Search the Travel Platform RAG API for knowledge base queries.
 
-    Uses search_with_context for better RAG context:
-    - Returns 5-8 documents (top_k=8)
-    - Filters by relevance (min_score=0.3)
-    - Ensures minimum 3 results for context
-    - Optional MMR for diverse results (great for hotel queries)
-    - Optional re-ranking for improved relevance
+    This replaces local FAISS with the centralized RAG service.
+
+    Args:
+        query: Search query
+        top_k: Number of results (default 10)
+        use_rerank: Whether to use re-ranking (default True)
+
+    Returns:
+        Dict with 'success', 'answer', 'citations', 'confidence'
     """
     try:
-        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
+        client = get_travel_platform_rag_client()
 
-        service = get_faiss_helpdesk_service()
+        if not client.is_available():
+            logger.warning("Travel Platform RAG not available")
+            return {"success": False, "answer": "", "citations": [], "error": "RAG service unavailable"}
 
-        # Search with context, optionally using MMR for diversity
-        results = service.search_with_context(
-            query,
-            top_k=top_k if not use_rerank else top_k * 2,  # Fetch more for reranking
-            min_score=0.3,
-            use_mmr=use_mmr,
-            lambda_mmr=lambda_mmr,
-            fetch_k=fetch_k
+        result = client.search(
+            query=query,
+            top_k=top_k,
+            use_rerank=use_rerank
         )
 
-        if results and use_rerank:
-            # Apply re-ranking for improved relevance
-            reranker = get_reranker()
-            if reranker.is_available():
-                results = reranker.rerank(query, results, top_k=top_k)
-                logger.info(f"Re-ranked to top {len(results)} results")
+        if result.get("success"):
+            logger.info(
+                f"Travel Platform RAG search: query='{query[:50]}...', "
+                f"confidence={result.get('confidence', 0):.2f}"
+            )
+        else:
+            logger.warning(f"Travel Platform RAG search failed: {result.get('error')}")
 
-        if results:
-            logger.info(f"Shared FAISS search returned {len(results)} results (mmr={use_mmr}, rerank={use_rerank})")
-            return results
+        return result
 
     except Exception as e:
-        logger.warning(f"Shared FAISS search failed: {e}")
-
-    return []
+        logger.error(f"Travel Platform RAG search error: {e}")
+        return {"success": False, "answer": "", "citations": [], "error": str(e)}
 
 
 def search_knowledge_base(
     config: ClientConfig,
     query: str,
-    top_k: int = 5,
+    top_k: int = 10,
     use_mmr: bool = False,
     lambda_mmr: float = 0.7,
     fetch_k: int = 15,
-    use_rerank: bool = False
-):
+    use_rerank: bool = True
+) -> List[Dict[str, Any]]:
     """
-    Search knowledge bases for relevant content.
+    Search knowledge base via Travel Platform RAG.
 
-    Priority:
-    1. Shared FAISS helpdesk index (GCS bucket: zorah-faiss-index)
-       - Uses search_with_context (8 docs, min_score 0.3)
-       - Optional MMR for diverse results
-       - Optional re-ranking for improved relevance
-    2. Per-tenant local FAISS index (fallback)
+    This uses the centralized Travel Platform RAG API instead of local FAISS.
+    The use_mmr, lambda_mmr, and fetch_k params are kept for API compatibility
+    but are handled by the Travel Platform service.
+
+    Args:
+        config: Client configuration (for compatibility)
+        query: Search query
+        top_k: Number of results
+        use_mmr: Ignored (handled by Travel Platform)
+        lambda_mmr: Ignored (handled by Travel Platform)
+        fetch_k: Ignored (handled by Travel Platform)
+        use_rerank: Whether to use re-ranking
+
+    Returns:
+        List of search results with 'content', 'score', 'source'
     """
-    # First try the shared FAISS index with enhanced search
-    shared_results = search_shared_faiss_index(
-        query,
-        top_k=top_k,
-        use_mmr=use_mmr,
-        lambda_mmr=lambda_mmr,
-        fetch_k=fetch_k,
-        use_rerank=use_rerank
-    )
-    if shared_results:
-        return shared_results
+    result = search_travel_platform_rag(query, top_k=top_k, use_rerank=use_rerank)
 
-    # Fall back to per-tenant index if no shared results
-    if not config:
+    if not result.get("success"):
+        logger.warning(f"Travel Platform RAG failed, returning empty: {result.get('error')}")
         return []
 
-    try:
-        from src.api.knowledge_routes import get_index_manager
+    # Transform citations to the format expected by the rest of the code
+    citations = result.get("citations", [])
+    transformed = []
 
-        manager = get_index_manager(config)
-        results = manager.search(
-            query=query,
-            top_k=top_k,
-            visibility="private",
-            min_score=0.4
-        )
+    for cite in citations:
+        transformed.append({
+            "content": cite.get("content", ""),
+            "score": cite.get("relevance_score", 0.0),
+            "source": cite.get("source_title", "Knowledge Base"),
+            "source_url": cite.get("source_url", ""),
+            "doc_id": cite.get("doc_id", ""),
+            "chunk_id": cite.get("chunk_id", "")
+        })
 
-        if not results:
-            results = manager.search(
-                query=query,
-                top_k=top_k,
-                min_score=0.4
-            )
-
-        return results
-
-    except Exception as e:
-        logger.debug(f"Per-tenant knowledge base search failed: {e}")
-        return []
+    return transformed
 
 
 def format_knowledge_response(results: List[Dict], question: str, query_type: str = "general") -> Dict[str, Any]:
@@ -375,13 +362,14 @@ async def ask_helpdesk(
 ):
     """
     Ask a question to the helpdesk assistant.
-    Searches knowledge base first, falls back to smart static responses.
+    Uses Travel Platform RAG for knowledge base queries.
+    Falls back to smart static responses if RAG unavailable.
 
     Features:
     - Query classification for optimized search parameters
-    - MMR (Maximal Marginal Relevance) for diverse hotel options
-    - Re-ranking for improved relevance
-    - Natural conversational responses via GPT-4o-mini
+    - Travel Platform RAG with re-ranking
+    - Natural conversational responses
+    - Fallback to static help content
 
     Note: Authentication is optional - helpdesk works for all users.
     Returns timing data for performance monitoring.
@@ -398,55 +386,53 @@ async def ask_helpdesk(
 
         logger.info(f"Query classified as {query_type.value} (confidence: {confidence:.2f})")
 
-        # Step 2: Search with optimized parameters
+        # Step 2: Search Travel Platform RAG
         search_start = time.time()
-        kb_results = search_knowledge_base(
-            config,
+        rag_result = search_travel_platform_rag(
             question,
-            top_k=search_params.get('k', 5),
-            use_mmr=search_params.get('use_mmr', False),
-            lambda_mmr=search_params.get('lambda_mmr', 0.7),
-            fetch_k=search_params.get('fetch_k', 15),
-            use_rerank=search_params.get('use_rerank', False)
+            top_k=search_params.get('k', 10),
+            use_rerank=search_params.get('use_rerank', True)
         )
         search_time = time.time() - search_start
 
-        if kb_results:
-            # Step 3: RAG synthesis with query type-specific prompts
-            synth_start = time.time()
-            rag_response = format_knowledge_response(kb_results, question, query_type.value)
-            synth_time = time.time() - synth_start
-
+        if rag_result.get("success") and rag_result.get("answer"):
+            # Travel Platform RAG returned an answer - use it directly
             total_time = time.time() - start_time
-            logger.info(f"Helpdesk RAG: search={search_time:.2f}s, synth={synth_time:.2f}s, total={total_time:.2f}s")
+            logger.info(f"Helpdesk RAG: search={search_time:.2f}s, total={total_time:.2f}s, confidence={rag_result.get('confidence', 0):.2f}")
 
             if total_time > 3.0:
                 logger.warning(f"Helpdesk response exceeded 3s target: {total_time:.2f}s")
 
+            # Format citations as sources
+            sources = [
+                {
+                    "filename": cite.get("source_title", "Knowledge Base"),
+                    "score": cite.get("relevance_score", 0),
+                    "type": "travel_platform_rag"
+                }
+                for cite in rag_result.get("citations", [])[:5]
+            ]
+
             return {
                 "success": True,
-                "answer": rag_response['answer'],
-                "sources": [
-                    {
-                        "filename": s.get("filename", "Knowledge Base"),
-                        "score": s.get("score", 0),
-                        "type": "knowledge_base"
-                    }
-                    for s in rag_response.get('sources', [])
-                ],
-                "method": rag_response.get('method', 'rag'),
+                "answer": rag_result["answer"],
+                "sources": sources,
+                "method": "travel_platform_rag",
                 "query_type": query_type.value,
+                "confidence": rag_result.get("confidence", 0),
                 "timing": {
                     "search_ms": int(search_time * 1000),
-                    "synthesis_ms": int(synth_time * 1000),
-                    "total_ms": int(total_time * 1000)
+                    "synthesis_ms": 0,  # Synthesis done by Travel Platform
+                    "total_ms": int(total_time * 1000),
+                    "rag_latency_ms": rag_result.get("latency_ms", 0)
                 }
             }
 
-        # Step 4: Fall back to smart static responses
+        # Step 3: Fall back to smart static responses
+        logger.info(f"Travel Platform RAG unavailable or no answer, using static fallback")
         answer, topic, sources = get_smart_response(question)
         total_time = time.time() - start_time
-        logger.info(f"Helpdesk fallback: search={search_time:.2f}s, total={total_time:.2f}s (no KB results)")
+        logger.info(f"Helpdesk fallback: search={search_time:.2f}s, total={total_time:.2f}s")
 
         return {
             "success": True,
@@ -516,18 +502,17 @@ async def search_helpdesk(
     }
 
 
-@helpdesk_router.get("/faiss-status")
-async def get_faiss_status() -> Dict[str, Any]:
+@helpdesk_router.get("/rag-status")
+async def get_rag_status() -> Dict[str, Any]:
     """
-    Get status of the shared FAISS helpdesk index.
+    Get status of the Travel Platform RAG connection.
     Useful for debugging and monitoring.
     """
     try:
-        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
-        service = get_faiss_helpdesk_service()
+        client = get_travel_platform_rag_client()
         return {
             "success": True,
-            "data": service.get_status()
+            "data": client.get_status()
         }
     except Exception as e:
         return {
@@ -536,43 +521,52 @@ async def get_faiss_status() -> Dict[str, Any]:
         }
 
 
-@helpdesk_router.get("/test-search")
-async def test_faiss_search(q: str = "Maldives hotels"):
+@helpdesk_router.get("/faiss-status")
+async def get_faiss_status() -> Dict[str, Any]:
     """
-    Test endpoint for FAISS search (no auth required).
+    Legacy endpoint - redirects to /rag-status.
+    FAISS has been replaced by Travel Platform RAG.
+    """
+    return await get_rag_status()
+
+
+@helpdesk_router.get("/test-search")
+async def test_rag_search(q: str = "Maldives hotels"):
+    """
+    Test endpoint for Travel Platform RAG search (no auth required).
     For debugging and verification only.
 
-    Returns 5-8 documents with relevance filtering (via search_with_context).
-    Also includes a RAG synthesis preview of the response.
+    Returns the RAG response with answer and citations.
     """
     try:
-        results = search_shared_faiss_index(q)
+        result = search_travel_platform_rag(q, top_k=10, use_rerank=True)
 
-        if results:
-            # Also show RAG synthesis preview
-            rag_result = generate_rag_response(q, results[:3])
-
+        if result.get("success") and result.get("answer"):
+            answer = result["answer"]
             return {
                 "success": True,
                 "query": q,
-                "results_count": len(results),
-                "results": [
+                "method": "travel_platform_rag",
+                "confidence": result.get("confidence", 0),
+                "latency_ms": result.get("latency_ms", 0),
+                "citations_count": len(result.get("citations", [])),
+                "citations": [
                     {
-                        "content_preview": r.get("content", "")[:300] + "..." if len(r.get("content", "")) > 300 else r.get("content", ""),
-                        "score": r.get("score"),
-                        "source": r.get("source")
+                        "source_title": c.get("source_title", "Unknown"),
+                        "relevance_score": c.get("relevance_score", 0),
+                        "content_preview": c.get("content", "")[:200] + "..." if len(c.get("content", "")) > 200 else c.get("content", "")
                     }
-                    for r in results
+                    for c in result.get("citations", [])[:5]
                 ],
-                "synthesized_preview": rag_result['answer'][:300] + "..." if len(rag_result['answer']) > 300 else rag_result['answer'],
-                "synthesis_method": rag_result.get('method', 'unknown')
+                "answer_preview": answer[:500] + "..." if len(answer) > 500 else answer
             }
         else:
             return {
-                "success": True,
+                "success": False,
                 "query": q,
-                "results_count": 0,
-                "message": "No results found in FAISS index"
+                "method": "travel_platform_rag",
+                "error": result.get("error", "No answer returned"),
+                "message": "Travel Platform RAG did not return an answer"
             }
 
     except Exception as e:
@@ -588,58 +582,36 @@ async def helpdesk_health() -> Dict[str, Any]:
     """
     Health check endpoint for the helpdesk RAG system.
 
-    Verifies all components are working:
-    - FAISS index is loaded and has vectors
-    - OpenAI API key is configured
-    - RAG synthesis is available
+    Verifies Travel Platform RAG is available and working.
 
     Returns:
-        - status: "healthy" if all checks pass, "degraded" if some fail
-        - mode: "full_rag" if LLM available, "fallback_only" otherwise
+        - status: "healthy" if Travel Platform RAG available, "degraded" otherwise
+        - mode: "travel_platform_rag" or "static_fallback"
         - checks: Individual component status
     """
     try:
-        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
-
-        # Get FAISS status
-        faiss_service = get_faiss_helpdesk_service()
-        faiss_status = faiss_service.get_status()
-
-        # Get RAG service status
-        rag_service = get_rag_service()
-        rag_status = rag_service.get_status()
-
-        # Get reranker status
-        reranker = get_reranker()
-        reranker_status = reranker.get_status()
+        # Get Travel Platform RAG status
+        rag_client = get_travel_platform_rag_client()
+        tp_status = rag_client.get_status()
+        tp_available = tp_status.get("available", False)
 
         # Determine overall health
         checks = {
-            "faiss_initialized": faiss_status.get("initialized", False),
-            "faiss_vector_count": faiss_status.get("vector_count", 0),
-            "faiss_document_count": faiss_status.get("document_count", 0),
-            "openai_api_key_configured": rag_status.get("api_key_configured", False),
-            "openai_api_key_valid": rag_status.get("api_key_valid", False),
-            "rag_synthesis_available": rag_status.get("synthesis_available", False),
-            "reranker_available": reranker_status.get("available", False),
+            "travel_platform_rag_available": tp_available,
+            "travel_platform_url": tp_status.get("base_url", ""),
+            "travel_platform_tenant": tp_status.get("tenant", ""),
         }
 
-        # Health is "healthy" if core components work
-        all_healthy = all([
-            checks["faiss_initialized"],
-            checks["faiss_vector_count"] > 0,
-            checks["openai_api_key_configured"],
-            checks["rag_synthesis_available"]
-        ])
+        # Health is "healthy" if Travel Platform RAG is available
+        status = "healthy" if tp_available else "degraded"
+        mode = "travel_platform_rag" if tp_available else "static_fallback"
 
         return {
-            "status": "healthy" if all_healthy else "degraded",
-            "mode": rag_status.get("mode", "unknown"),
+            "status": status,
+            "mode": mode,
             "checks": checks,
             "details": {
-                "faiss": faiss_status,
-                "rag": rag_status,
-                "reranker": reranker_status
+                "travel_platform": tp_status
             }
         }
 
@@ -727,44 +699,36 @@ async def agent_stats() -> Dict[str, Any]:
 
 
 @helpdesk_router.post("/reinit")
-async def reinit_faiss_service(clear_cache: bool = False):
+async def reinit_rag_client():
     """
-    Reinitialize the FAISS service to pick up new bucket configuration.
+    Reinitialize the Travel Platform RAG client.
 
-    Args:
-        clear_cache: If True, delete cached index files to force re-download from GCS
-
-    Use this after changing FAISS_BUCKET_NAME or FAISS_INDEX_PREFIX environment variables,
-    or to refresh the index from a new bucket.
+    Use this after changing TRAVEL_PLATFORM_URL, TRAVEL_PLATFORM_API_KEY,
+    or TRAVEL_PLATFORM_TENANT environment variables.
     """
     try:
-        from src.services.faiss_helpdesk_service import (
-            get_faiss_helpdesk_service,
-            reset_faiss_service,
-            GCS_BUCKET_NAME,
-            GCS_INDEX_PREFIX
+        from src.services.travel_platform_rag_client import (
+            get_travel_platform_rag_client,
+            reset_travel_platform_rag_client
         )
 
         # Reset and reinitialize
-        reset_faiss_service(clear_cache=clear_cache)
+        reset_travel_platform_rag_client()
 
-        # Get fresh service and initialize
-        service = get_faiss_helpdesk_service()
-        success = service.initialize()
+        # Get fresh client
+        client = get_travel_platform_rag_client()
+        available = client.is_available()
 
-        status = service.get_status()
+        status = client.get_status()
 
         return {
-            "success": success,
-            "message": "FAISS service reinitialized" if success else "Reinitialization failed",
-            "cache_cleared": clear_cache,
-            "bucket": GCS_BUCKET_NAME,
-            "index_prefix": GCS_INDEX_PREFIX,
+            "success": available,
+            "message": "Travel Platform RAG client reinitialized" if available else "RAG service unavailable",
             "status": status
         }
 
     except Exception as e:
-        logger.error(f"FAISS reinit failed: {e}", exc_info=True)
+        logger.error(f"RAG client reinit failed: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e)

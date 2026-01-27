@@ -350,33 +350,35 @@ class HelpdeskAgent:
         }
 
     def _execute_search(self, args: Dict) -> tuple:
-        """Execute knowledge base search"""
+        """Execute knowledge base search via Travel Platform RAG"""
         try:
-            from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
-            from src.services.rag_response_service import generate_rag_response
+            from src.services.travel_platform_rag_client import get_travel_platform_rag_client
 
             query = args.get("query", "")
             query_type = args.get("query_type", "general")
 
-            # Search FAISS
-            service = get_faiss_helpdesk_service()
-            results = service.search_with_context(query, top_k=5, min_score=0.3)
+            # Search Travel Platform RAG
+            client = get_travel_platform_rag_client()
 
-            if not results:
+            if not client.is_available():
+                return "Knowledge base is temporarily unavailable. Please try again later.", []
+
+            result = client.search(query, top_k=10, use_rerank=True)
+
+            if not result.get("success") or not result.get("answer"):
                 return "No relevant information found in the knowledge base.", []
 
-            # Format results
-            content_summary = []
-            sources = []
-            for r in results[:3]:
-                content = r.get('content', '')[:500]
-                content_summary.append(content)
-                sources.append({
-                    "source": r.get('source', 'Knowledge Base'),
-                    "score": r.get('score', 0)
-                })
+            # Return the synthesized answer and citations as sources
+            answer = result.get("answer", "")
+            sources = [
+                {
+                    "source": cite.get("source_title", "Knowledge Base"),
+                    "score": cite.get("relevance_score", 0)
+                }
+                for cite in result.get("citations", [])[:5]
+            ]
 
-            return "\n---\n".join(content_summary), sources
+            return answer, sources
 
         except Exception as e:
             logger.error(f"Search failed: {e}")
