@@ -1,4 +1,5 @@
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'access_token';
@@ -27,6 +28,20 @@ export const clearTenantId = () => {
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   timeout: 10000, // 10 second timeout - prevents infinite hangs
+});
+
+// Automatic retry for transient failures
+axiosRetry(api, {
+  retries: 3,
+  retryDelay: axiosRetry.exponentialDelay,
+  retryCondition: (error) => {
+    // Retry on network errors (no response at all)
+    if (!error.response) return true;
+    // Retry GET requests on 5xx
+    if (error.config?.method === 'get' && error.response.status >= 500) return true;
+    // Never retry 4xx
+    return false;
+  },
 });
 
 // Add client ID and auth headers to all requests
@@ -263,6 +278,29 @@ export const clearCache = (pattern) => {
   });
 };
 
+// Cached GET helper - eliminates repetitive cache-check-fetch-cache pattern
+const cachedGet = async (key, url, { ttl = CACHE_TTL, params, timeout, cacheIf, fallback } = {}) => {
+  const cached = getCached(key);
+  if (cached) return { data: cached };
+
+  try {
+    const config = {};
+    if (params) config.params = params;
+    if (timeout) config.timeout = timeout;
+
+    const response = await api.get(url, config);
+
+    if (!cacheIf || cacheIf(response.data)) {
+      setCached(key, response.data, ttl);
+    }
+
+    return response;
+  } catch (error) {
+    if (fallback) return { data: fallback };
+    throw error;
+  }
+};
+
 // Prefetch helper - fetches and caches data for later use
 export const prefetch = async (key, fetcher, ttl = DETAIL_CACHE_TTL) => {
   // Don't prefetch if already cached and fresh
@@ -370,15 +408,7 @@ export const quotesApi = {
     setCached(cacheKey, response.data, LIST_CACHE_TTL);
     return response;
   },
-  get: async (id) => {
-    const cacheKey = `quote-${id}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get(`/api/v1/quotes/${id}`);
-    setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
-    return response;
-  },
+  get: (id) => cachedGet(`quote-${id}`, `/api/v1/quotes/${id}`, { ttl: DETAIL_CACHE_TTL }),
   generate: (data) => api.post('/api/v1/quotes/generate', data, { timeout: 30000 }), // 30s for quote generation
   resend: (id) => api.post(`/api/v1/quotes/${id}/resend`),
   update: (id, data) => api.patch(`/api/v1/quotes/${id}`, data),
@@ -390,85 +420,25 @@ export const quotesApi = {
 };
 
 // ==================== Pricing API ====================
-export const pricingApi = {
-  listRates: async (params = {}) => {
-    const cacheKey = `rates-${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
+const hasSuccessData = (data) => data?.success && data?.data?.length > 0;
 
-    // BigQuery can be slow on cold start - use 30s timeout
-    const response = await api.get('/api/v1/pricing/rates', { params, timeout: 30000 });
-    // Only cache successful responses with data
-    if (response.data?.success && response.data?.data?.length > 0) {
-      setCached(cacheKey, response.data, CACHE_TTL);
-    }
-    return response;
-  },
-  
+export const pricingApi = {
+  listRates: (params = {}) =>
+    cachedGet(`rates-${JSON.stringify(params)}`, '/api/v1/pricing/rates', { params, timeout: 30000, cacheIf: hasSuccessData }),
   getRate: (id) => api.get(`/api/v1/pricing/rates/${id}`),
   createRate: (data) => api.post('/api/v1/pricing/rates', data),
   updateRate: (id, data) => api.put(`/api/v1/pricing/rates/${id}`, data),
   deleteRate: (id) => api.delete(`/api/v1/pricing/rates/${id}`),
-  
-  listHotels: async (params = {}) => {
-    const cacheKey = `hotels-${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    // BigQuery can be slow on cold start - use 30s timeout
-    const response = await api.get('/api/v1/pricing/hotels', { params, timeout: 30000 });
-    // Only cache successful responses with data
-    if (response.data?.success && response.data?.data?.length > 0) {
-      setCached(cacheKey, response.data, CACHE_TTL);
-    }
-    return response;
-  },
-
-  getHotel: async (hotelName) => {
-    const cacheKey = `hotel-${hotelName}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get(`/api/v1/pricing/hotels/${encodeURIComponent(hotelName)}`);
-    setCached(cacheKey, response.data, CACHE_TTL);
-    return response;
-  },
-
-  getHotelRates: async (hotelName) => {
-    const cacheKey = `hotel-rates-${hotelName}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get(`/api/v1/pricing/hotels/${encodeURIComponent(hotelName)}/rates`);
-    setCached(cacheKey, response.data, CACHE_TTL);
-    return response;
-  },
-  
-  listDestinations: async () => {
-    const cacheKey = 'destinations';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    // BigQuery can be slow on cold start - use 30s timeout
-    const response = await api.get('/api/v1/pricing/destinations', { timeout: 30000 });
-    if (response.data?.success && response.data?.data?.length > 0) {
-      setCached(cacheKey, response.data, CACHE_TTL);
-    }
-    return response;
-  },
-
-  getStats: async () => {
-    const cacheKey = 'pricing-stats';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    // BigQuery can be slow on cold start - use 30s timeout
-    const response = await api.get('/api/v1/pricing/stats', { timeout: 30000 });
-    if (response.data?.success) {
-      setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    }
-    return response;
-  },
+  listHotels: (params = {}) =>
+    cachedGet(`hotels-${JSON.stringify(params)}`, '/api/v1/pricing/hotels', { params, timeout: 30000, cacheIf: hasSuccessData }),
+  getHotel: (hotelName) =>
+    cachedGet(`hotel-${hotelName}`, `/api/v1/pricing/hotels/${encodeURIComponent(hotelName)}`),
+  getHotelRates: (hotelName) =>
+    cachedGet(`hotel-rates-${hotelName}`, `/api/v1/pricing/hotels/${encodeURIComponent(hotelName)}/rates`),
+  listDestinations: () =>
+    cachedGet('destinations', '/api/v1/pricing/destinations', { timeout: 30000, cacheIf: hasSuccessData }),
+  getStats: () =>
+    cachedGet('pricing-stats', '/api/v1/pricing/stats', { ttl: STATS_CACHE_TTL, timeout: 30000, cacheIf: (d) => d?.success }),
 };
 
 // ==================== CRM API ====================
@@ -477,30 +447,16 @@ export const crmApi = {
   listClients: async (params = {}, forceRefresh = false) => {
     const cacheKey = `crm-clients-${JSON.stringify(params)}`;
 
-    // Skip cache if force refresh
     if (!forceRefresh) {
       const cached = getCached(cacheKey);
-      if (cached) {
-        console.log('[crmApi.listClients] Returning cached data:', cached);
-        return { data: cached };
-      }
+      if (cached) return { data: cached };
     }
 
-    console.log('[crmApi.listClients] Fetching from API:', params);
     const response = await api.get('/api/v1/crm/clients', { params });
-    console.log('[crmApi.listClients] API response status:', response.status, 'data:', response.data);
     setCached(cacheKey, response.data, LIST_CACHE_TTL);
     return response;
   },
-  getClient: async (id) => {
-    const cacheKey = `client-${id}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get(`/api/v1/crm/clients/${id}`);
-    setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
-    return response;
-  },
+  getClient: (id) => cachedGet(`client-${id}`, `/api/v1/crm/clients/${id}`, { ttl: DETAIL_CACHE_TTL }),
   createClient: async (data) => {
     const response = await api.post('/api/v1/crm/clients', data);
     // Clear CRM caches after successful creation so list refreshes
@@ -524,15 +480,7 @@ export const crmApi = {
   },
 
   // Pipeline
-  getPipeline: async () => {
-    const cacheKey = 'pipeline';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/crm/pipeline');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
+  getPipeline: () => cachedGet('pipeline', '/api/v1/crm/pipeline', { ttl: STATS_CACHE_TTL }),
 
   updateStage: (clientId, stage) => api.patch(`/api/v1/crm/clients/${clientId}/stage`, { stage }),
 
@@ -540,18 +488,7 @@ export const crmApi = {
   getActivities: (clientId) => api.get(`/api/v1/crm/clients/${clientId}/activities`),
   addActivity: (clientId, data) => api.post(`/api/v1/crm/clients/${clientId}/activities`, data),
 
-  // Stats
-  getStats: async () => {
-    const cacheKey = 'crm-stats';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/crm/stats');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Prefetch client detail on hover
+  getStats: () => cachedGet('crm-stats', '/api/v1/crm/stats', { ttl: STATS_CACHE_TTL }),
   prefetch: (id) => prefetch(`client-${id}`, () => api.get(`/api/v1/crm/clients/${id}`)),
 };
 
@@ -569,24 +506,8 @@ export const invoicesApi = {
     cache.delete('dashboard-all');
   },
 
-  list: async (params = {}) => {
-    const cacheKey = `invoices-list-${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/invoices', { params });
-    setCached(cacheKey, response.data, LIST_CACHE_TTL);
-    return response;
-  },
-  get: async (id) => {
-    const cacheKey = `invoice-${id}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get(`/api/v1/invoices/${id}`);
-    setCached(cacheKey, response.data, DETAIL_CACHE_TTL);
-    return response;
-  },
+  list: (params = {}) => cachedGet(`invoices-list-${JSON.stringify(params)}`, '/api/v1/invoices', { ttl: LIST_CACHE_TTL, params }),
+  get: (id) => cachedGet(`invoice-${id}`, `/api/v1/invoices/${id}`, { ttl: DETAIL_CACHE_TTL }),
   // Create invoice from quote - clears cache after success
   createFromQuote: async (data) => {
     const response = await api.post('/api/v1/invoices/convert-quote', data);
@@ -603,14 +524,8 @@ export const invoicesApi = {
     }
     return response;
   },
-  // Alias for backwards compatibility (creates from quote)
-  create: async (data) => {
-    const response = await api.post('/api/v1/invoices/convert-quote', data);
-    if (response.data?.success || response.data?.invoice_id) {
-      invoicesApi.clearListCache();
-    }
-    return response;
-  },
+  // Alias for backwards compatibility
+  create: (...args) => invoicesApi.createFromQuote(...args),
   update: async (id, data) => {
     const response = await api.patch(`/api/v1/invoices/${id}`, data);
     invoicesApi.clearListCache();
@@ -640,18 +555,7 @@ export const invoicesApi = {
     return response;
   },
 
-  // Stats
-  getStats: async () => {
-    const cacheKey = 'invoice-stats';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/invoices/stats');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Prefetch invoice detail on hover
+  getStats: () => cachedGet('invoice-stats', '/api/v1/invoices/stats', { ttl: STATS_CACHE_TTL }),
   prefetch: (id) => prefetch(`invoice-${id}`, () => api.get(`/api/v1/invoices/${id}`)),
 };
 
@@ -680,15 +584,7 @@ export const inboundApi = {
 
 // ==================== Usage/Rate Limits API ====================
 export const usageApi = {
-  getLimits: async () => {
-    const cacheKey = 'usage-limits';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/rate-limits/usage');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
+  getLimits: () => cachedGet('usage-limits', '/api/v1/rate-limits/usage', { ttl: STATS_CACHE_TTL }),
   getStats: () => api.get('/api/v1/rate-limits/stats'),
 };
 
@@ -714,49 +610,14 @@ export const dashboardApi = {
 
 // ==================== Analytics API ====================
 export const analyticsApi = {
-  // Quote analytics
-  getQuoteAnalytics: async (period = '30d') => {
-    const cacheKey = `analytics-quotes-${period}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/analytics/quotes', { params: { period } });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Invoice analytics
-  getInvoiceAnalytics: async (period = '30d') => {
-    const cacheKey = `analytics-invoices-${period}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/analytics/invoices', { params: { period } });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Pipeline analytics
-  getPipelineAnalytics: async () => {
-    const cacheKey = 'analytics-pipeline';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/analytics/pipeline');
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Call analytics
-  getCallAnalytics: async (period = '30d') => {
-    const cacheKey = `analytics-calls-${period}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/analytics/calls', { params: { period } });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
+  getQuoteAnalytics: (period = '30d') =>
+    cachedGet(`analytics-quotes-${period}`, '/api/v1/analytics/quotes', { ttl: STATS_CACHE_TTL, params: { period } }),
+  getInvoiceAnalytics: (period = '30d') =>
+    cachedGet(`analytics-invoices-${period}`, '/api/v1/analytics/invoices', { ttl: STATS_CACHE_TTL, params: { period } }),
+  getPipelineAnalytics: () =>
+    cachedGet('analytics-pipeline', '/api/v1/analytics/pipeline', { ttl: STATS_CACHE_TTL }),
+  getCallAnalytics: (period = '30d') =>
+    cachedGet(`analytics-calls-${period}`, '/api/v1/analytics/calls', { ttl: STATS_CACHE_TTL, params: { period } }),
 };
 
 // ==================== Client Info API ====================
@@ -811,53 +672,15 @@ export const tenantSettingsApi = {
 
 // ==================== Branding API ====================
 export const brandingApi = {
-  // Get current branding
-  get: async () => {
-    const response = await api.get('/api/v1/branding');
-    return response;
-  },
-
-  // Update branding
+  get: () => api.get('/api/v1/branding'),
   update: (data) => api.put('/api/v1/branding', data),
-
-  // Get available presets
-  getPresets: async () => {
-    const cacheKey = 'branding-presets';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/branding/presets');
-    setCached(cacheKey, response.data, CACHE_TTL * 10); // Cache for 10 minutes
-    return response;
-  },
-
-  // Apply a preset
+  getPresets: () => cachedGet('branding-presets', '/api/v1/branding/presets', { ttl: STATIC_CACHE_TTL }),
   applyPreset: (presetName) => api.post(`/api/v1/branding/apply-preset/${presetName}`),
-
-  // Upload logo - let axios auto-set Content-Type with proper multipart boundary
   uploadLogo: (formData) => api.post('/api/v1/branding/upload/logo', formData),
-
-  // Upload login background image
   uploadBackground: (formData) => api.post('/api/v1/branding/upload/background', formData),
-
-  // Reset to defaults
   reset: () => api.post('/api/v1/branding/reset'),
-
-  // Get available fonts
-  getFonts: async () => {
-    const cacheKey = 'branding-fonts';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/branding/fonts');
-    setCached(cacheKey, response.data, CACHE_TTL * 10);
-    return response;
-  },
-
-  // Preview branding changes
+  getFonts: () => cachedGet('branding-fonts', '/api/v1/branding/fonts', { ttl: STATIC_CACHE_TTL }),
   preview: (data) => api.post('/api/v1/branding/preview', data),
-
-  // Get CSS variables
   getCSSVariables: () => api.get('/api/v1/branding/css-variables'),
 };
 
@@ -878,16 +701,7 @@ export const templatesApi = {
   // Reset to defaults
   reset: () => api.post('/api/v1/templates/reset'),
 
-  // Get available layouts
-  getLayouts: async () => {
-    const cacheKey = 'template-layouts';
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/templates/layouts');
-    setCached(cacheKey, response.data, CACHE_TTL * 10);
-    return response;
-  },
+  getLayouts: () => cachedGet('template-layouts', '/api/v1/templates/layouts', { ttl: STATIC_CACHE_TTL }),
 };
 
 // ==================== Authentication API ====================
@@ -956,59 +770,24 @@ export const onboardingApi = {
 
 // ==================== Leaderboard API ====================
 export const leaderboardApi = {
-  // Get consultant rankings
-  getRankings: async (period = 'month', metric = 'conversions', limit = 50) => {
-    const cacheKey = `leaderboard-rankings-${period}-${metric}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/leaderboard/rankings', {
-      params: { period, metric, limit },
-    });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Get current user's performance
-  getMyPerformance: async (period = 'month') => {
-    const cacheKey = `leaderboard-me-${period}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/leaderboard/me', {
-      params: { period },
-    });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Get organization performance summary
-  getSummary: async (period = 'month') => {
-    const cacheKey = `leaderboard-summary-${period}`;
-    const cached = getCached(cacheKey);
-    if (cached) return { data: cached };
-
-    const response = await api.get('/api/v1/leaderboard/summary', {
-      params: { period },
-    });
-    setCached(cacheKey, response.data, STATS_CACHE_TTL);
-    return response;
-  },
-
-  // Get specific consultant's performance
+  getRankings: (period = 'month', metric = 'conversions', limit = 50) =>
+    cachedGet(`leaderboard-rankings-${period}-${metric}`, '/api/v1/leaderboard/rankings', { ttl: STATS_CACHE_TTL, params: { period, metric, limit } }),
+  getMyPerformance: (period = 'month') =>
+    cachedGet(`leaderboard-me-${period}`, '/api/v1/leaderboard/me', { ttl: STATS_CACHE_TTL, params: { period } }),
+  getSummary: (period = 'month') =>
+    cachedGet(`leaderboard-summary-${period}`, '/api/v1/leaderboard/summary', { ttl: STATS_CACHE_TTL, params: { period } }),
   getConsultantPerformance: (consultantId, period = 'month') =>
-    api.get(`/api/v1/leaderboard/consultant/${consultantId}`, {
-      params: { period },
-    }),
+    api.get(`/api/v1/leaderboard/consultant/${consultantId}`, { params: { period } }),
 };
 
 // ==================== Helpdesk API ====================
 // Central Zorah helpdesk - uses centralized knowledge base (not tenant-specific)
 export const helpdeskApi = {
   // Ask a question to the centralized helpdesk
+  // Uses longer timeout (60s) because RAG can take 15-30s on cold start
   ask: async (question) => {
     try {
-      const response = await api.post('/api/v1/helpdesk/ask', { question });
+      const response = await api.post('/api/v1/helpdesk/ask', { question }, { timeout: 60000 });
       return response;
     } catch (error) {
       // Fallback to null if endpoint not available
@@ -1016,20 +795,8 @@ export const helpdeskApi = {
     }
   },
 
-  // Get help topics/categories
-  getTopics: async () => {
-    try {
-      const cacheKey = 'helpdesk-topics';
-      const cached = getCached(cacheKey);
-      if (cached) return { data: cached };
-
-      const response = await api.get('/api/v1/helpdesk/topics');
-      setCached(cacheKey, response.data, CACHE_TTL * 10); // Cache for 10 minutes
-      return response;
-    } catch (error) {
-      return { data: { success: false, topics: [] } };
-    }
-  },
+  getTopics: () =>
+    cachedGet('helpdesk-topics', '/api/v1/helpdesk/topics', { ttl: STATIC_CACHE_TTL, fallback: { success: false, topics: [] } }),
 
   // Search help articles
   search: async (query) => {
@@ -1196,6 +963,135 @@ export const privacyApi = {
     } catch (error) {
       console.error('Failed to request erasure:', error);
       throw error;
+    }
+  },
+};
+
+// ==================== Travel Services API ====================
+
+// Hotels API (Live rates via Juniper)
+export const hotelsApi = {
+  health: () =>
+    cachedGet('rates-health', '/api/v1/rates/health', { fallback: { success: false, available: false } }),
+  search: (params) =>
+    api.post('/api/v1/rates/hotels/search', params, { timeout: 180000 }),
+  destinations: () =>
+    cachedGet('rates-destinations', '/api/v1/rates/destinations', { ttl: STATIC_CACHE_TTL, fallback: { success: false, destinations: [] } }),
+};
+
+// Flights API
+export const flightsApi = {
+  list: (params = {}) =>
+    cachedGet(`flights-${JSON.stringify(params)}`, '/api/v1/travel/flights', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, flights: [] } }),
+  search: async (destination, departureDate = null) => {
+    const params = { destination };
+    if (departureDate) params.departure_date = departureDate;
+    try {
+      return await api.get('/api/v1/travel/flights/search', { params });
+    } catch {
+      return { data: { success: false, flights: [] } };
+    }
+  },
+};
+
+// Transfers API
+export const transfersApi = {
+  list: (params = {}) =>
+    cachedGet(`transfers-${JSON.stringify(params)}`, '/api/v1/travel/transfers', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, transfers: [] } }),
+  search: async (destination, hotelName = null) => {
+    const params = { destination };
+    if (hotelName) params.hotel_name = hotelName;
+    try {
+      return await api.get('/api/v1/travel/transfers/search', { params });
+    } catch {
+      return { data: { success: false, transfers: [] } };
+    }
+  },
+};
+
+// Activities API
+export const activitiesApi = {
+  list: (params = {}) =>
+    cachedGet(`activities-${JSON.stringify(params)}`, '/api/v1/travel/activities', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, activities: [] } }),
+  search: async (destination, category = null, query = null) => {
+    const params = { destination };
+    if (category) params.category = category;
+    if (query) params.query = query;
+    try {
+      return await api.get('/api/v1/travel/activities/search', { params });
+    } catch {
+      return { data: { success: false, activities: [] } };
+    }
+  },
+  categories: () =>
+    cachedGet('activity-categories', '/api/v1/travel/activities/categories', { ttl: STATIC_CACHE_TTL, fallback: { success: false, categories: [] } }),
+};
+
+// Travel Destinations (combined)
+export const travelApi = {
+  destinations: () =>
+    cachedGet('travel-destinations', '/api/v1/travel/destinations', { ttl: STATIC_CACHE_TTL, fallback: { success: false, destinations: [] } }),
+};
+
+// ==================== Travel Platform Global Knowledge Base ====================
+// All requests proxied through our backend to handle CORS and auth
+
+export const globalKnowledgeApi = {
+  listDocuments: (params = {}) =>
+    cachedGet(`global-kb-list-${JSON.stringify(params)}`, '/api/v1/knowledge/global', {
+      ttl: STATIC_CACHE_TTL,
+      params,
+      timeout: 120000,
+      cacheIf: (d) => d?.success,
+      fallback: { success: false, data: [], total: 0 },
+    }),
+
+  // Get document content as text (proxied through backend)
+  getDocumentContent: async (documentId) => {
+    try {
+      const response = await api.get(`/api/v1/knowledge/global/${documentId}/content`, { timeout: 120000 });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch document content:', error);
+      throw error;
+    }
+  },
+
+  // View document content in new tab (proxied through backend)
+  viewDocument: (documentId) => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    window.open(`${baseUrl}/api/v1/knowledge/global/${documentId}/content`, '_blank');
+  },
+
+  // Download document - uses original file URL if available, otherwise falls back to extracted text
+  downloadDocument: async (documentId, filename, originalFileUrl) => {
+    // If original file is available, download directly from Travel Platform (public endpoint)
+    if (originalFileUrl) {
+      window.open(`${originalFileUrl}?download=true`, '_blank');
+      return;
+    }
+
+    // Fallback: download extracted text via backend proxy
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${baseUrl}/api/v1/knowledge/global/${documentId}/download`);
+
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Ensure .txt extension since content is extracted text
+      const baseName = (filename || 'document').replace(/\.[^.]+$/, '');
+      link.download = `${baseName}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Download failed. Please try again.');
     }
   },
 };
