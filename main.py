@@ -63,11 +63,16 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI app
+# Disable API docs endpoints in production to prevent information disclosure
+_is_production = os.getenv("ENVIRONMENT", "development").lower() in ("production", "prod")
 app = FastAPI(
     title="Multi-Tenant AI Travel Platform Lite",
     description="CRM, Quotes, and Invoices for travel agencies - Lite version",
     version="1.0.0-lite",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # ==================== Rate Limiter Setup ====================
@@ -80,6 +85,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ==================== Middleware Setup ====================
 # NOTE: FastAPI middleware runs in REVERSE order of addition.
 # Last added = first to process requests. Order matters!
+
+# 0a. GZIP compression middleware - compresses responses for bandwidth savings
+from starlette.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# 0b. Request size limit middleware - reject oversized payloads (10 MB general, 50 MB uploads)
+from src.middleware.request_size_middleware import RequestSizeMiddleware
+app.add_middleware(RequestSizeMiddleware)
 
 # 1. PII Audit middleware - logs access to personal data for GDPR/POPIA compliance
 from src.middleware.pii_audit_middleware import setup_pii_audit_middleware
@@ -184,7 +197,7 @@ def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> C
         raise HTTPException(status_code=400, detail=f"Unknown client: {client_id}")
     except Exception as e:
         logger.error(f"Error loading config for {client_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Configuration error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Configuration error")
 
 
 # ==================== Health & Info Endpoints ====================
@@ -246,12 +259,23 @@ async def readiness_check(config: ClientConfig = Depends(get_client_config)):
         checks["bigquery"] = f"unhealthy: {str(e)[:50]}"
         all_healthy = False
 
+    # Include circuit breaker statuses
+    try:
+        from src.utils.circuit_breaker import sendgrid_circuit, supabase_circuit
+        circuit_breakers = {
+            "sendgrid": sendgrid_circuit.get_status(),
+            "supabase": supabase_circuit.get_status(),
+        }
+    except Exception:
+        circuit_breakers = {}
+
     status_code = 200 if all_healthy else 503
     return JSONResponse(
         status_code=status_code,
         content={
             "status": "ready" if all_healthy else "not_ready",
             "checks": checks,
+            "circuit_breakers": circuit_breakers,
             "timestamp": datetime.utcnow().isoformat()
         }
     )
@@ -333,7 +357,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"success": False, "error": "Internal server error", "detail": str(exc)}
+        content={"success": False, "error": "Internal server error"}
     )
 
 

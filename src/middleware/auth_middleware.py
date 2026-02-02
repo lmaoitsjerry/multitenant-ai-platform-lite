@@ -27,9 +27,6 @@ PUBLIC_PATHS = {
     "/health",
     "/health/ready",
     "/health/live",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
     # Auth endpoints (login doesn't need auth)
     "/api/v1/auth/login",
     "/api/v1/auth/password/reset",
@@ -61,6 +58,9 @@ PUBLIC_PREFIXES = [
     "/api/v1/admin/",  # Admin routes use X-Admin-Token auth
     "/api/v1/onboarding/",  # Tenant onboarding (new signups - no auth)
     "/api/v1/public/",  # Public shareable endpoints (invoices, quotes)
+    "/api/v1/rates/",  # Rates engine endpoints (use X-Client-ID for tenant context)
+    "/api/v1/travel/",  # Travel services endpoints (flights, transfers, activities)
+    "/api/v1/knowledge/global",  # Global KB proxy (uses Travel Platform auth, not user auth)
 ]
 
 

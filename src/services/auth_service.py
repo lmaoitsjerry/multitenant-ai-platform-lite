@@ -64,11 +64,17 @@ class AuthService:
         # Should be set as SUPABASE_JWT_SECRET environment variable
         self.jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
         self.verify_jwt_signature = bool(self.jwt_secret)
+        is_production = os.getenv("ENVIRONMENT", "development").lower() in ("production", "prod")
 
         if not self.jwt_secret:
+            if is_production:
+                raise RuntimeError(
+                    "SUPABASE_JWT_SECRET is required in production. "
+                    "Set it from Supabase Dashboard > Project Settings > API > JWT Secret."
+                )
             logger.warning(
                 "SUPABASE_JWT_SECRET not set - JWT signature verification DISABLED. "
-                "For production, set SUPABASE_JWT_SECRET from Supabase Dashboard > Project Settings > API"
+                "This is only acceptable in development."
             )
             # Use a dummy secret - signature verification will be disabled
             self.jwt_secret = "development-mode-no-verification"
@@ -214,15 +220,21 @@ class AuthService:
         """
         try:
             # Decode JWT - signature verification depends on whether secret is configured
+            decode_options = {
+                    "verify_signature": self.verify_jwt_signature,  # Only verify if secret is set
+                    "verify_exp": True,
+                    "verify_aud": self.verify_jwt_signature,  # Verify audience when signature verification is enabled
+                }
+            decode_kwargs = {}
+            if self.verify_jwt_signature:
+                decode_kwargs["audience"] = "authenticated"
+
             payload = jwt.decode(
                 token,
                 self.jwt_secret,
                 algorithms=["HS256"],
-                options={
-                    "verify_signature": self.verify_jwt_signature,  # Only verify if secret is set
-                    "verify_exp": True,
-                    "verify_aud": False,  # Supabase audience varies
-                }
+                options=decode_options,
+                **decode_kwargs
             )
 
             # Validate required claims
@@ -231,6 +243,13 @@ class AuthService:
 
             if not payload.get("exp"):
                 return False, {"error": "Invalid token: missing expiration"}
+
+            # Validate issuer matches our Supabase instance
+            expected_issuer = f"{self.supabase_url}/auth/v1"
+            token_issuer = payload.get("iss", "")
+            if self.verify_jwt_signature and token_issuer != expected_issuer:
+                logger.warning(f"JWT issuer mismatch: expected {expected_issuer}, got {token_issuer}")
+                return False, {"error": "Invalid token issuer"}
 
             return True, payload
 
