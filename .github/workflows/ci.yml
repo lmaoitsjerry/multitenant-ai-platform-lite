@@ -38,6 +38,18 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
 
+      - name: Run Bandit security scan (SAST)
+        continue-on-error: true
+        run: |
+          pip install bandit
+          bandit -r src/ -f txt -ll
+
+      - name: Run pip-audit dependency scan
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --strict
+
   docker-build:
     runs-on: ubuntu-latest
 
