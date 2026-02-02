@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from src.services.auth_service import AuthService
+from src.utils.structured_logger import set_tenant_id
 from config.loader import get_config
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     status_code=403,
                     content={"detail": "Access denied: tenant mismatch"}
                 )
+
+            # Set tenant_id in contextvars for structured logging
+            set_tenant_id(user["tenant_id"])
 
             # Attach user context to request
             request.state.user = UserContext(

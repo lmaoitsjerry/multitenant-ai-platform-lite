@@ -78,10 +78,10 @@ class TestPublicPathDetection:
         from src.middleware.auth_middleware import is_public_path
         assert is_public_path('/health/ready') == True
 
-    def test_docs_is_public(self):
-        """Test that /docs is public"""
+    def test_docs_is_not_public(self):
+        """Test that /docs is NOT public (restricted; disabled in production)"""
         from src.middleware.auth_middleware import is_public_path
-        assert is_public_path('/docs') == True
+        assert is_public_path('/docs') == False
 
     def test_auth_login_is_public(self):
         """Test that login endpoint is public"""

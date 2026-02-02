@@ -18,7 +18,7 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from src.utils.structured_logger import set_request_id, clear_request_id, get_logger
+from src.utils.structured_logger import set_request_id, clear_request_id, clear_tenant_id, get_logger
 
 logger = get_logger(__name__)
 
@@ -114,8 +114,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             raise
 
         finally:
-            # Clear request ID to prevent leakage to other contexts
+            # Clear context vars to prevent leakage to other contexts
             clear_request_id()
+            clear_tenant_id()
 
     def _get_client_ip(self, request: Request) -> str:
         """Extract client IP, handling proxies.

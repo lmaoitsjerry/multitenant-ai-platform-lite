@@ -25,31 +25,39 @@ from contextvars import ContextVar
 from typing import Optional, Any, Dict
 
 
-# Context variable to hold current request ID (thread-safe, async-safe)
+# Context variables for async-safe request tracing (thread-safe, async-safe)
 request_id_var: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
+tenant_id_var: ContextVar[Optional[str]] = ContextVar('tenant_id', default=None)
 
 
 def set_request_id(request_id: str) -> None:
-    """Set request ID for current context.
-
-    Args:
-        request_id: The unique identifier for the current request
-    """
+    """Set request ID for current context."""
     request_id_var.set(request_id)
 
 
 def get_request_id() -> Optional[str]:
-    """Get request ID for current context.
-
-    Returns:
-        The request ID if set, None otherwise
-    """
+    """Get request ID for current context."""
     return request_id_var.get()
 
 
 def clear_request_id() -> None:
     """Clear request ID for current context."""
     request_id_var.set(None)
+
+
+def set_tenant_id(tenant_id: str) -> None:
+    """Set tenant ID for current context."""
+    tenant_id_var.set(tenant_id)
+
+
+def get_tenant_id() -> Optional[str]:
+    """Get tenant ID for current context."""
+    return tenant_id_var.get()
+
+
+def clear_tenant_id() -> None:
+    """Clear tenant ID for current context."""
+    tenant_id_var.set(None)
 
 
 class JSONFormatter(logging.Formatter):
@@ -87,6 +95,7 @@ class JSONFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
             "request_id": get_request_id(),
+            "tenant_id": get_tenant_id(),
             "service": self.service_name,
         }
 

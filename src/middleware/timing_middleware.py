@@ -2,21 +2,15 @@
 Performance Timing Middleware
 
 Logs request duration for all API endpoints to identify slow operations.
-Format: [PERF] METHOD /path took XXXms (status: YYY)
+Uses structured logger for consistent JSON output.
 """
 
 import time
-import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from src.utils.structured_logger import get_logger
 
-logger = logging.getLogger("performance")
-
-# Set up a dedicated performance logger
-perf_handler = logging.StreamHandler()
-perf_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-logger.addHandler(perf_handler)
-logger.setLevel(logging.INFO)
+logger = get_logger("performance")
 
 # Thresholds for highlighting slow requests
 SLOW_THRESHOLD_MS = 500  # Warn if request takes > 500ms
@@ -32,7 +26,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Skip timing for health checks and static files
         path = request.url.path
-        if path in ["/", "/health", "/docs", "/openapi.json", "/redoc"]:
+        if path in ["/", "/health", "/health/live"]:
             return await call_next(request)
 
         start_time = time.perf_counter()
@@ -47,19 +41,19 @@ class TimingMiddleware(BaseHTTPMiddleware):
         method = request.method
         status = response.status_code
 
-        # Format the log message
-        if duration_ms >= CRITICAL_THRESHOLD_MS:
-            log_prefix = "[PERF CRITICAL]"
-            log_func = logger.warning
-        elif duration_ms >= SLOW_THRESHOLD_MS:
-            log_prefix = "[PERF SLOW]"
-            log_func = logger.warning
-        else:
-            log_prefix = "[PERF]"
-            log_func = logger.info
+        extra = {
+            "method": method,
+            "path": path,
+            "status_code": status,
+            "duration_ms": round(duration_ms, 2),
+        }
 
-        # Log the timing
-        log_func(f"{log_prefix} {method} {path} took {duration_ms:.0f}ms (status: {status})")
+        if duration_ms >= CRITICAL_THRESHOLD_MS:
+            logger.warning("Request critically slow", extra=extra)
+        elif duration_ms >= SLOW_THRESHOLD_MS:
+            logger.warning("Request slow", extra=extra)
+        else:
+            logger.info("Request completed", extra=extra)
 
         # Add timing header to response for frontend debugging
         response.headers["X-Response-Time"] = f"{duration_ms:.0f}ms"
