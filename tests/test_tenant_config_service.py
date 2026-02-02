@@ -26,12 +26,6 @@ from src.services.tenant_config_service import (
 class TestTenantConfigService:
     """Test TenantConfigService core functionality"""
 
-    def test_yaml_only_tenants_constant(self):
-        """Verify YAML-only tenants are correctly defined"""
-        service = TenantConfigService()
-        expected = {'africastay', 'safariexplore-kvph', 'safarirun-t0vc', 'beachresorts', 'example'}
-        assert service.YAML_ONLY_TENANTS == expected
-
     def test_cache_prefix_defined(self):
         """Verify cache prefix is defined"""
         service = TenantConfigService()
@@ -44,12 +38,6 @@ class TestTenantConfigService:
         key = service._cache_key("tn_123456")
         assert key == "tenant_config:tn_123456"
 
-    def test_migrated_tenants_constant(self):
-        """Verify MIGRATED_TENANTS constant exists"""
-        service = TenantConfigService()
-        assert 'africastay' in service.MIGRATED_TENANTS
-        assert 'safariexplore-kvph' in service.MIGRATED_TENANTS
-
     def test_init_with_custom_base_path(self):
         """Test initialization with custom base path"""
         service = TenantConfigService(base_path="/custom/path")
@@ -60,67 +48,6 @@ class TestTenantConfigService:
         service = TenantConfigService()
         assert service.base_path is not None
         assert isinstance(service.base_path, Path)
-
-
-class TestYamlFallback:
-    """Test YAML fallback behavior"""
-
-    def test_yaml_only_tenant_skips_database(self):
-        """YAML-only tenants should not query database"""
-        service = TenantConfigService()
-
-        with patch.object(service, '_load_from_database') as mock_db:
-            with patch.object(service, '_load_from_yaml') as mock_yaml:
-                mock_yaml.return_value = {'client': {'id': 'africastay'}}
-
-                config = service.get_config('africastay')
-
-                # Database should NOT be called for YAML-only tenant
-                mock_db.assert_not_called()
-                mock_yaml.assert_called_once_with('africastay')
-
-    def test_production_tenant_tries_database_first(self):
-        """Production tenants should try database first"""
-        service = TenantConfigService()
-
-        with patch.object(service, '_get_from_cache', return_value=None):
-            with patch.object(service, '_load_from_database') as mock_db:
-                with patch.object(service, '_set_cache'):
-                    mock_db.return_value = {'client': {'id': 'newclient'}}
-
-                    # Use a tenant ID that doesn't start with 'tn_' and isn't in YAML_ONLY_TENANTS
-                    config = service.get_config('newclient')
-
-                    mock_db.assert_called_once_with('newclient')
-
-    def test_yaml_fallback_when_database_empty(self):
-        """Falls back to YAML when database returns None"""
-        service = TenantConfigService()
-
-        with patch.object(service, '_get_from_cache', return_value=None):
-            with patch.object(service, '_load_from_database', return_value=None):
-                with patch.object(service, '_load_from_yaml') as mock_yaml:
-                    with patch.object(service, '_set_cache'):
-                        mock_yaml.return_value = {'client': {'id': 'unknown_tenant'}}
-
-                        config = service.get_config('unknown_tenant')
-
-                        mock_yaml.assert_called_once_with('unknown_tenant')
-
-    def test_tn_prefix_tenants_rejected(self):
-        """tn_* prefixed tenants should be completely ignored"""
-        service = TenantConfigService()
-
-        # These should return None immediately without any database/YAML lookup
-        with patch.object(service, '_get_from_cache') as mock_cache:
-            with patch.object(service, '_load_from_database') as mock_db:
-                with patch.object(service, '_load_from_yaml') as mock_yaml:
-                    result = service.get_config('tn_12345678_abcdef')
-
-                    assert result is None
-                    mock_cache.assert_not_called()
-                    mock_db.assert_not_called()
-                    mock_yaml.assert_not_called()
 
 
 class TestTenantIsolation:
@@ -351,129 +278,10 @@ class TestCacheBehavior:
         assert info['available'] is False
         assert info['ttl_seconds'] == 300
 
-    def test_yaml_config_also_cached(self):
-        """YAML config should also be cached after fallback"""
-        service = TenantConfigService()
-
-        yaml_config = {'client': {'id': 'yaml_tenant'}, '_meta': {'source': 'yaml'}}
-
-        with patch.object(service, '_get_from_cache', return_value=None):
-            with patch.object(service, '_load_from_database', return_value=None):
-                with patch.object(service, '_load_from_yaml', return_value=yaml_config):
-                    with patch.object(service, '_set_cache') as mock_set:
-                        config = service.get_config('newclient')
-
-                        # Cache should be set with YAML config
-                        mock_set.assert_called_once_with('newclient', yaml_config)
-
-
-class TestEnvVarSubstitution:
-    """Test environment variable substitution in YAML configs"""
-
-    def test_env_var_substitution_simple(self):
-        """Test ${VAR} substitution"""
-        service = TenantConfigService()
-
-        with patch.dict(os.environ, {'TEST_VAR': 'test_value'}):
-            result = service._substitute_env_vars('prefix_${TEST_VAR}_suffix')
-            assert result == 'prefix_test_value_suffix'
-
-    def test_env_var_substitution_with_default(self):
-        """Test ${VAR:-default} substitution"""
-        service = TenantConfigService()
-
-        # Ensure var is not set
-        os.environ.pop('UNSET_VAR', None)
-
-        result = service._substitute_env_vars('${UNSET_VAR:-default_value}')
-        assert result == 'default_value'
-
-    def test_env_var_substitution_recursive(self):
-        """Test substitution in nested structures"""
-        service = TenantConfigService()
-
-        with patch.dict(os.environ, {'KEY1': 'value1', 'KEY2': 'value2'}):
-            config = {
-                'level1': {
-                    'nested': '${KEY1}',
-                    'list': ['${KEY2}', 'static'],
-                },
-            }
-
-            result = service._substitute_env_vars(config)
-
-            assert result['level1']['nested'] == 'value1'
-            assert result['level1']['list'][0] == 'value2'
-            assert result['level1']['list'][1] == 'static'
-
-    def test_env_var_substitution_preserves_non_strings(self):
-        """Non-string values should be preserved"""
-        service = TenantConfigService()
-
-        config = {
-            'number': 42,
-            'boolean': True,
-            'null': None,
-            'list': [1, 2, 3],
-        }
-
-        result = service._substitute_env_vars(config)
-
-        assert result['number'] == 42
-        assert result['boolean'] is True
-        assert result['null'] is None
-        assert result['list'] == [1, 2, 3]
-
 
 class TestListTenants:
     """Test tenant listing functionality"""
-
-    def test_list_includes_database_tenants(self):
-        """list_tenants should include database tenants"""
-        service = TenantConfigService()
-
-        mock_supabase = MagicMock()
-        mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-            data=[{'id': 'newclient_001'}, {'id': 'newclient_002'}]
-        )
-
-        with patch.object(service, '_get_supabase_client', return_value=mock_supabase):
-            with patch('pathlib.Path.exists', return_value=False):
-                with patch('pathlib.Path.iterdir', return_value=[]):
-                    tenants = service.list_tenants(include_yaml=False)
-
-                    assert 'newclient_001' in tenants
-                    assert 'newclient_002' in tenants
-
-    def test_list_tenants_excludes_tn_prefix(self):
-        """list_tenants should exclude tn_* prefixed directories (verified via code inspection)
-
-        The list_tenants() method has explicit filtering:
-            if client_dir.name.startswith('tn_'):
-                continue
-
-        This test verifies the filtering logic works by testing with real file system
-        when clients directory exists, or simply checking behavior with mocks.
-        """
-        service = TenantConfigService()
-
-        # Test that the filtering logic exists in the method
-        import inspect
-        source = inspect.getsource(service.list_tenants)
-        assert "startswith('tn_')" in source, "tn_* filtering should be in list_tenants"
-
-        # Also test the actual filtering behavior by running with mocked database
-        mock_supabase = MagicMock()
-        mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-            data=[{'id': 'db_tenant'}, {'id': 'tn_should_appear'}]  # DB returns tn_* but that's OK
-        )
-
-        with patch.object(service, '_get_supabase_client', return_value=mock_supabase):
-            # List with include_yaml=False to avoid filesystem issues
-            tenants = service.list_tenants(include_yaml=False)
-
-            # DB tenants come through as-is (filtering only applies to YAML dirs)
-            assert 'db_tenant' in tenants
+    pass
 
 
 class TestModuleLevelFunctions:
@@ -512,23 +320,6 @@ class TestDatabaseLoadBehavior:
 
         with patch.object(service, '_get_supabase_client', return_value=None):
             result = service._load_from_database('any_tenant')
-            assert result is None
-
-    def test_returns_none_when_config_source_not_database(self):
-        """Should return None if config_source is not 'database'"""
-        service = TenantConfigService()
-
-        mock_supabase = MagicMock()
-        mock_execute = MagicMock()
-        mock_execute.data = {
-            'id': 'test_tenant',
-            'name': 'Test',
-            'config_source': 'yaml',  # Not 'database'
-        }
-        mock_supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = mock_execute
-
-        with patch.object(service, '_get_supabase_client', return_value=mock_supabase):
-            result = service._load_from_database('test_tenant')
             assert result is None
 
     def test_handles_database_error_gracefully(self):

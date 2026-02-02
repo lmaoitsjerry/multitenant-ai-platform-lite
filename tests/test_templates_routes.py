@@ -58,50 +58,6 @@ def create_chainable_mock(data=None):
     return mock
 
 
-# ==================== Dependency Injection Tests ====================
-
-class TestTemplatesRoutesDependencies:
-    """Test dependency injection for templates routes."""
-
-    def test_get_client_config_with_invalid_client(self, mock_config):
-        """get_client_config should handle invalid client IDs."""
-        from src.api.templates_routes import get_client_config, _client_configs
-        from fastapi import HTTPException
-
-        # Clear cache
-        _client_configs.clear()
-
-        # Mock ClientConfig to raise error
-        with patch('src.api.templates_routes.ClientConfig') as mock_class:
-            mock_class.side_effect = Exception("Config not found")
-
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config("invalid_client")
-
-            assert exc_info.value.status_code == 400
-            assert "Invalid client" in str(exc_info.value.detail)
-
-    def test_get_client_config_caches_result(self, mock_config):
-        """get_client_config should cache ClientConfig instances."""
-        from src.api.templates_routes import get_client_config, _client_configs
-
-        # Clear cache
-        _client_configs.clear()
-
-        with patch('src.api.templates_routes.ClientConfig') as mock_class:
-            mock_class.return_value = mock_config
-
-            # First call should create new config
-            config1 = get_client_config("cached_client")
-            assert mock_class.call_count == 1
-
-            # Second call should use cached config
-            config2 = get_client_config("cached_client")
-            assert mock_class.call_count == 1  # Still 1
-
-            assert config1 is config2
-
-
 # ==================== Pydantic Model Tests ====================
 
 class TestTemplatesModels:

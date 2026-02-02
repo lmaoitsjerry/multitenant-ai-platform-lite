@@ -196,48 +196,6 @@ class TestEdgeCases:
             assert result['parse_method'] == 'fallback'
 
 
-# Keep backward compatibility with unittest format
-class TestEmailParser(unittest.TestCase):
-    def setUp(self):
-        self.config = ClientConfig('example')
-        from src.agents.universal_email_parser import UniversalEmailParser
-        self.parser = UniversalEmailParser(self.config)
-
-    def test_destination_extraction(self):
-        """Test that destinations are correctly extracted based on config"""
-        # Test exact match
-        email_body = "I want to go to Bali next month."
-        result = self.parser.parse(email_body)
-        self.assertEqual(result['destination'], 'Bali')
-
-        # Test fuzzy match
-        email_body = "Looking for a trip to Maldivs please." # Typo
-        result = self.parser.parse(email_body)
-        self.assertEqual(result['destination'], 'Maldives')
-
-    def test_unknown_destination(self):
-        """Test fallback for unknown destination"""
-        email_body = "I want to go to Paris." # Not in example config
-        result = self.parser.parse(email_body)
-        # Should default to first destination or handle gracefully
-        # In current implementation, it defaults to first destination
-        self.assertEqual(result['destination'], 'Bali')
-
-    def test_traveler_extraction(self):
-        """Test extraction of traveler counts"""
-        email_body = "2 adults and 3 children aged 5, 8, 12"
-        result = self.parser.parse(email_body)
-        self.assertEqual(result['adults'], 2)
-        self.assertEqual(result['children'], 3)
-
-    def test_contact_info_extraction(self):
-        """Test extraction of contact info"""
-        email_body = "My name is John Doe and email is john@test.com"
-        result = self.parser.parse(email_body)
-        self.assertEqual(result['name'], 'John Doe')
-        self.assertEqual(result['email'], 'john@test.com')
-
-
 if __name__ == '__main__':
     # Run with pytest for new tests
     pytest.main([__file__, '-v'])

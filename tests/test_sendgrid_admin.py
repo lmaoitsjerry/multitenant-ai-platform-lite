@@ -63,7 +63,7 @@ class TestSendGridAdminServiceInit:
         """Should initialize with SendGrid when API key is provided."""
         mock_module, mock_client = mock_sendgrid_module
 
-        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+        with patch.dict(os.environ, {'SENDGRID_MASTER_API_KEY': 'SG.test-key'}, clear=True):
             with patch.dict('sys.modules', {'sendgrid': mock_module}):
                 # Import fresh to pick up the mocked module
                 from src.services.sendgrid_admin import SendGridAdminService
@@ -75,17 +75,13 @@ class TestSendGridAdminServiceInit:
 
     def test_init_without_api_key(self):
         """Should not be available when no API key is set."""
-        with patch.dict(os.environ, {'SENDGRID_API_KEY': ''}, clear=False):
-            # Remove the key entirely
-            env_copy = os.environ.copy()
-            if 'SENDGRID_API_KEY' in env_copy:
-                del env_copy['SENDGRID_API_KEY']
-            with patch.dict(os.environ, env_copy, clear=True):
-                from src.services.sendgrid_admin import SendGridAdminService
-                service = SendGridAdminService()
+        env_without_key = {k: v for k, v in os.environ.items() if k != 'SENDGRID_MASTER_API_KEY'}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            from src.services.sendgrid_admin import SendGridAdminService
+            service = SendGridAdminService()
 
-                assert service.is_available() is False
-                assert service.sg is None
+            assert service.is_available() is False
+            assert service.sg is None
 
     def test_init_handles_import_error(self):
         """Should handle import error gracefully when sendgrid not installed."""

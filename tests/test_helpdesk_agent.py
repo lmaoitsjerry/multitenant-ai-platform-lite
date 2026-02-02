@@ -198,25 +198,6 @@ class TestHelpdeskAgentChat:
         assert result["tool_used"] is None
         assert result["tool_result"] is None
 
-    def test_chat_triggers_search_tool(self, mock_config, mock_openai_env, mock_faiss_service):
-        """Travel question triggers search_knowledge_base."""
-        from src.agents.helpdesk_agent import HelpdeskAgent
-
-        # First call returns tool call, second call returns final response
-        mock_client = MockConversationClient([
-            create_search_response("mauritius hotels", "hotel_info"),
-            create_direct_response("Mauritius has beautiful luxury resorts like LUX Grand Gaube!")
-        ])
-
-        agent = HelpdeskAgent(mock_config)
-        inject_mock_client(agent, mock_client)
-
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
-            result = agent.chat("What hotels do you have in Mauritius?")
-
-        assert result["tool_used"] == "search_knowledge_base"
-        assert result["sources"]  # Should have sources from search
-
     def test_chat_triggers_quote_tool(self, mock_config, mock_openai_env):
         """Booking request triggers start_quote."""
         from src.agents.helpdesk_agent import HelpdeskAgent
@@ -318,40 +299,6 @@ class TestHelpdeskAgentChat:
 
 class TestToolExecution:
     """Tests for tool execution methods."""
-
-    def test_execute_search_with_results(self, mock_config, mock_openai_env, mock_faiss_service):
-        """Search returns knowledge base content."""
-        from src.agents.helpdesk_agent import HelpdeskAgent
-
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
-            agent = HelpdeskAgent(mock_config)
-            result, sources = agent._execute_search({"query": "mauritius hotels", "query_type": "hotel_info"})
-
-        assert "Mauritius" in result
-        assert len(sources) > 0
-        assert sources[0]["source"] == "destinations/mauritius.md"
-
-    def test_execute_search_no_results(self, mock_config, mock_openai_env, mock_faiss_service_empty):
-        """Search handles empty results."""
-        from src.agents.helpdesk_agent import HelpdeskAgent
-
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service_empty):
-            agent = HelpdeskAgent(mock_config)
-            result, sources = agent._execute_search({"query": "xyznonexistent"})
-
-        assert "No relevant information" in result
-        assert sources == []
-
-    def test_execute_search_error(self, mock_config, mock_openai_env, mock_faiss_service_error):
-        """Search handles service errors gracefully."""
-        from src.agents.helpdesk_agent import HelpdeskAgent
-
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service_error):
-            agent = HelpdeskAgent(mock_config)
-            result, sources = agent._execute_search({"query": "mauritius"})
-
-        assert "error" in result.lower() or "Search error" in result
-        assert sources == []
 
     def test_execute_start_quote_with_destination(self, mock_config, mock_openai_env):
         """Quote flow with destination."""

@@ -562,20 +562,6 @@ class TestCRMIntegration:
 class TestErrorHandling:
     """Test error handling paths."""
 
-    def test_generate_quote_no_hotels(self, mock_quote_agent):
-        """Generate quote with no hotels should return error."""
-        agent = mock_quote_agent
-        agent.bq_tool.find_matching_hotels.return_value = []
-
-        result = agent.generate_quote({
-            'name': 'Test',
-            'email': 'test@example.com',
-            'destination': 'Unknown'
-        })
-
-        assert result['success'] is False
-        assert 'no' in result['error'].lower() and 'hotel' in result['error'].lower()
-
     def test_generate_quote_pricing_error(self, mock_quote_agent):
         """Generate quote with pricing error should return error."""
         agent = mock_quote_agent

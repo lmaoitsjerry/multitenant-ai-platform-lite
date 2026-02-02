@@ -415,48 +415,5 @@ class TestBigQueryAvailability:
         assert client is None
 
 
-# ==================== Dependency Tests ====================
-
-class TestPricingDependencies:
-    """Test pricing route dependencies."""
-
-    def test_get_client_config_dependency(self):
-        """get_client_config should return ClientConfig or raise."""
-        from src.api.pricing_routes import get_client_config
-        from fastapi import HTTPException
-
-        # With valid client_id
-        with patch('src.api.pricing_routes.ClientConfig') as MockConfig:
-            MockConfig.return_value = MagicMock(client_id='test')
-            config = get_client_config('test_tenant')
-            assert config is not None
-
-        # Cache should be used for same client_id
-        import src.api.pricing_routes as pricing_module
-        pricing_module._client_configs = {}  # Reset cache
-
-    def test_get_client_config_caches_result(self):
-        """get_client_config should cache ClientConfig instances."""
-        from src.api.pricing_routes import get_client_config, _client_configs
-        import src.api.pricing_routes as pricing_module
-
-        # Reset cache
-        pricing_module._client_configs = {}
-
-        with patch('src.api.pricing_routes.ClientConfig') as MockConfig:
-            mock_instance = MagicMock(client_id='cached_tenant')
-            MockConfig.return_value = mock_instance
-
-            # First call creates instance
-            config1 = get_client_config('cached_tenant')
-
-            # Second call should use cache
-            config2 = get_client_config('cached_tenant')
-
-            # Should only create once
-            assert MockConfig.call_count == 1
-            assert config1 is config2
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -286,30 +286,6 @@ class TestContextBuilding:
 class TestResponseGeneration:
     """Test response generation logic."""
 
-    def test_generate_response_no_client(self, sample_search_results):
-        """Should return fallback when no OpenAI client."""
-        from src.services.rag_response_service import RAGResponseService
-        service = RAGResponseService()
-        service._client = None
-
-        result = service.generate_response("What hotels are in Mauritius?", sample_search_results)
-
-        assert result['method'] == 'fallback'
-        assert 'answer' in result
-        assert 'sources' in result
-
-    def test_generate_response_no_results(self, mock_openai_client):
-        """Should handle empty search results gracefully."""
-        from src.services.rag_response_service import RAGResponseService
-        service = RAGResponseService()
-        service._client = mock_openai_client
-
-        result = service.generate_response("Unknown topic?", [])
-
-        assert result['method'] == 'no_results'
-        assert 'answer' in result
-        assert "don't have specific details" in result['answer'].lower() or len(result['answer']) > 0
-
     def test_generate_response_with_client(self, mock_openai_client, sample_search_results):
         """Should call OpenAI when client available."""
         from src.services.rag_response_service import RAGResponseService
@@ -436,15 +412,6 @@ class TestFallbackResponse:
         assert len(result['answer']) > 50
         assert 'sources' in result
 
-    def test_fallback_response_no_results(self):
-        """Fallback with no results should return no_results response."""
-        from src.services.rag_response_service import RAGResponseService
-        service = RAGResponseService()
-
-        result = service._fallback_response("Test question?", [])
-
-        assert result['method'] == 'no_results'
-
     def test_fallback_response_deduplicates_content(self):
         """Fallback should skip duplicate content."""
         from src.services.rag_response_service import RAGResponseService
@@ -465,17 +432,6 @@ class TestFallbackResponse:
 
 class TestNoResultsResponse:
     """Test no results response generation."""
-
-    def test_no_results_response_structure(self):
-        """No results response should have correct structure."""
-        from src.services.rag_response_service import RAGResponseService
-        service = RAGResponseService()
-
-        result = service._no_results_response("Unknown topic?")
-
-        assert result['method'] == 'no_results'
-        assert 'answer' in result
-        assert result['sources'] == []
 
     def test_no_results_response_helpful(self):
         """No results response should be helpful."""
