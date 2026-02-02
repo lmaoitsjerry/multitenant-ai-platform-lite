@@ -24,6 +24,13 @@ from datetime import datetime, timezone
 from contextvars import ContextVar
 from typing import Optional, Any, Dict
 
+# OpenTelemetry trace context (optional — only when tracing is enabled)
+try:
+    from opentelemetry import trace as _otel_trace
+    _OTEL_AVAILABLE = True
+except ImportError:
+    _OTEL_AVAILABLE = False
+
 
 # Context variables for async-safe request tracing (thread-safe, async-safe)
 request_id_var: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
@@ -98,6 +105,14 @@ class JSONFormatter(logging.Formatter):
             "tenant_id": get_tenant_id(),
             "service": self.service_name,
         }
+
+        # Add OpenTelemetry trace context when available
+        if _OTEL_AVAILABLE:
+            span = _otel_trace.get_current_span()
+            ctx = span.get_span_context()
+            if ctx and ctx.trace_id:
+                log_data["trace_id"] = format(ctx.trace_id, '032x')
+                log_data["span_id"] = format(ctx.span_id, '016x')
 
         # Add source location for debugging
         log_data["source"] = {
