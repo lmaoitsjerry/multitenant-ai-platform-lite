@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     logger.info("Starting Multi-Tenant AI Platform...")
 
+    # Initialize OpenTelemetry tracing (opt-in via ENABLE_TRACING=true)
+    try:
+        from src.utils.tracing import setup_tracing
+        if setup_tracing(app):
+            logger.info("OpenTelemetry tracing enabled")
+    except Exception as e:
+        logger.warning(f"Tracing setup skipped: {e}")
+
     # Preload FAISS helpdesk index in background
     try:
         from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
