@@ -75,6 +75,9 @@ pytest-cov==6.0.0
 slowapi>=0.1.9
 redis>=5.0.0
 
+# Monitoring
+prometheus-client>=0.21.0
+
 # Code Quality (Development)
 black==24.8.0
 flake8==7.1.1

@@ -1149,9 +1149,15 @@ async def update_invoice_travelers(
 # These endpoints don't require authentication and are used for shareable links
 
 def get_invoice_public(invoice_id: str):
-    """Get invoice by ID without tenant filter (for public access)"""
+    """Get invoice by ID without tenant filter (for public shareable links)."""
     import os
     import httpx
+    import re
+
+    # Validate UUID format to prevent injection
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', invoice_id, re.I):
+        logger.warning(f"Invalid invoice_id format in public access: {invoice_id[:50]}")
+        return None
 
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
@@ -1161,7 +1167,6 @@ def get_invoice_public(invoice_id: str):
         return None
 
     try:
-        # Use direct REST API call
         url = f"{supabase_url}/rest/v1/invoices"
         headers = {
             "apikey": supabase_key,
@@ -1181,9 +1186,7 @@ def get_invoice_public(invoice_id: str):
             return data[0]
         return None
     except Exception as e:
-        logger.error(f"Failed to get public invoice: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to get public invoice: {e}", exc_info=True)
         return None
 
 @public_router.get("/invoices/{invoice_id}/pdf")
@@ -1267,9 +1270,15 @@ async def public_invoice_pdf(
 
 
 def get_quote_public(quote_id: str):
-    """Get quote by ID without tenant filter (for public access)"""
+    """Get quote by ID without tenant filter (for public shareable links)."""
     import os
     import httpx
+    import re
+
+    # Validate UUID format to prevent injection
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', quote_id, re.I):
+        logger.warning(f"Invalid quote_id format in public access: {quote_id[:50]}")
+        return None
 
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_key = os.getenv('SUPABASE_SERVICE_KEY') or os.getenv('SUPABASE_KEY')
@@ -1279,7 +1288,6 @@ def get_quote_public(quote_id: str):
         return None
 
     try:
-        # Use direct REST API call
         url = f"{supabase_url}/rest/v1/quotes"
         headers = {
             "apikey": supabase_key,
@@ -1299,9 +1307,7 @@ def get_quote_public(quote_id: str):
             return data[0]
         return None
     except Exception as e:
-        logger.error(f"Failed to get public quote: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to get public quote: {e}", exc_info=True)
         return None
 
 
@@ -1449,3 +1455,15 @@ def include_routers(app):
     # Privacy & Compliance (GDPR/POPIA)
     from src.api.privacy_routes import privacy_router
     app.include_router(privacy_router)
+
+    # Rates Engine (Live Hotel Availability)
+    from src.api.rates_routes import rates_router
+    app.include_router(rates_router)
+
+    # Travel Services (Flights, Transfers, Activities)
+    from src.api.travel_services_routes import travel_router
+    app.include_router(travel_router)
+
+    # Prometheus Metrics
+    from src.api.metrics_routes import metrics_router
+    app.include_router(metrics_router)

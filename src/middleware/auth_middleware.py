@@ -28,6 +28,7 @@ PUBLIC_PATHS = {
     "/health",
     "/health/ready",
     "/health/live",
+    "/metrics",
     # Auth endpoints (login doesn't need auth)
     "/api/v1/auth/login",
     "/api/v1/auth/password/reset",

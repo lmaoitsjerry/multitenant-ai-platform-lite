@@ -12,6 +12,15 @@ from src.utils.structured_logger import get_logger
 
 logger = get_logger("performance")
 
+# Import Prometheus metrics (graceful if not installed)
+try:
+    from src.api.metrics_routes import (
+        REQUEST_COUNT, REQUEST_DURATION, ERROR_COUNT,
+        normalize_path, PROMETHEUS_AVAILABLE,
+    )
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+
 # Thresholds for highlighting slow requests
 SLOW_THRESHOLD_MS = 500  # Warn if request takes > 500ms
 CRITICAL_THRESHOLD_MS = 2000  # Critical if request takes > 2s
@@ -54,6 +63,15 @@ class TimingMiddleware(BaseHTTPMiddleware):
             logger.warning("Request slow", extra=extra)
         else:
             logger.info("Request completed", extra=extra)
+
+        # Record Prometheus metrics
+        if PROMETHEUS_AVAILABLE and REQUEST_COUNT is not None:
+            norm = normalize_path(path)
+            duration_s = duration_ms / 1000.0
+            REQUEST_COUNT.labels(method=method, path=norm, status=str(status)).inc()
+            REQUEST_DURATION.labels(method=method, path=norm).observe(duration_s)
+            if status >= 400:
+                ERROR_COUNT.labels(method=method, path=norm, status=str(status)).inc()
 
         # Add timing header to response for frontend debugging
         response.headers["X-Response-Time"] = f"{duration_ms:.0f}ms"

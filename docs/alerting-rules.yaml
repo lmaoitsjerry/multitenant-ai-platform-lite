@@ -1,0 +1,60 @@
+# Prometheus Alerting Rules Template
+# Deploy alongside your Prometheus/Alertmanager configuration.
+#
+# Adjust thresholds to match your SLA targets.
+
+groups:
+  - name: multi-tenant-platform
+    rules:
+      # ── Availability ──
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_errors_total[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate above 5% for 5 minutes"
+          description: "{{ $value | humanizePercentage }} of requests are returning errors."
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 latency above 2 seconds"
+          description: "P95 latency is {{ $value }}s."
+
+      # ── Circuit Breakers ──
+      # (If you export circuit breaker state as a gauge)
+      # - alert: CircuitBreakerOpen
+      #   expr: circuit_breaker_state{state="open"} == 1
+      #   for: 1m
+      #   labels:
+      #     severity: warning
+      #   annotations:
+      #     summary: "Circuit breaker {{ $labels.name }} is OPEN"
+
+      # ── Saturation ──
+      - alert: HighRequestRate
+        expr: |
+          sum(rate(http_requests_total[1m])) > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained request rate above 500 req/s"
+
+      # ── Endpoint-Specific ──
+      - alert: QuoteGenerationSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{path=~"/api/v1/quotes/generate"}[5m])) by (le)
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Quote generation P95 above 10s"
