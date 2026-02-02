@@ -16,6 +16,7 @@ groups:
         annotations:
           summary: "Error rate above 5% for 5 minutes"
           description: "{{ $value | humanizePercentage }} of requests are returning errors."
+          runbook_url: "https://github.com/<OWNER>/<REPO>/blob/master/docs/runbooks/incident-response.md#5-common-issues--quick-fixes"
 
       - alert: HighLatencyP95
         expr: |
@@ -26,6 +27,7 @@ groups:
         annotations:
           summary: "P95 latency above 2 seconds"
           description: "P95 latency is {{ $value }}s."
+          runbook_url: "https://github.com/<OWNER>/<REPO>/blob/master/docs/runbooks/incident-response.md#5-common-issues--quick-fixes"
 
       # ── Circuit Breakers ──
       # (If you export circuit breaker state as a gauge)
@@ -46,6 +48,7 @@ groups:
           severity: warning
         annotations:
           summary: "Sustained request rate above 500 req/s"
+          runbook_url: "https://github.com/<OWNER>/<REPO>/blob/master/docs/runbooks/incident-response.md#5-common-issues--quick-fixes"
 
       # ── Endpoint-Specific ──
       - alert: QuoteGenerationSlow
@@ -58,3 +61,4 @@ groups:
           severity: warning
         annotations:
           summary: "Quote generation P95 above 10s"
+          runbook_url: "https://github.com/<OWNER>/<REPO>/blob/master/docs/runbooks/incident-response.md#5-common-issues--quick-fixes"
