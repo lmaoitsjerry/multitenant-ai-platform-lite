@@ -16,6 +16,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from src.services.auth_service import AuthService
+from src.services.login_throttle import check_login_allowed, record_failure, record_success
 from config.loader import get_config, ClientConfig
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,14 @@ async def login(
 
     Rate limited to 5 requests per minute per IP to prevent brute force attacks.
     """
+    # Per-account lockout check (brute-force protection)
+    allowed, remaining = check_login_allowed(login_data.email)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Account temporarily locked. Try again in {remaining} seconds."
+        )
+
     # Use tenant_id from request body if provided, then header, otherwise None (auto-detect)
     effective_tenant_id = login_data.tenant_id or x_client_id or None
 
@@ -144,10 +153,13 @@ async def login(
     )
 
     if not success:
+        record_failure(login_data.email)
         return LoginResponse(
             success=False,
             error=result.get("error", "Login failed")
         )
+
+    record_success(login_data.email)
 
     return LoginResponse(
         success=True,
