@@ -14,6 +14,9 @@ from email.mime.application import MIMEApplication
 from typing import List, Optional, Dict, Any
 import logging
 
+from src.utils.circuit_breaker import sendgrid_circuit
+from src.utils.retry_utils import retry_on_network_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -141,6 +144,9 @@ class EmailSender:
         reply_to: Optional[str] = None
     ) -> bool:
         """Send email via SendGrid API using requests"""
+        if not sendgrid_circuit.can_execute():
+            logger.warning(f"SendGrid circuit breaker OPEN — skipping email to {to}")
+            return False
         try:
             # Build personalizations
             personalization = {"to": [{"email": to}]}
@@ -180,29 +186,38 @@ class EmailSender:
                         "disposition": "attachment"
                     })
             
-            # Send request
+            # Send request with retry for transient network errors
             headers = {
                 "Authorization": f"Bearer {self.sendgrid_api_key}",
                 "Content-Type": "application/json"
             }
-            
-            response = requests.post(
-                self.SENDGRID_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
+
+            response = self._post_with_retry(headers, payload)
             
             if response.status_code in [200, 201, 202]:
-                logger.info(f"✅ Email sent via SendGrid to {to}: {subject}")
+                sendgrid_circuit.record_success()
+                logger.info(f"Email sent via SendGrid to {to}: {subject}")
                 return True
             else:
+                sendgrid_circuit.record_failure()
                 logger.error(f"SendGrid error: {response.status_code} - {response.text}")
                 return False
-                
+
         except Exception as e:
-            logger.error(f"❌ SendGrid send failed to {to}: {e}")
+            sendgrid_circuit.record_failure()
+            logger.error(f"SendGrid send failed to {to}: {e}")
             return False
+
+    @staticmethod
+    @retry_on_network_error(max_attempts=3, min_wait=2, max_wait=10)
+    def _post_with_retry(headers: dict, payload: dict):
+        """POST to SendGrid with retry on transient network errors."""
+        return requests.post(
+            EmailSender.SENDGRID_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
 
     def _send_via_smtp(
         self,

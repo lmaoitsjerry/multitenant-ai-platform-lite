@@ -47,10 +47,10 @@ class TestAuthService:
                     supabase_key='test-key'
                 )
 
-                # Create a valid token
+                # Create a valid token with required claims (including aud for Supabase)
                 exp = datetime.utcnow() + timedelta(hours=1)
                 token = jwt.encode(
-                    {'sub': 'user123', 'exp': exp},
+                    {'sub': 'user123', 'exp': exp, 'iss': 'https://test.supabase.co/auth/v1', 'aud': 'authenticated'},
                     secret,
                     algorithm='HS256'
                 )

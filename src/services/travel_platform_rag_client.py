@@ -17,6 +17,9 @@ from typing import Optional, Dict, Any, List
 
 import requests
 
+from src.utils.circuit_breaker import rag_circuit
+from src.utils.retry_utils import retry_on_network_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,36 +65,40 @@ class TravelPlatformRAGClient:
     def is_available(self) -> bool:
         """Check if Travel Platform RAG API is accessible."""
         try:
-            response = self.session.get(
+            # Health endpoint doesn't require auth
+            # Use configured timeout to handle Cloud Run cold starts
+            response = requests.get(
                 f"{self.base_url}/api/v1/rag/health",
-                timeout=5
+                timeout=self.timeout
             )
             if response.status_code == 200:
                 data = response.json()
                 status = data.get("status", "unknown")
                 if status in ("healthy", "degraded"):
-                    logger.debug(f"Travel Platform RAG available: status={status}")
+                    logger.debug(
+                        f"Travel Platform RAG available: status={status}, "
+                        f"db={data.get('database')}, warmed_up={data.get('warmed_up')}"
+                    )
                     return True
+            logger.warning(f"Travel Platform RAG health check failed: {response.status_code}")
             return False
         except Exception as e:
-            logger.debug(f"Travel Platform RAG not available: {e}")
+            logger.warning(f"Travel Platform RAG not available: {e}")
             return False
 
     def search(
         self,
         query: str,
-        top_k: int = 10,
-        use_rerank: bool = True,
-        min_relevance_score: float = 0.0
+        top_k: int = 5,
+        include_shared: bool = True
     ) -> Dict[str, Any]:
         """
         Search the knowledge base via Travel Platform RAG.
 
         Args:
             query: Search query
-            top_k: Number of results (default 10)
-            use_rerank: Whether to use re-ranking (default True)
-            min_relevance_score: Minimum relevance threshold (default 0.0)
+            top_k: Number of results (default 5)
+            include_shared: Include shared knowledge base documents (default True)
 
         Returns:
             {
@@ -99,23 +106,29 @@ class TravelPlatformRAGClient:
                 "answer": str,
                 "citations": List[Dict],
                 "confidence": float,
-                "latency_ms": int
+                "latency_ms": int,
+                "query_id": str
             }
         """
+        if not rag_circuit.can_execute():
+            logger.warning("Travel Platform RAG circuit breaker OPEN — skipping search")
+            return self._error_response("Circuit breaker open")
+
         url = f"{self.base_url}/api/v1/rag/search"
 
         payload = {
             "query": query,
             "top_k": top_k,
-            "use_rerank": use_rerank,
-            "min_relevance_score": min_relevance_score
+            "include_shared": include_shared
         }
 
         try:
-            response = self.session.post(url, json=payload, timeout=self.timeout)
+            response = self._post_with_retry(url, payload)
             response.raise_for_status()
 
             data = response.json()
+
+            rag_circuit.record_success()
 
             logger.info(
                 f"Travel Platform RAG search: query='{query[:50]}...', "
@@ -136,22 +149,31 @@ class TravelPlatformRAGClient:
         except requests.exceptions.Timeout:
             self._last_error = f"Request timed out after {self.timeout}s"
             logger.error(f"Travel Platform RAG timeout: {self._last_error}")
+            rag_circuit.record_failure()
             return self._error_response(self._last_error)
 
         except requests.exceptions.ConnectionError as e:
             self._last_error = f"Connection failed: {e}"
             logger.error(f"Travel Platform RAG connection error: {self._last_error}")
+            rag_circuit.record_failure()
             return self._error_response(self._last_error)
 
         except requests.exceptions.HTTPError as e:
             self._last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
             logger.error(f"Travel Platform RAG HTTP error: {self._last_error}")
+            rag_circuit.record_failure()
             return self._error_response(self._last_error)
 
         except Exception as e:
             self._last_error = str(e)
             logger.error(f"Travel Platform RAG error: {self._last_error}")
+            rag_circuit.record_failure()
             return self._error_response(self._last_error)
+
+    @retry_on_network_error(max_attempts=3, min_wait=2, max_wait=10)
+    def _post_with_retry(self, url: str, payload: dict):
+        """POST with retry on transient network errors."""
+        return self.session.post(url, json=payload, timeout=self.timeout)
 
     def _error_response(self, error: str) -> Dict[str, Any]:
         """Return error response structure."""

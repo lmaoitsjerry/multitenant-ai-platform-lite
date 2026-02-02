@@ -32,6 +32,7 @@ from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from config.loader import ClientConfig
+from src.utils.circuit_breaker import supabase_circuit
 
 T = TypeVar('T')
 
@@ -151,20 +152,27 @@ class SupabaseTool:
             )
         """
         timeout = timeout or self._default_timeout
+
+        if not supabase_circuit.can_execute():
+            raise ConnectionError(f"Supabase circuit breaker OPEN — skipping {operation}")
+
         start = time.time()
 
         try:
             future = self._executor.submit(query_func)
             result = future.result(timeout=timeout)
             elapsed = time.time() - start
+            supabase_circuit.record_success()
             if elapsed > 3:  # Log slow queries
                 logger.warning(f"Slow query ({operation}): {elapsed:.2f}s")
             return result
         except FuturesTimeoutError:
             elapsed = time.time() - start
+            supabase_circuit.record_failure()
             logger.error(f"Query timeout ({operation}): exceeded {timeout}s after {elapsed:.2f}s")
             raise TimeoutError(f"Query '{operation}' timed out after {timeout}s")
         except Exception as e:
+            supabase_circuit.record_failure()
             logger.error(f"Query failed ({operation}): {e}")
             raise
 
