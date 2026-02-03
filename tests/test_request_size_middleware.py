@@ -5,96 +5,158 @@ Tests for the request body size limit middleware.
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-from starlette.requests import Request
-from starlette.responses import Response
+from unittest.mock import MagicMock, AsyncMock, patch
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
-class TestRequestSizeMiddleware:
-    """Tests for RequestSizeMiddleware."""
+class TestRequestSizeMiddlewareConstants:
+    """Tests for request size middleware constants."""
 
-    def test_middleware_allows_small_requests(self):
+    def test_default_max_size_is_10mb(self):
+        """DEFAULT_MAX_SIZE should be 10 MB."""
+        from src.middleware.request_size_middleware import DEFAULT_MAX_SIZE
+
+        assert DEFAULT_MAX_SIZE == 10 * 1024 * 1024
+
+    def test_upload_max_size_is_50mb(self):
+        """UPLOAD_MAX_SIZE should be 50 MB."""
+        from src.middleware.request_size_middleware import UPLOAD_MAX_SIZE
+
+        assert UPLOAD_MAX_SIZE == 50 * 1024 * 1024
+
+    def test_upload_prefixes_defined(self):
+        """UPLOAD_PREFIXES should be defined."""
+        from src.middleware.request_size_middleware import UPLOAD_PREFIXES
+
+        assert isinstance(UPLOAD_PREFIXES, tuple)
+        assert len(UPLOAD_PREFIXES) > 0
+
+    def test_upload_prefixes_include_knowledge(self):
+        """Upload prefixes should include knowledge endpoints."""
+        from src.middleware.request_size_middleware import UPLOAD_PREFIXES
+
+        has_knowledge = any('knowledge' in prefix for prefix in UPLOAD_PREFIXES)
+        assert has_knowledge
+
+
+class TestRequestSizeMiddlewareIntegration:
+    """Integration tests for RequestSizeMiddleware."""
+
+    @pytest.fixture
+    def app_with_middleware(self):
+        """Create a test app with request size middleware."""
+        from src.middleware.request_size_middleware import RequestSizeMiddleware
+
+        app = FastAPI()
+        app.add_middleware(RequestSizeMiddleware)
+
+        @app.post("/test")
+        async def test_route():
+            return {"status": "ok"}
+
+        @app.post("/api/v1/knowledge/upload")
+        async def upload_route():
+            return {"status": "uploaded"}
+
+        return app
+
+    @pytest.fixture
+    def test_client(self, app_with_middleware):
+        """Create test client."""
+        return TestClient(app_with_middleware, raise_server_exceptions=False)
+
+    def test_allows_small_requests(self, test_client):
         """Should allow requests below the size limit."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
-
-        # Create middleware
-        app = MagicMock()
-        middleware = RequestSizeMiddleware(app)
-
-        assert middleware.general_limit == 10 * 1024 * 1024  # 10 MB
-        assert middleware.upload_limit == 50 * 1024 * 1024  # 50 MB
-
-    def test_middleware_has_upload_paths(self):
-        """Should have upload paths defined."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
-
-        app = MagicMock()
-        middleware = RequestSizeMiddleware(app)
-
-        # Should have some upload paths configured
-        assert hasattr(middleware, 'upload_paths')
-        assert isinstance(middleware.upload_paths, (list, tuple, set))
-
-    @pytest.mark.asyncio
-    async def test_middleware_blocks_oversized_request(self):
-        """Should return 413 for oversized requests."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
-
-        app = AsyncMock()
-        middleware = RequestSizeMiddleware(app)
-
-        # Create mock request with Content-Length exceeding limit
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "path": "/api/v1/test",
-            "headers": [(b"content-length", b"999999999")],  # ~1 GB
-        }
-
-        async def receive():
-            return {"type": "http.request", "body": b""}
-
-        async def send(message):
-            pass
-
-        # Call middleware
-        response = await middleware(scope, receive, send)
-
-        # The middleware should have intercepted this
-        # (app should not be called for oversized requests)
-
-    def test_upload_paths_include_knowledge(self):
-        """Upload paths should include knowledge endpoints."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
-
-        app = MagicMock()
-        middleware = RequestSizeMiddleware(app)
-
-        # At least one path should contain 'knowledge' for file uploads
-        has_knowledge_path = any(
-            'knowledge' in path for path in middleware.upload_paths
+        response = test_client.post(
+            "/test",
+            content=b"small body",
+            headers={"Content-Length": "10"}
         )
-        # This may or may not be true depending on implementation
-        assert isinstance(middleware.upload_paths, (list, tuple, set))
+
+        assert response.status_code == 200
+
+    def test_rejects_oversized_requests(self, test_client):
+        """Should return 413 for oversized requests."""
+        # Claim a huge content length (1 GB)
+        response = test_client.post(
+            "/test",
+            headers={"Content-Length": str(1024 * 1024 * 1024)}
+        )
+
+        assert response.status_code == 413
+        assert "too large" in response.json()["detail"].lower()
+
+    def test_rejects_invalid_content_length(self, test_client):
+        """Should return 400 for invalid Content-Length header."""
+        response = test_client.post(
+            "/test",
+            headers={"Content-Length": "not-a-number"}
+        )
+
+        assert response.status_code == 400
+        assert "Invalid Content-Length" in response.json()["detail"]
+
+    def test_allows_larger_uploads_on_upload_paths(self, test_client):
+        """Should allow larger files on upload endpoints."""
+        # 15 MB - over general limit but under upload limit
+        response = test_client.post(
+            "/api/v1/knowledge/upload",
+            headers={"Content-Length": str(15 * 1024 * 1024)}
+        )
+
+        # Should NOT be 413 (within upload limit)
+        assert response.status_code != 413
+
+    def test_rejects_huge_uploads(self, test_client):
+        """Should reject uploads over 50 MB."""
+        # 100 MB - over both limits
+        response = test_client.post(
+            "/api/v1/knowledge/upload",
+            headers={"Content-Length": str(100 * 1024 * 1024)}
+        )
+
+        assert response.status_code == 413
+
+    def test_allows_requests_without_content_length(self, test_client):
+        """Should allow requests without Content-Length header."""
+        # GET requests typically don't have Content-Length
+        response = test_client.get("/test")
+
+        # May be 404/405 since it's a POST endpoint, but not 413
+        assert response.status_code != 413
 
 
-class TestSizeLimits:
-    """Tests for size limit constants."""
+class TestSizeLimitLogic:
+    """Tests for size limit calculation logic."""
 
-    def test_general_limit_is_10mb(self):
-        """General limit should be 10 MB."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
+    def test_general_endpoint_uses_default_limit(self):
+        """Non-upload endpoints should use DEFAULT_MAX_SIZE."""
+        from src.middleware.request_size_middleware import (
+            DEFAULT_MAX_SIZE, UPLOAD_MAX_SIZE, UPLOAD_PREFIXES
+        )
 
-        app = MagicMock()
-        middleware = RequestSizeMiddleware(app)
+        # Regular path should not match upload prefixes
+        path = "/api/v1/quotes"
+        matches_upload = any(path.startswith(p) for p in UPLOAD_PREFIXES)
 
-        assert middleware.general_limit == 10 * 1024 * 1024
+        assert not matches_upload
 
-    def test_upload_limit_is_50mb(self):
-        """Upload limit should be 50 MB."""
-        from src.middleware.request_size_middleware import RequestSizeMiddleware
+    def test_upload_endpoint_uses_upload_limit(self):
+        """Upload endpoints should use UPLOAD_MAX_SIZE."""
+        from src.middleware.request_size_middleware import UPLOAD_PREFIXES
 
-        app = MagicMock()
-        middleware = RequestSizeMiddleware(app)
+        # Knowledge upload path should match
+        path = "/api/v1/knowledge/upload/file.pdf"
+        matches_upload = any(path.startswith(p) for p in UPLOAD_PREFIXES)
 
-        assert middleware.upload_limit == 50 * 1024 * 1024
+        assert matches_upload
+
+    def test_documents_endpoint_uses_upload_limit(self):
+        """Documents endpoint should use UPLOAD_MAX_SIZE."""
+        from src.middleware.request_size_middleware import UPLOAD_PREFIXES
+
+        path = "/api/v1/knowledge/documents/123"
+        matches_upload = any(path.startswith(p) for p in UPLOAD_PREFIXES)
+
+        assert matches_upload

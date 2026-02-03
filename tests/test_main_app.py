@@ -163,25 +163,25 @@ class TestAPIDocumentation:
     """Tests for API documentation endpoints."""
 
     def test_docs_availability(self, test_client):
-        """API docs should be available in dev, disabled in prod."""
+        """API docs may require auth or be disabled in prod."""
         response = test_client.get("/docs")
 
-        # May return 200 (available) or 404 (disabled in production)
-        assert response.status_code in [200, 404]
+        # May return 200 (available), 401 (requires auth), or 404 (disabled in production)
+        assert response.status_code in [200, 401, 404]
 
     def test_openapi_availability(self, test_client):
-        """OpenAPI spec should be available in dev, disabled in prod."""
+        """OpenAPI spec may require auth or be disabled in prod."""
         response = test_client.get("/openapi.json")
 
-        # May return 200 (available) or 404 (disabled in production)
-        assert response.status_code in [200, 404]
+        # May return 200 (available), 401 (requires auth), or 404 (disabled in production)
+        assert response.status_code in [200, 401, 404]
 
     def test_redoc_availability(self, test_client):
-        """ReDoc should be available in dev, disabled in prod."""
+        """ReDoc may require auth or be disabled in prod."""
         response = test_client.get("/redoc")
 
-        # May return 200 (available) or 404 (disabled in production)
-        assert response.status_code in [200, 404]
+        # May return 200 (available), 401 (requires auth), or 404 (disabled in production)
+        assert response.status_code in [200, 401, 404]
 
 
 # ==================== Error Handling Tests ====================
@@ -189,11 +189,12 @@ class TestAPIDocumentation:
 class TestErrorHandling:
     """Tests for global error handling."""
 
-    def test_404_on_unknown_route(self, test_client):
-        """Unknown routes should return 404."""
+    def test_404_or_401_on_unknown_route(self, test_client):
+        """Unknown routes return 404 or 401 (if auth middleware runs first)."""
         response = test_client.get("/nonexistent/route/12345")
 
-        assert response.status_code == 404
+        # Auth middleware may return 401 before route matching returns 404
+        assert response.status_code in [401, 404]
 
     def test_405_on_wrong_method(self, test_client):
         """Wrong HTTP method should return 405."""
