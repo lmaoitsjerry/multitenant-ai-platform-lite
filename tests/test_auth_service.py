@@ -391,3 +391,442 @@ class TestUserCache:
         from src.services.auth_service import _user_cache
 
         assert isinstance(_user_cache, dict)
+
+
+# ==================== Get User by Auth ID Tests ====================
+
+class TestGetUserByAuthId:
+    """Tests for get_user_by_auth_id method."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_auth_id_cache_miss(self, auth_service, mock_supabase_client):
+        """Should fetch user from DB on cache miss."""
+        from src.services.auth_service import _user_cache
+
+        # Clear cache
+        _user_cache.clear()
+
+        mock_user_data = {
+            "id": "org-user-1",
+            "auth_user_id": "auth-123",
+            "tenant_id": "tenant-1",
+            "email": "test@example.com",
+            "name": "Test User",
+            "role": "admin",
+            "is_active": True
+        }
+
+        # Setup mock chain
+        mock_table = MagicMock()
+        mock_select = MagicMock()
+        mock_eq1 = MagicMock()
+        mock_eq2 = MagicMock()
+        mock_eq3 = MagicMock()
+        mock_single = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = mock_user_data
+
+        mock_supabase_client.table.return_value = mock_table
+        mock_table.select.return_value = mock_select
+        mock_select.eq.return_value = mock_eq1
+        mock_eq1.eq.return_value = mock_eq2
+        mock_eq2.eq.return_value = mock_eq3
+        mock_eq3.single.return_value = mock_single
+        mock_single.execute.return_value = mock_result
+
+        user = await auth_service.get_user_by_auth_id("auth-123", "tenant-1")
+
+        assert user is not None
+        assert user["email"] == "test@example.com"
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_auth_id_cache_hit(self, auth_service, mock_supabase_client):
+        """Should return cached user on cache hit."""
+        from src.services.auth_service import _user_cache
+        from datetime import datetime
+
+        # Set up cache with valid entry
+        cache_key = "tenant-1:auth-123"
+        cached_user = {
+            "id": "org-user-1",
+            "email": "cached@example.com"
+        }
+        _user_cache[cache_key] = {
+            "user": cached_user,
+            "expires": datetime.utcnow().timestamp() + 3600  # Future expiry
+        }
+
+        user = await auth_service.get_user_by_auth_id("auth-123", "tenant-1")
+
+        # Should return cached user without calling DB
+        assert user["email"] == "cached@example.com"
+        mock_supabase_client.table.assert_not_called()
+
+        # Clean up
+        _user_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_auth_id_expired_cache(self, auth_service, mock_supabase_client):
+        """Should refetch user when cache is expired."""
+        from src.services.auth_service import _user_cache
+        from datetime import datetime
+
+        # Set up expired cache entry
+        cache_key = "tenant-1:auth-456"
+        _user_cache[cache_key] = {
+            "user": {"email": "old@example.com"},
+            "expires": datetime.utcnow().timestamp() - 100  # Past expiry
+        }
+
+        # Setup mock for fresh fetch
+        mock_table = MagicMock()
+        mock_select = MagicMock()
+        mock_eq1 = MagicMock()
+        mock_eq2 = MagicMock()
+        mock_eq3 = MagicMock()
+        mock_single = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = {"email": "fresh@example.com"}
+
+        mock_supabase_client.table.return_value = mock_table
+        mock_table.select.return_value = mock_select
+        mock_select.eq.return_value = mock_eq1
+        mock_eq1.eq.return_value = mock_eq2
+        mock_eq2.eq.return_value = mock_eq3
+        mock_eq3.single.return_value = mock_single
+        mock_single.execute.return_value = mock_result
+
+        user = await auth_service.get_user_by_auth_id("auth-456", "tenant-1")
+
+        # Should return fresh data
+        assert user["email"] == "fresh@example.com"
+
+        # Clean up
+        _user_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_auth_id_not_found(self, auth_service, mock_supabase_client):
+        """Should return None when user not found."""
+        from src.services.auth_service import _user_cache
+
+        _user_cache.clear()
+
+        mock_table = MagicMock()
+        mock_select = MagicMock()
+        mock_eq1 = MagicMock()
+        mock_eq2 = MagicMock()
+        mock_eq3 = MagicMock()
+        mock_single = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = None
+
+        mock_supabase_client.table.return_value = mock_table
+        mock_table.select.return_value = mock_select
+        mock_select.eq.return_value = mock_eq1
+        mock_eq1.eq.return_value = mock_eq2
+        mock_eq2.eq.return_value = mock_eq3
+        mock_eq3.single.return_value = mock_single
+        mock_single.execute.return_value = mock_result
+
+        user = await auth_service.get_user_by_auth_id("nonexistent", "tenant-1")
+
+        assert user is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_auth_id_db_error(self, auth_service, mock_supabase_client):
+        """Should return None on database error."""
+        from src.services.auth_service import _user_cache
+
+        _user_cache.clear()
+
+        mock_supabase_client.table.side_effect = Exception("Database error")
+
+        user = await auth_service.get_user_by_auth_id("auth-123", "tenant-1")
+
+        assert user is None
+
+
+# ==================== Create Auth User Tests ====================
+
+class TestCreateAuthUser:
+    """Tests for create_auth_user method."""
+
+    @pytest.mark.asyncio
+    async def test_create_auth_user_new_user_success(self, auth_service):
+        """Should create new user successfully."""
+        from src.services.auth_service import get_fresh_admin_client
+
+        with patch('src.services.auth_service.get_fresh_admin_client') as mock_get_admin:
+            mock_admin_client = MagicMock()
+            mock_get_admin.return_value = mock_admin_client
+
+            # Mock successful auth user creation
+            mock_auth_user = MagicMock()
+            mock_auth_user.id = "new-auth-123"
+            mock_admin_client.auth.admin.create_user.return_value = MagicMock(user=mock_auth_user)
+
+            # Mock checking existing org user (not found)
+            mock_existing_result = MagicMock()
+            mock_existing_result.data = []
+            mock_admin_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_existing_result
+
+            # Mock creating org user
+            mock_org_user = {
+                "id": "org-user-new",
+                "auth_user_id": "new-auth-123",
+                "email": "new@example.com",
+                "name": "New User",
+                "role": "consultant",
+                "tenant_id": "tenant-1"
+            }
+            mock_insert_result = MagicMock()
+            mock_insert_result.data = [mock_org_user]
+            mock_admin_client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+            success, data = await auth_service.create_auth_user(
+                email="new@example.com",
+                password="password123",
+                name="New User",
+                tenant_id="tenant-1"
+            )
+
+            assert success is True
+            assert "user" in data
+            assert data["auth_user_id"] == "new-auth-123"
+
+    @pytest.mark.asyncio
+    async def test_create_auth_user_existing_in_tenant(self, auth_service):
+        """Should return existing user if already in tenant."""
+        with patch('src.services.auth_service.get_fresh_admin_client') as mock_get_admin:
+            mock_admin_client = MagicMock()
+            mock_get_admin.return_value = mock_admin_client
+
+            # Mock auth user creation
+            mock_auth_user = MagicMock()
+            mock_auth_user.id = "existing-auth-123"
+            mock_admin_client.auth.admin.create_user.return_value = MagicMock(user=mock_auth_user)
+
+            # Mock existing org user found
+            mock_existing_user = {
+                "id": "org-user-existing",
+                "auth_user_id": "existing-auth-123",
+                "email": "existing@example.com"
+            }
+            mock_existing_result = MagicMock()
+            mock_existing_result.data = [mock_existing_user]
+            mock_admin_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_existing_result
+
+            success, data = await auth_service.create_auth_user(
+                email="existing@example.com",
+                password="password123",
+                name="Existing User",
+                tenant_id="tenant-1"
+            )
+
+            assert success is True
+            assert data.get("already_existed") is True
+
+    @pytest.mark.asyncio
+    async def test_create_auth_user_failed(self, auth_service):
+        """Should handle auth user creation failure."""
+        with patch('src.services.auth_service.get_fresh_admin_client') as mock_get_admin:
+            mock_admin_client = MagicMock()
+            mock_get_admin.return_value = mock_admin_client
+
+            # Mock auth user creation failure
+            mock_admin_client.auth.admin.create_user.return_value = MagicMock(user=None)
+
+            # Mock sign-in also failing
+            auth_service.client.auth.sign_in_with_password.side_effect = Exception("Wrong password")
+
+            success, data = await auth_service.create_auth_user(
+                email="test@example.com",
+                password="password123",
+                name="Test User",
+                tenant_id="tenant-1"
+            )
+
+            assert success is False
+            assert "error" in data
+
+
+# ==================== Update Password Tests ====================
+
+class TestUpdatePassword:
+    """Tests for update_password method."""
+
+    @pytest.mark.asyncio
+    async def test_update_password_success(self, auth_service, mock_supabase_client):
+        """Should update password successfully."""
+        mock_supabase_client.auth.set_session.return_value = None
+        mock_supabase_client.auth.update_user.return_value = MagicMock()
+
+        success, data = await auth_service.update_password("valid-token", "new-password")
+
+        assert success is True
+        assert "message" in data
+        assert "updated" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_password_auth_error(self, auth_service, mock_supabase_client):
+        """Should handle auth API error."""
+        from gotrue.errors import AuthApiError
+
+        mock_supabase_client.auth.set_session.return_value = None
+        mock_supabase_client.auth.update_user.side_effect = AuthApiError("Invalid token")
+
+        success, data = await auth_service.update_password("invalid-token", "new-password")
+
+        assert success is False
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_update_password_generic_error(self, auth_service, mock_supabase_client):
+        """Should handle generic error."""
+        mock_supabase_client.auth.set_session.side_effect = Exception("Connection error")
+
+        success, data = await auth_service.update_password("token", "new-password")
+
+        assert success is False
+        assert "error" in data
+
+
+# ==================== Login Edge Cases Tests ====================
+
+class TestLoginEdgeCases:
+    """Additional edge case tests for login."""
+
+    @pytest.mark.asyncio
+    async def test_login_tenant_agnostic(self, auth_service, mock_supabase_client):
+        """Should login without tenant_id (tenant-agnostic)."""
+        # Mock auth response
+        mock_user = MagicMock()
+        mock_user.id = "auth-user-123"
+        mock_session = MagicMock()
+        mock_session.access_token = "access-token"
+        mock_session.refresh_token = "refresh-token"
+        mock_session.expires_at = 3600
+
+        mock_auth_response = MagicMock()
+        mock_auth_response.user = mock_user
+        mock_auth_response.session = mock_session
+
+        mock_supabase_client.auth.sign_in_with_password.return_value = mock_auth_response
+
+        # Mock org user lookup with limit() for tenant-agnostic login
+        mock_table = MagicMock()
+        mock_select = MagicMock()
+        mock_eq1 = MagicMock()
+        mock_eq2 = MagicMock()
+        mock_limit = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [{
+            "id": "org-user-1",
+            "email": "test@example.com",
+            "name": "Test User",
+            "role": "admin",
+            "tenant_id": "auto-detected-tenant",
+            "is_active": True
+        }]
+
+        mock_supabase_client.table.return_value = mock_table
+        mock_table.select.return_value = mock_select
+        mock_select.eq.return_value = mock_eq1
+        mock_eq1.eq.return_value = mock_eq2
+        mock_eq2.limit.return_value = mock_limit
+        mock_limit.execute.return_value = mock_result
+
+        # Mock update
+        mock_update = MagicMock()
+        mock_update.eq.return_value.execute.return_value = MagicMock()
+        mock_table.update.return_value = mock_update
+
+        # Login without tenant_id
+        success, data = await auth_service.login("test@example.com", "password")
+
+        assert success is True
+        assert data["user"]["tenant_id"] == "auto-detected-tenant"
+
+    @pytest.mark.asyncio
+    async def test_login_user_not_in_organization(self, auth_service, mock_supabase_client):
+        """Should fail when user exists in auth but not in any organization."""
+        # Mock successful auth
+        mock_user = MagicMock()
+        mock_user.id = "auth-user-123"
+        mock_auth_response = MagicMock()
+        mock_auth_response.user = mock_user
+        mock_supabase_client.auth.sign_in_with_password.return_value = mock_auth_response
+
+        # Mock org user lookup returning empty
+        mock_table = MagicMock()
+        mock_select = MagicMock()
+        mock_eq1 = MagicMock()
+        mock_eq2 = MagicMock()
+        mock_limit = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = []  # No org membership
+
+        mock_supabase_client.table.return_value = mock_table
+        mock_table.select.return_value = mock_select
+        mock_select.eq.return_value = mock_eq1
+        mock_eq1.eq.return_value = mock_eq2
+        mock_eq2.limit.return_value = mock_limit
+        mock_limit.execute.return_value = mock_result
+
+        success, data = await auth_service.login("test@example.com", "password")
+
+        assert success is False
+        assert "not found" in data["error"].lower()
+
+
+# ==================== JWT Edge Cases Tests ====================
+
+class TestJWTEdgeCases:
+    """Additional edge case tests for JWT verification."""
+
+    def test_verify_jwt_wrong_issuer(self, auth_service):
+        """Should reject JWT with wrong issuer when signature verification enabled."""
+        import time
+
+        payload = {
+            "sub": "user-123",
+            "exp": int(time.time()) + 3600,
+            "iss": "https://wrong.supabase.co/auth/v1",  # Wrong issuer
+            "aud": "authenticated"
+        }
+        token = jwt.encode(payload, "test-secret", algorithm="HS256")
+
+        valid, result = auth_service.verify_jwt(token)
+
+        assert valid is False
+        assert "issuer" in result["error"].lower()
+
+    def test_verify_jwt_malformed_token(self, auth_service):
+        """Should reject malformed JWT."""
+        valid, result = auth_service.verify_jwt("not.a.valid.jwt")
+
+        assert valid is False
+        assert "error" in result
+
+    def test_verify_jwt_empty_token(self, auth_service):
+        """Should reject empty token."""
+        valid, result = auth_service.verify_jwt("")
+
+        assert valid is False
+        assert "error" in result
+
+
+# ==================== Token Refresh Edge Cases ====================
+
+class TestRefreshTokenEdgeCases:
+    """Additional edge case tests for token refresh."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_exception(self, auth_service, mock_supabase_client):
+        """Should handle exception during refresh."""
+        mock_supabase_client.auth.refresh_session.side_effect = Exception("Network error")
+
+        success, data = await auth_service.refresh_token("token")
+
+        assert success is False
+        assert "error" in data
