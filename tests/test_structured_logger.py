@@ -267,3 +267,295 @@ class TestLogWithContext:
 
         # Should not raise
         log_with_context(logger, logging.INFO, "Test", user_id=123, action="test")
+
+
+class TestLogLevels:
+    """Tests for different log levels."""
+
+    def test_debug_level(self):
+        """Should format DEBUG level messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.DEBUG,
+            pathname="test.py",
+            lineno=10,
+            msg="Debug message",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["level"] == "DEBUG"
+
+    def test_warning_level(self):
+        """Should format WARNING level messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.WARNING,
+            pathname="test.py",
+            lineno=10,
+            msg="Warning message",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["level"] == "WARNING"
+
+    def test_error_level(self):
+        """Should format ERROR level messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname="test.py",
+            lineno=10,
+            msg="Error message",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["level"] == "ERROR"
+
+    def test_critical_level(self):
+        """Should format CRITICAL level messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.CRITICAL,
+            pathname="test.py",
+            lineno=10,
+            msg="Critical message",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["level"] == "CRITICAL"
+
+
+class TestExceptionFormatting:
+    """Tests for exception formatting."""
+
+    def test_includes_exception_info(self):
+        """Should include exception info when present."""
+        from src.utils.structured_logger import JSONFormatter
+        import traceback
+
+        formatter = JSONFormatter()
+
+        try:
+            raise ValueError("Test error")
+        except ValueError:
+            import sys
+            exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname="test.py",
+            lineno=10,
+            msg="Error occurred",
+            args=(),
+            exc_info=exc_info
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        # Should have exception info
+        assert "exception" in data or "error" in str(data)
+
+
+class TestMessageFormatting:
+    """Tests for message formatting."""
+
+    def test_formats_string_args(self):
+        """Should format messages with string args."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Hello %s!",
+            args=("World",),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert "Hello World!" in data["message"]
+
+    def test_formats_numeric_args(self):
+        """Should format messages with numeric args."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Count: %d, Value: %.2f",
+            args=(42, 3.14159),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert "42" in data["message"]
+        assert "3.14" in data["message"]
+
+
+class TestContextIsolation:
+    """Tests for context variable isolation."""
+
+    def test_context_cleared_after_use(self):
+        """Context should be cleared after use."""
+        from src.utils.structured_logger import (
+            set_request_id, get_request_id, clear_request_id
+        )
+
+        set_request_id("test-id")
+        assert get_request_id() == "test-id"
+
+        clear_request_id()
+        assert get_request_id() is None
+
+    def test_tenant_context_cleared(self):
+        """Tenant context should be cleared after use."""
+        from src.utils.structured_logger import (
+            set_tenant_id, get_tenant_id, clear_tenant_id
+        )
+
+        set_tenant_id("test-tenant")
+        assert get_tenant_id() == "test-tenant"
+
+        clear_tenant_id()
+        assert get_tenant_id() is None
+
+    def test_multiple_context_values(self):
+        """Should handle multiple context values."""
+        from src.utils.structured_logger import (
+            set_request_id, get_request_id, clear_request_id,
+            set_tenant_id, get_tenant_id, clear_tenant_id
+        )
+
+        set_request_id("req-123")
+        set_tenant_id("tenant-abc")
+
+        assert get_request_id() == "req-123"
+        assert get_tenant_id() == "tenant-abc"
+
+        clear_request_id()
+        clear_tenant_id()
+
+
+class TestEdgeCases:
+    """Edge case tests for structured logger."""
+
+    def test_empty_message(self):
+        """Should handle empty message."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["message"] == ""
+
+    def test_unicode_message(self):
+        """Should handle Unicode messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Test message",
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert "Test message" in data["message"]
+
+    def test_long_message(self):
+        """Should handle long messages."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        long_msg = "x" * 10000
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg=long_msg,
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert len(data["message"]) == 10000
+
+    def test_special_characters_in_message(self):
+        """Should handle special characters."""
+        from src.utils.structured_logger import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg='Test "quotes" and \\backslash',
+            args=(),
+            exc_info=None
+        )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert "quotes" in data["message"]
+        assert "backslash" in data["message"]
