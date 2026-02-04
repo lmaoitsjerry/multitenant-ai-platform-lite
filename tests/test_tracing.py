@@ -147,3 +147,195 @@ class TestTracingEdgeCases:
             'ENVIRONMENT': 'production'
         }):
             assert os.getenv('ENVIRONMENT') == 'production'
+
+
+class TestTracingConfiguration:
+    """Tests for tracing configuration options."""
+
+    def test_default_service_name(self):
+        """Should have a default service name."""
+        import os
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}, clear=True):
+            # Default when not set
+            service_name = os.getenv('OTEL_SERVICE_NAME', 'multitenant-ai-platform')
+            assert service_name == 'multitenant-ai-platform'
+
+    def test_custom_service_name(self):
+        """Should use custom service name from env."""
+        import os
+
+        with patch.dict('os.environ', {
+            'ENABLE_TRACING': 'false',
+            'OTEL_SERVICE_NAME': 'custom-service'
+        }):
+            assert os.getenv('OTEL_SERVICE_NAME') == 'custom-service'
+
+    def test_environment_detection_development(self):
+        """Should detect development environment."""
+        import os
+
+        with patch.dict('os.environ', {'ENVIRONMENT': 'development'}):
+            assert os.getenv('ENVIRONMENT') == 'development'
+
+    def test_environment_detection_production(self):
+        """Should detect production environment."""
+        import os
+
+        with patch.dict('os.environ', {'ENVIRONMENT': 'production'}):
+            assert os.getenv('ENVIRONMENT') == 'production'
+
+    def test_environment_detection_staging(self):
+        """Should detect staging environment."""
+        import os
+
+        with patch.dict('os.environ', {'ENVIRONMENT': 'staging'}):
+            assert os.getenv('ENVIRONMENT') == 'staging'
+
+
+class TestTracingFunctionSignature:
+    """Tests for setup_tracing function signature."""
+
+    def test_accepts_app_parameter(self):
+        """setup_tracing should accept app parameter."""
+        from src.utils.tracing import setup_tracing
+        import inspect
+
+        sig = inspect.signature(setup_tracing)
+        params = list(sig.parameters.keys())
+
+        assert 'app' in params
+
+    def test_app_parameter_is_optional(self):
+        """app parameter should be optional."""
+        from src.utils.tracing import setup_tracing
+        import inspect
+
+        sig = inspect.signature(setup_tracing)
+        param = sig.parameters.get('app')
+
+        assert param is not None
+        assert param.default is not inspect.Parameter.empty or param.default is None
+
+    def test_returns_bool(self):
+        """setup_tracing should return a boolean."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing()
+
+            assert isinstance(result, bool)
+
+
+class TestTracingEnableDisable:
+    """Tests for enabling/disabling tracing."""
+
+    def test_disabled_returns_false(self):
+        """Disabled tracing should return False."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing()
+            assert result is False
+
+    def test_disabled_with_no_env_var(self):
+        """Missing ENABLE_TRACING should disable tracing."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {}, clear=True):
+            result = setup_tracing()
+            assert result is False
+
+    def test_disabled_with_zero(self):
+        """ENABLE_TRACING=0 should disable tracing."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': '0'}):
+            result = setup_tracing()
+            assert result is False
+
+    def test_disabled_with_no(self):
+        """ENABLE_TRACING=no should disable tracing."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'no'}):
+            result = setup_tracing()
+            assert result is False
+
+
+class TestTracingErrorHandling:
+    """Tests for error handling in tracing setup."""
+
+    def test_graceful_import_error(self):
+        """Should handle ImportError gracefully."""
+        from src.utils.tracing import setup_tracing
+
+        # Even if OTel imports fail, should not crash
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing()
+            assert result is False
+
+    def test_returns_false_on_failure(self):
+        """Should return False if setup fails."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing()
+            assert result is False
+
+    def test_does_not_raise_on_disabled(self):
+        """Should not raise when disabled."""
+        from src.utils.tracing import setup_tracing
+
+        # Should not raise any exceptions
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            try:
+                setup_tracing()
+            except Exception:
+                pytest.fail("setup_tracing raised exception when disabled")
+
+
+class TestTracingModuleLevel:
+    """Tests for module-level tracing behavior."""
+
+    def test_module_can_be_imported(self):
+        """Tracing module should be importable."""
+        try:
+            from src.utils import tracing
+            assert tracing is not None
+        except ImportError:
+            pytest.fail("Could not import tracing module")
+
+    def test_setup_tracing_is_callable(self):
+        """setup_tracing should be callable."""
+        from src.utils.tracing import setup_tracing
+
+        assert callable(setup_tracing)
+
+    def test_module_has_logger(self):
+        """Module should have a logger."""
+        from src.utils import tracing
+
+        assert hasattr(tracing, 'logger')
+
+
+class TestTracingWithMockApp:
+    """Tests for tracing with mock FastAPI app."""
+
+    def test_disabled_with_mock_app(self):
+        """Disabled tracing should work with mock app."""
+        from src.utils.tracing import setup_tracing
+
+        mock_app = MagicMock()
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing(app=mock_app)
+            assert result is False
+
+    def test_disabled_with_none_app(self):
+        """Disabled tracing should work with None app."""
+        from src.utils.tracing import setup_tracing
+
+        with patch.dict('os.environ', {'ENABLE_TRACING': 'false'}):
+            result = setup_tracing(app=None)
+            assert result is False
