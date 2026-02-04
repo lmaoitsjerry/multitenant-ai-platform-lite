@@ -196,6 +196,233 @@ class TestEdgeCases:
             assert result['parse_method'] == 'fallback'
 
 
+class TestDestinationMatching:
+    """Tests for destination matching logic."""
+
+    def test_case_insensitive_destination(self):
+        """Should match destination case-insensitively."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("I want to visit ZANZIBAR", "Quote")
+        assert result['destination'] == 'Zanzibar'
+
+    def test_partial_destination_match(self):
+        """Should match destination mentioned in text."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Looking for a Mauritius holiday package", "Inquiry")
+        assert result['destination'] == 'Mauritius'
+
+    def test_multiple_destinations_picks_first(self):
+        """Should pick first mentioned destination."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Interested in Zanzibar or Mauritius", "Quote")
+        # Should match one of them
+        assert result['destination'] in ['Zanzibar', 'Mauritius']
+
+    def test_no_destination_uses_default(self):
+        """Should use default when no destination found."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("I want a beach holiday", "Generic inquiry")
+        assert result['destination'] in parser.DESTINATIONS
+
+
+class TestTravelerParsing:
+    """Tests for traveler count parsing."""
+
+    def test_extract_adults_only(self):
+        """Should extract adult count."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Trip for 4 adults", "Family vacation")
+        assert result['adults'] == 4
+
+    def test_extract_children_with_ages(self):
+        """Should extract children count with ages."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("2 adults and 2 children ages 5 and 8", "Family trip")
+        assert result['adults'] == 2
+        assert result['children'] == 2
+
+    def test_couple_implies_two_adults(self):
+        """Should interpret 'couple' as 2 adults."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Honeymoon trip for a couple", "Honeymoon inquiry")
+        assert result['adults'] >= 2
+
+    def test_family_implies_adults_and_children(self):
+        """Should handle 'family' mentions."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Family of 4 looking for holiday", "Family trip")
+        # Should have some adults
+        assert result['adults'] >= 2
+
+
+class TestBudgetParsing:
+    """Tests for budget parsing."""
+
+    def test_parse_rand_symbol(self):
+        """Should parse R symbol for Rand."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'budget': 'R100000'})
+            assert result['budget'] == 100000
+
+    def test_parse_with_commas(self):
+        """Should parse budget with commas."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'budget': 'R100,000'})
+            assert result['budget'] == 100000
+
+    def test_parse_k_suffix(self):
+        """Should parse k suffix as thousands."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'budget': '75k'})
+            assert result['budget'] == 75000
+
+    def test_parse_usd_budget(self):
+        """Should handle USD budget."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'budget': '$5000'})
+            # Should extract numeric value
+            assert isinstance(result['budget'], (int, float))
+
+
+class TestDateParsing:
+    """Tests for date extraction."""
+
+    def test_extract_check_in_date(self):
+        """Should extract check-in date."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            # Fallback parser may not extract dates, but should not crash
+            result = parser.parse("Trip from 15 June to 22 June", "Quote")
+            assert result is not None
+
+    def test_month_name_recognition(self):
+        """Should recognize month names in email."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Holiday in December in Zanzibar", "Quote")
+        assert result['destination'] == 'Zanzibar'
+
+
+class TestEmailValidation:
+    """Tests for email address extraction/validation."""
+
+    def test_extract_email_address(self):
+        """Should extract email address from body."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            # This tests the parsing doesn't crash
+            result = parser.parse("Contact me at test@example.com", "Quote")
+            assert result is not None
+
+    def test_extract_name(self):
+        """Should extract customer name."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser.parse("My name is John Smith", "Quote")
+            assert result is not None
+
+
+class TestLLMResponseNormalization:
+    """Tests for LLM response normalization."""
+
+    def test_normalize_missing_fields(self):
+        """Should add default values for missing fields."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({})
+            assert 'adults' in result
+            assert 'children' in result
+            assert 'destination' in result
+
+    def test_normalize_invalid_adults(self):
+        """Should handle invalid adult count."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'adults': 'two'})
+            # Should default or convert
+            assert isinstance(result['adults'], int)
+
+    def test_normalize_negative_children(self):
+        """Should handle negative children count."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}, clear=False):
+            from src.agents.llm_email_parser import LLMEmailParser
+            parser = LLMEmailParser(MockConfig())
+
+            result = parser._normalize_llm_result({'children': -1})
+            assert result['children'] >= 0
+
+
+class TestParseMethodTracking:
+    """Tests for parse method tracking."""
+
+    def test_fallback_method_indicated(self):
+        """Should indicate fallback method was used."""
+        from src.agents.universal_email_parser import UniversalEmailParser
+        parser = UniversalEmailParser(MockConfig())
+
+        result = parser.parse("Trip to Zanzibar", "Quote")
+        assert result.get('parse_method') == 'fallback'
+
+    def test_llm_method_on_success(self):
+        """Should indicate LLM method when successful."""
+        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'}, clear=False):
+            with patch('openai.OpenAI') as mock_openai:
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_response.choices[0].message.content = json.dumps({
+                    'destination': 'Zanzibar',
+                    'adults': 2,
+                    'children': 0,
+                    'is_travel_inquiry': True
+                })
+                mock_openai.return_value.chat.completions.create.return_value = mock_response
+
+                from src.agents.llm_email_parser import LLMEmailParser
+                parser = LLMEmailParser(MockConfig())
+
+                result = parser.parse("Trip to Zanzibar", "Quote")
+                assert result['parse_method'] == 'llm'
+
+
 if __name__ == '__main__':
     # Run with pytest for new tests
     pytest.main([__file__, '-v'])

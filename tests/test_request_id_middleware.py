@@ -236,3 +236,221 @@ class TestLogging:
 
             # Should have error log
             mock_logger.error.assert_called()
+
+
+class TestRequestIdFormat:
+    """Tests for request ID format validation."""
+
+    def test_generated_id_is_uuid(self, test_client):
+        """Generated ID should be valid UUID."""
+        response = test_client.get("/test")
+        request_id = response.headers["X-Request-ID"]
+
+        # Should be valid UUID4 format
+        parsed_uuid = uuid.UUID(request_id)
+        assert parsed_uuid.version == 4
+
+    def test_custom_id_preserved_exactly(self, test_client):
+        """Custom ID should be preserved exactly."""
+        custom_ids = [
+            "simple-id",
+            "with-numbers-123",
+            "UPPERCASE-ID",
+            "mixed-Case-ID-123",
+            "a" * 100,  # Long ID
+        ]
+
+        for custom_id in custom_ids:
+            response = test_client.get("/test", headers={"X-Request-ID": custom_id})
+            assert response.headers["X-Request-ID"] == custom_id
+
+    def test_empty_request_id_header_generates_new(self, test_client):
+        """Empty X-Request-ID header should generate new ID."""
+        response = test_client.get("/test", headers={"X-Request-ID": ""})
+
+        request_id = response.headers["X-Request-ID"]
+        # Should be a valid UUID (generated)
+        uuid.UUID(request_id)
+
+
+class TestMultipleRequestsHandling:
+    """Tests for handling multiple concurrent requests."""
+
+    def test_different_requests_get_different_ids(self, test_client):
+        """Multiple requests should get unique IDs."""
+        ids = set()
+
+        for _ in range(10):
+            response = test_client.get("/test")
+            ids.add(response.headers["X-Request-ID"])
+
+        # All IDs should be unique
+        assert len(ids) == 10
+
+    def test_concurrent_requests_isolated(self, app_with_request_id):
+        """Concurrent requests should have isolated IDs."""
+        import concurrent.futures
+
+        client = TestClient(app_with_request_id)
+
+        def make_request():
+            response = client.get("/test")
+            return response.json()["request_id"]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(make_request) for _ in range(5)]
+            ids = [f.result() for f in futures]
+
+        # All IDs should be unique
+        assert len(set(ids)) == 5
+
+
+class TestIPExtractionEdgeCases:
+    """Edge case tests for IP extraction."""
+
+    def test_multiple_ips_in_forwarded_for(self):
+        """Should extract first IP from multiple IPs."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        middleware = RequestIdMiddleware(None)
+
+        mock_request = MagicMock()
+        mock_request.headers = {
+            "X-Forwarded-For": "203.0.113.195, 70.41.3.18, 150.172.238.178"
+        }
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        ip = middleware._get_client_ip(mock_request)
+
+        assert ip == "203.0.113.195"
+
+    def test_whitespace_in_forwarded_for(self):
+        """Should handle whitespace in X-Forwarded-For."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        middleware = RequestIdMiddleware(None)
+
+        mock_request = MagicMock()
+        mock_request.headers = {
+            "X-Forwarded-For": "  203.0.113.195  ,  70.41.3.18  "
+        }
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        ip = middleware._get_client_ip(mock_request)
+
+        # Should extract trimmed IP
+        assert ip.strip() == "203.0.113.195"
+
+    def test_ipv6_address(self):
+        """Should handle IPv6 addresses."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        middleware = RequestIdMiddleware(None)
+
+        mock_request = MagicMock()
+        mock_request.headers = {"X-Real-IP": "2001:0db8:85a3:0000:0000:8a2e:0370:7334"}
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        ip = middleware._get_client_ip(mock_request)
+
+        assert "2001:0db8" in ip
+
+
+class TestResponseHeaderConsistency:
+    """Tests for response header consistency."""
+
+    def test_request_id_in_all_responses(self, test_client):
+        """All responses should include X-Request-ID."""
+        endpoints = ["/test"]
+
+        for endpoint in endpoints:
+            response = test_client.get(endpoint)
+            assert "X-Request-ID" in response.headers
+
+    def test_request_id_header_format(self, test_client):
+        """X-Request-ID header should be properly formatted."""
+        response = test_client.get("/test")
+
+        header_name = None
+        for h in response.headers:
+            if h.lower() == "x-request-id":
+                header_name = h
+                break
+
+        assert header_name is not None
+
+
+class TestMiddlewareInitialization:
+    """Tests for middleware initialization."""
+
+    def test_middleware_accepts_app(self):
+        """Middleware should accept FastAPI app."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        app = FastAPI()
+        middleware = RequestIdMiddleware(app)
+
+        assert middleware.app is app
+
+    def test_middleware_has_dispatch(self):
+        """Middleware should have dispatch method."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        middleware = RequestIdMiddleware(None)
+
+        assert hasattr(middleware, 'dispatch')
+        assert callable(getattr(middleware, 'dispatch', None))
+
+
+class TestRequestStateAccess:
+    """Tests for request.state access."""
+
+    def test_request_state_has_request_id(self, test_client):
+        """request.state should have request_id."""
+        response = test_client.get("/test")
+        data = response.json()
+
+        assert "request_id" in data
+        assert data["request_id"] is not None
+
+    def test_request_state_id_matches_header(self, test_client):
+        """request.state.request_id should match response header."""
+        response = test_client.get("/test")
+        data = response.json()
+
+        assert data["request_id"] == response.headers["X-Request-ID"]
+
+
+class TestRequestIdPropagation:
+    """Tests for request ID propagation through the system."""
+
+    def test_custom_id_propagates_to_state(self, test_client):
+        """Custom request ID should propagate to request.state."""
+        custom_id = "propagation-test-id"
+        response = test_client.get(
+            "/test",
+            headers={"X-Request-ID": custom_id}
+        )
+        data = response.json()
+
+        assert data["request_id"] == custom_id
+
+    def test_id_available_in_route_handler(self):
+        """Request ID should be available in route handlers."""
+        from src.middleware.request_id_middleware import RequestIdMiddleware
+
+        app = FastAPI()
+        app.add_middleware(RequestIdMiddleware)
+
+        captured_ids = []
+
+        @app.get("/capture")
+        async def capture_route(request: Request):
+            captured_ids.append(request.state.request_id)
+            return {"status": "ok"}
+
+        client = TestClient(app)
+        response = client.get("/capture")
+
+        assert len(captured_ids) == 1
+        assert captured_ids[0] == response.headers["X-Request-ID"]
