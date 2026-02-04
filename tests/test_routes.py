@@ -581,3 +581,671 @@ class TestEndpointAuth:
             }
         )
         assert response.status_code == 401
+
+
+# ==================== Unit Tests for Endpoint Handlers ====================
+
+class TestGenerateQuoteUnit:
+    """Unit tests for generate_quote endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        """Create mock config."""
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.currency = "USD"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_generate_quote_success(self, mock_config):
+        """generate_quote should return quote result."""
+        from src.api.routes import generate_quote, QuoteGenerateRequest, TravelInquiry
+
+        mock_agent = MagicMock()
+        mock_agent.generate_quote.return_value = {
+            'success': True,
+            'quote_id': 'quote-123',
+            'total': 5000
+        }
+
+        request = QuoteGenerateRequest(
+            inquiry=TravelInquiry(
+                name="John Doe",
+                email="john@test.com",
+                destination="Zanzibar"
+            )
+        )
+
+        with patch('src.api.routes.get_quote_agent', return_value=mock_agent):
+            result = await generate_quote(request=request, config=mock_config)
+
+        assert result['success'] is True
+        assert result['quote_id'] == 'quote-123'
+
+    @pytest.mark.asyncio
+    async def test_generate_quote_error(self, mock_config):
+        """generate_quote should handle errors."""
+        from src.api.routes import generate_quote, QuoteGenerateRequest, TravelInquiry
+        from fastapi import HTTPException
+
+        mock_agent = MagicMock()
+        mock_agent.generate_quote.side_effect = Exception("Quote generation failed")
+
+        request = QuoteGenerateRequest(
+            inquiry=TravelInquiry(
+                name="John",
+                email="john@test.com",
+                destination="Test"
+            )
+        )
+
+        with patch('src.api.routes.get_quote_agent', return_value=mock_agent):
+            with pytest.raises(HTTPException) as exc_info:
+                await generate_quote(request=request, config=mock_config)
+
+            assert exc_info.value.status_code == 500
+
+
+class TestListQuotesUnit:
+    """Unit tests for list_quotes endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_list_quotes_success(self, mock_config):
+        """list_quotes should return list of quotes."""
+        from src.api.routes import list_quotes
+
+        mock_agent = MagicMock()
+        mock_agent.list_quotes.return_value = [
+            {'quote_id': 'q1', 'status': 'sent'},
+            {'quote_id': 'q2', 'status': 'draft'}
+        ]
+
+        with patch('src.api.routes.get_quote_agent', return_value=mock_agent):
+            result = await list_quotes(
+                status=None,
+                limit=50,
+                offset=0,
+                config=mock_config,
+                x_client_id="test-tenant"
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+
+class TestGetQuoteUnit:
+    """Unit tests for get_quote endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_get_quote_success(self, mock_config):
+        """get_quote should return quote by ID."""
+        from src.api.routes import get_quote
+
+        mock_agent = MagicMock()
+        mock_agent.get_quote.return_value = {
+            'quote_id': 'q1',
+            'customer_name': 'John',
+            'status': 'sent'
+        }
+
+        with patch('src.api.routes.get_quote_agent', return_value=mock_agent):
+            result = await get_quote(quote_id="q1", config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['quote_id'] == 'q1'
+
+    @pytest.mark.asyncio
+    async def test_get_quote_not_found(self, mock_config):
+        """get_quote should raise 404 when not found."""
+        from src.api.routes import get_quote
+        from fastapi import HTTPException
+
+        mock_agent = MagicMock()
+        mock_agent.get_quote.return_value = None
+
+        with patch('src.api.routes.get_quote_agent', return_value=mock_agent):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_quote(quote_id="notfound", config=mock_config)
+
+            assert exc_info.value.status_code == 404
+
+
+class TestListClientsUnit:
+    """Unit tests for list_clients endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_list_clients_success(self, mock_config):
+        """list_clients should return list of clients."""
+        from src.api.routes import list_clients
+
+        mock_crm = MagicMock()
+        mock_crm.search_clients.return_value = [
+            {'id': 'c1', 'name': 'Client 1'},
+            {'id': 'c2', 'name': 'Client 2'}
+        ]
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            result = await list_clients(
+                query=None,
+                stage=None,
+                consultant_id=None,
+                limit=50,
+                offset=0,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+
+class TestCreateClientUnit:
+    """Unit tests for create_client endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_create_client_success(self, mock_config):
+        """create_client should create and return client."""
+        from src.api.routes import create_client, ClientCreate
+
+        mock_crm = MagicMock()
+        mock_crm.get_or_create_client.return_value = {
+            'id': 'new-client',
+            'email': 'test@example.com',
+            'name': 'Test Client',
+            'created': True
+        }
+
+        client = ClientCreate(
+            email="test@example.com",
+            name="Test Client"
+        )
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            result = await create_client(client=client, config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['id'] == 'new-client'
+
+    @pytest.mark.asyncio
+    async def test_create_client_db_failure(self, mock_config):
+        """create_client should raise 500 on database failure."""
+        from src.api.routes import create_client, ClientCreate
+        from fastapi import HTTPException
+
+        mock_crm = MagicMock()
+        mock_crm.get_or_create_client.return_value = None
+
+        client = ClientCreate(
+            email="test@example.com",
+            name="Test Client"
+        )
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            with pytest.raises(HTTPException) as exc_info:
+                await create_client(client=client, config=mock_config)
+
+            assert exc_info.value.status_code == 500
+
+
+class TestGetClientUnit:
+    """Unit tests for get_client endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_get_client_success(self, mock_config):
+        """get_client should return client by ID."""
+        from src.api.routes import get_client
+
+        mock_crm = MagicMock()
+        mock_crm.get_client.return_value = {
+            'id': 'c1',
+            'name': 'Client 1',
+            'email': 'client@test.com'
+        }
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            result = await get_client(client_id="c1", config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['id'] == 'c1'
+
+    @pytest.mark.asyncio
+    async def test_get_client_not_found(self, mock_config):
+        """get_client should raise 404 when not found."""
+        from src.api.routes import get_client
+        from fastapi import HTTPException
+
+        mock_crm = MagicMock()
+        mock_crm.get_client.return_value = None
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_client(client_id="notfound", config=mock_config)
+
+            assert exc_info.value.status_code == 404
+
+
+class TestListInvoicesUnit:
+    """Unit tests for list_invoices endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_list_invoices_success(self, mock_config):
+        """list_invoices should return list of invoices."""
+        from src.api.routes import list_invoices
+
+        mock_supabase = MagicMock()
+        mock_supabase.list_invoices.return_value = [
+            {'invoice_id': 'inv-1', 'status': 'pending'},
+            {'invoice_id': 'inv-2', 'status': 'paid'}
+        ]
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            result = await list_invoices(
+                status=None,
+                limit=50,
+                offset=0,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+
+class TestGetInvoiceUnit:
+    """Unit tests for get_invoice endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_get_invoice_success(self, mock_config):
+        """get_invoice should return invoice by ID."""
+        from src.api.routes import get_invoice
+
+        mock_supabase = MagicMock()
+        mock_supabase.get_invoice.return_value = {
+            'invoice_id': 'inv-1',
+            'customer_name': 'John',
+            'total_amount': 1000
+        }
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            result = await get_invoice(invoice_id="inv-1", config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['invoice_id'] == 'inv-1'
+
+    @pytest.mark.asyncio
+    async def test_get_invoice_not_found(self, mock_config):
+        """get_invoice should raise 404 when not found."""
+        from src.api.routes import get_invoice
+        from fastapi import HTTPException
+
+        mock_supabase = MagicMock()
+        mock_supabase.get_invoice.return_value = None
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_invoice(invoice_id="notfound", config=mock_config)
+
+            assert exc_info.value.status_code == 404
+
+
+class TestUpdateInvoiceStatusUnit:
+    """Unit tests for update_invoice_status endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.currency = "USD"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_update_invoice_status_success(self, mock_config):
+        """update_invoice_status should update and return invoice."""
+        from src.api.routes import update_invoice_status, InvoiceStatusUpdate
+
+        mock_supabase = MagicMock()
+        mock_supabase.update_invoice_status.return_value = True
+        mock_supabase.get_invoice.return_value = {
+            'invoice_id': 'inv-1',
+            'status': 'paid',
+            'customer_name': 'John',
+            'total_amount': 1000
+        }
+
+        update = InvoiceStatusUpdate(status="paid")
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            with patch('src.api.notifications_routes.NotificationService') as mock_notif:
+                result = await update_invoice_status(
+                    invoice_id="inv-1",
+                    update=update,
+                    config=mock_config
+                )
+
+        assert result['success'] is True
+        assert result['data']['status'] == 'paid'
+
+    @pytest.mark.asyncio
+    async def test_update_invoice_status_failure(self, mock_config):
+        """update_invoice_status should raise 500 on failure."""
+        from src.api.routes import update_invoice_status, InvoiceStatusUpdate
+        from fastapi import HTTPException
+
+        mock_supabase = MagicMock()
+        mock_supabase.update_invoice_status.return_value = False
+
+        update = InvoiceStatusUpdate(status="paid")
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            with pytest.raises(HTTPException) as exc_info:
+                await update_invoice_status(
+                    invoice_id="inv-1",
+                    update=update,
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 500
+
+
+class TestCreateManualInvoiceUnit:
+    """Unit tests for create_manual_invoice endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.currency = "USD"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_create_manual_invoice_success(self, mock_config):
+        """create_manual_invoice should create invoice."""
+        from src.api.routes import create_manual_invoice, ManualInvoiceCreate
+
+        mock_supabase = MagicMock()
+        mock_supabase.create_invoice.return_value = {
+            'invoice_id': 'new-inv',
+            'customer_name': 'John',
+            'total_amount': 500
+        }
+
+        request = ManualInvoiceCreate(
+            customer_name="John",
+            customer_email="john@test.com",
+            items=[{'description': 'Service', 'quantity': 1, 'unit_price': 500, 'amount': 500}]
+        )
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            result = await create_manual_invoice(request=request, config=mock_config)
+
+        assert result['success'] is True
+        assert result['invoice_id'] == 'new-inv'
+
+    @pytest.mark.asyncio
+    async def test_create_manual_invoice_no_items(self, mock_config):
+        """create_manual_invoice should reject empty items."""
+        from src.api.routes import create_manual_invoice, ManualInvoiceCreate
+        from fastapi import HTTPException
+
+        request = ManualInvoiceCreate(
+            customer_name="John",
+            customer_email="john@test.com",
+            items=[]
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_manual_invoice(request=request, config=mock_config)
+
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_create_manual_invoice_calculates_total(self, mock_config):
+        """create_manual_invoice should calculate amount from qty*unit_price."""
+        from src.api.routes import create_manual_invoice, ManualInvoiceCreate
+
+        mock_supabase = MagicMock()
+        mock_supabase.create_invoice.return_value = {
+            'invoice_id': 'new-inv',
+            'total_amount': 300
+        }
+
+        request = ManualInvoiceCreate(
+            customer_name="John",
+            customer_email="john@test.com",
+            items=[
+                {'description': 'Item 1', 'quantity': 2, 'unit_price': 100},
+                {'description': 'Item 2', 'quantity': 1, 'unit_price': 100}
+            ]
+        )
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            result = await create_manual_invoice(request=request, config=mock_config)
+
+        # Check that create_invoice was called with correct total
+        call_args = mock_supabase.create_invoice.call_args
+        assert call_args[1]['total_amount'] == 300
+
+
+class TestPipelineSummaryUnit:
+    """Unit tests for pipeline summary endpoints."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_get_pipeline_summary_success(self, mock_config):
+        """get_pipeline_summary should return pipeline data."""
+        from src.api.routes import get_pipeline_summary
+
+        mock_crm = MagicMock()
+        mock_crm.get_pipeline_summary.return_value = {
+            'QUOTED': 10,
+            'NEGOTIATING': 5,
+            'BOOKED': 3,
+            'PAID': 2
+        }
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            result = await get_pipeline_summary(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['QUOTED'] == 10
+
+
+class TestPublicInvoiceHelpers:
+    """Unit tests for public invoice helper functions."""
+
+    def test_get_invoice_public_invalid_format(self):
+        """get_invoice_public should reject invalid UUID format."""
+        from src.api.routes import get_invoice_public
+
+        result = get_invoice_public("invalid-id")
+        assert result is None
+
+    def test_get_invoice_public_valid_format(self):
+        """get_invoice_public should accept valid UUID format."""
+        from src.api.routes import get_invoice_public
+        import httpx
+
+        with patch.dict('os.environ', {'SUPABASE_URL': 'http://test', 'SUPABASE_KEY': 'key'}):
+            with patch.object(httpx, 'get') as mock_get:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.raise_for_status = MagicMock()
+                mock_response.json.return_value = [{'invoice_id': '12345678-1234-1234-1234-123456789abc'}]
+                mock_get.return_value = mock_response
+
+                result = get_invoice_public("12345678-1234-1234-1234-123456789abc")
+
+        assert result is not None
+
+    def test_get_quote_public_invalid_format(self):
+        """get_quote_public should reject invalid UUID format."""
+        from src.api.routes import get_quote_public
+
+        result = get_quote_public("invalid-id")
+        assert result is None
+
+    def test_get_invoice_public_no_env_vars(self):
+        """get_invoice_public should return None without env vars."""
+        from src.api.routes import get_invoice_public
+
+        with patch.dict('os.environ', {'SUPABASE_URL': '', 'SUPABASE_KEY': ''}):
+            result = get_invoice_public("12345678-1234-1234-1234-123456789abc")
+
+        assert result is None
+
+
+class TestIncludeRouters:
+    """Unit tests for include_routers function."""
+
+    def test_include_routers_includes_all(self):
+        """include_routers should include all routers."""
+        from src.api.routes import include_routers
+
+        mock_app = MagicMock()
+
+        with patch.multiple(
+            'src.api.routes',
+            quotes_router=MagicMock(),
+            crm_router=MagicMock(),
+            invoices_router=MagicMock(),
+            public_router=MagicMock(),
+            legacy_webhook_router=MagicMock(),
+            email_webhook_router=MagicMock()
+        ):
+            include_routers(mock_app)
+
+        # Should have called include_router multiple times
+        assert mock_app.include_router.call_count > 5
+
+
+class TestLogActivityUnit:
+    """Unit tests for log_activity endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_log_activity_success(self, mock_config):
+        """log_activity should log activity and return success."""
+        from src.api.routes import log_activity, ActivityLog
+
+        mock_supabase = MagicMock()
+        mock_supabase.log_activity.return_value = True
+
+        activity = ActivityLog(
+            activity_type="call",
+            description="Called about quote"
+        )
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            result = await log_activity(
+                client_id="c1",
+                activity=activity,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+
+    @pytest.mark.asyncio
+    async def test_log_activity_failure(self, mock_config):
+        """log_activity should raise 500 on failure."""
+        from src.api.routes import log_activity, ActivityLog
+        from fastapi import HTTPException
+
+        mock_supabase = MagicMock()
+        mock_supabase.log_activity.return_value = False
+
+        activity = ActivityLog(
+            activity_type="call",
+            description="Called about quote"
+        )
+
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase):
+            with pytest.raises(HTTPException) as exc_info:
+                await log_activity(
+                    client_id="c1",
+                    activity=activity,
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 500
+
+
+class TestGetCRMStatsUnit:
+    """Unit tests for get_crm_stats endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        return config
+
+    @pytest.mark.asyncio
+    async def test_get_crm_stats_success(self, mock_config):
+        """get_crm_stats should return CRM statistics."""
+        from src.api.routes import get_crm_stats
+
+        mock_crm = MagicMock()
+        mock_crm.get_client_stats.return_value = {
+            'total_clients': 100,
+            'active_clients': 80,
+            'conversion_rate': 0.25
+        }
+
+        with patch('src.api.routes.get_crm_service', return_value=mock_crm):
+            result = await get_crm_stats(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['total_clients'] == 100
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
