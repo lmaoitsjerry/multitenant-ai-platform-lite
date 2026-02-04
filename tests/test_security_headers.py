@@ -174,3 +174,233 @@ class TestSecurityHeadersConstants:
 
         assert "default-src 'none'" in csp
         assert "frame-ancestors 'none'" in csp
+
+
+class TestPermissionsPolicy:
+    """Tests for Permissions-Policy header."""
+
+    def test_geolocation_disabled(self, test_client):
+        """Geolocation should be disabled."""
+        response = test_client.get("/test")
+
+        policy = response.headers.get("Permissions-Policy", "")
+        assert "geolocation=()" in policy
+
+    def test_camera_disabled(self, test_client):
+        """Camera should be disabled."""
+        response = test_client.get("/test")
+
+        policy = response.headers.get("Permissions-Policy", "")
+        assert "camera=()" in policy
+
+    def test_microphone_disabled(self, test_client):
+        """Microphone should be disabled."""
+        response = test_client.get("/test")
+
+        policy = response.headers.get("Permissions-Policy", "")
+        assert "microphone=()" in policy
+
+
+class TestCSPDirectives:
+    """Tests for Content-Security-Policy directives."""
+
+    def test_csp_default_src(self, test_client):
+        """CSP should have default-src directive."""
+        response = test_client.get("/test")
+
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "default-src" in csp
+
+    def test_csp_frame_ancestors(self, test_client):
+        """CSP should have frame-ancestors directive."""
+        response = test_client.get("/test")
+
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "frame-ancestors" in csp
+
+    def test_csp_base_uri(self, test_client):
+        """CSP should have base-uri directive."""
+        response = test_client.get("/test")
+
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "base-uri" in csp
+
+
+class TestSecurityHeadersOnDifferentMethods:
+    """Tests for security headers on different HTTP methods."""
+
+    @pytest.fixture
+    def full_app(self):
+        """Create app with multiple endpoints."""
+        from src.middleware.security_headers import SecurityHeadersMiddleware
+
+        app = FastAPI()
+        app.add_middleware(SecurityHeadersMiddleware)
+
+        @app.get("/test")
+        async def get_route():
+            return {"method": "GET"}
+
+        @app.post("/test")
+        async def post_route():
+            return {"method": "POST"}
+
+        @app.put("/test")
+        async def put_route():
+            return {"method": "PUT"}
+
+        @app.delete("/test")
+        async def delete_route():
+            return {"method": "DELETE"}
+
+        return app
+
+    @pytest.fixture
+    def full_client(self, full_app):
+        """Create test client."""
+        return TestClient(full_app)
+
+    def test_headers_on_get(self, full_client):
+        """GET should have security headers."""
+        response = full_client.get("/test")
+
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_headers_on_post(self, full_client):
+        """POST should have security headers."""
+        response = full_client.post("/test")
+
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_headers_on_put(self, full_client):
+        """PUT should have security headers."""
+        response = full_client.put("/test")
+
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_headers_on_delete(self, full_client):
+        """DELETE should have security headers."""
+        response = full_client.delete("/test")
+
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+
+class TestSecurityHeadersEdgeCases:
+    """Edge case tests for security headers."""
+
+    def test_headers_on_empty_response(self):
+        """Headers should be set on empty responses."""
+        from src.middleware.security_headers import SecurityHeadersMiddleware
+        from fastapi.responses import Response
+
+        app = FastAPI()
+        app.add_middleware(SecurityHeadersMiddleware)
+
+        @app.get("/empty")
+        async def empty_route():
+            return Response(status_code=204)
+
+        client = TestClient(app)
+        response = client.get("/empty")
+
+        assert response.status_code == 204
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_headers_on_redirect(self):
+        """Headers should be set on redirects."""
+        from src.middleware.security_headers import SecurityHeadersMiddleware
+        from fastapi.responses import RedirectResponse
+
+        app = FastAPI()
+        app.add_middleware(SecurityHeadersMiddleware)
+
+        @app.get("/redirect")
+        async def redirect_route():
+            return RedirectResponse(url="/test")
+
+        @app.get("/test")
+        async def test_route():
+            return {"status": "ok"}
+
+        client = TestClient(app, follow_redirects=False)
+        response = client.get("/redirect")
+
+        assert response.status_code == 307
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_headers_on_large_response(self):
+        """Headers should be set on large responses."""
+        from src.middleware.security_headers import SecurityHeadersMiddleware
+
+        app = FastAPI()
+        app.add_middleware(SecurityHeadersMiddleware)
+
+        @app.get("/large")
+        async def large_route():
+            return {"data": "x" * 10000}
+
+        client = TestClient(app)
+        response = client.get("/large")
+
+        assert response.status_code == 200
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+
+class TestXFrameOptionsValues:
+    """Tests for X-Frame-Options header values."""
+
+    def test_x_frame_options_is_deny(self, test_client):
+        """X-Frame-Options should be DENY."""
+        response = test_client.get("/test")
+
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    def test_x_frame_options_not_sameorigin(self, test_client):
+        """X-Frame-Options should not be SAMEORIGIN."""
+        response = test_client.get("/test")
+
+        assert response.headers["X-Frame-Options"] != "SAMEORIGIN"
+
+
+class TestXContentTypeOptions:
+    """Tests for X-Content-Type-Options header."""
+
+    def test_value_is_nosniff(self, test_client):
+        """X-Content-Type-Options should be nosniff."""
+        response = test_client.get("/test")
+
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+class TestXXSSProtection:
+    """Tests for X-XSS-Protection header."""
+
+    def test_xss_protection_enabled(self, test_client):
+        """X-XSS-Protection should enable protection."""
+        response = test_client.get("/test")
+
+        header = response.headers["X-XSS-Protection"]
+        assert header.startswith("1")
+
+    def test_xss_protection_mode_block(self, test_client):
+        """X-XSS-Protection should use mode=block."""
+        response = test_client.get("/test")
+
+        header = response.headers["X-XSS-Protection"]
+        assert "mode=block" in header
+
+
+class TestReferrerPolicy:
+    """Tests for Referrer-Policy header."""
+
+    def test_referrer_policy_value(self, test_client):
+        """Referrer-Policy should be strict-origin-when-cross-origin."""
+        response = test_client.get("/test")
+
+        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+    def test_referrer_policy_not_no_referrer(self, test_client):
+        """Referrer-Policy should not be no-referrer (too strict for some use cases)."""
+        response = test_client.get("/test")
+
+        assert response.headers["Referrer-Policy"] != "no-referrer"
