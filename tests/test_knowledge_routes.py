@@ -539,5 +539,643 @@ class TestSupportedFileTypes:
         assert response.status_code == 401
 
 
+# ==================== Endpoint Handler Unit Tests ====================
+
+class TestListDocumentsUnit:
+    """Unit tests for list_documents endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_list_documents_success(self, mock_config, mock_faiss_manager):
+        """list_documents should return documents."""
+        from src.api.knowledge_routes import list_documents, DocumentMetadata
+
+        mock_doc = DocumentMetadata(
+            document_id="DOC-001",
+            filename="test.pdf",
+            category="general",
+            file_type="pdf",
+            file_size=1024,
+            status="indexed",
+            uploaded_at="2025-01-01T00:00:00"
+        )
+        mock_faiss_manager.get_documents.return_value = [mock_doc]
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await list_documents(
+                category=None,
+                status=None,
+                visibility=None,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 1
+        assert result['data'][0]['document_id'] == 'DOC-001'
+
+    @pytest.mark.asyncio
+    async def test_list_documents_filter_category(self, mock_config, mock_faiss_manager):
+        """list_documents should filter by category."""
+        from src.api.knowledge_routes import list_documents, DocumentMetadata
+
+        mock_docs = [
+            DocumentMetadata(
+                document_id="DOC-001",
+                filename="test1.pdf",
+                category="general",
+                file_type="pdf",
+                file_size=1024,
+                status="indexed",
+                uploaded_at="2025-01-01T00:00:00"
+            ),
+            DocumentMetadata(
+                document_id="DOC-002",
+                filename="test2.pdf",
+                category="specific",
+                file_type="pdf",
+                file_size=2048,
+                status="indexed",
+                uploaded_at="2025-01-02T00:00:00"
+            )
+        ]
+        mock_faiss_manager.get_documents.return_value = mock_docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await list_documents(
+                category="general",
+                status=None,
+                visibility=None,
+                config=mock_config
+            )
+
+        assert result['count'] == 1
+        assert result['data'][0]['category'] == 'general'
+
+    @pytest.mark.asyncio
+    async def test_list_documents_filter_status(self, mock_config, mock_faiss_manager):
+        """list_documents should filter by status."""
+        from src.api.knowledge_routes import list_documents, DocumentMetadata
+
+        mock_docs = [
+            DocumentMetadata(
+                document_id="DOC-001",
+                filename="test1.pdf",
+                category="general",
+                file_type="pdf",
+                file_size=1024,
+                status="indexed",
+                uploaded_at="2025-01-01T00:00:00"
+            ),
+            DocumentMetadata(
+                document_id="DOC-002",
+                filename="test2.pdf",
+                category="general",
+                file_type="pdf",
+                file_size=2048,
+                status="pending",
+                uploaded_at="2025-01-02T00:00:00"
+            )
+        ]
+        mock_faiss_manager.get_documents.return_value = mock_docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await list_documents(
+                category=None,
+                status="indexed",
+                visibility=None,
+                config=mock_config
+            )
+
+        assert result['count'] == 1
+        assert result['data'][0]['status'] == 'indexed'
+
+
+class TestGetDocumentUnit:
+    """Unit tests for get_document endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_get_document_success(self, mock_config, mock_faiss_manager):
+        """get_document should return document by ID."""
+        from src.api.knowledge_routes import get_document, DocumentMetadata
+
+        mock_doc = DocumentMetadata(
+            document_id="DOC-001",
+            filename="test.pdf",
+            category="general",
+            file_type="pdf",
+            file_size=1024,
+            status="indexed",
+            uploaded_at="2025-01-01T00:00:00"
+        )
+        mock_faiss_manager.get_document.return_value = mock_doc
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await get_document(
+                document_id="DOC-001",
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['data']['document_id'] == 'DOC-001'
+
+    @pytest.mark.asyncio
+    async def test_get_document_not_found(self, mock_config, mock_faiss_manager):
+        """get_document should raise 404 when not found."""
+        from src.api.knowledge_routes import get_document
+        from fastapi import HTTPException
+
+        mock_faiss_manager.get_document.return_value = None
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_document(
+                    document_id="DOC-NOTFOUND",
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 404
+
+
+class TestDeleteDocumentUnit:
+    """Unit tests for delete_document endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_delete_document_success(self, mock_config, mock_faiss_manager):
+        """delete_document should delete document."""
+        from src.api.knowledge_routes import delete_document
+
+        mock_faiss_manager.delete_document.return_value = True
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await delete_document(
+                document_id="DOC-001",
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert 'deleted' in result['message']
+
+    @pytest.mark.asyncio
+    async def test_delete_document_not_found(self, mock_config, mock_faiss_manager):
+        """delete_document should raise 404 when not found."""
+        from src.api.knowledge_routes import delete_document
+        from fastapi import HTTPException
+
+        mock_faiss_manager.delete_document.return_value = False
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            with pytest.raises(HTTPException) as exc_info:
+                await delete_document(
+                    document_id="DOC-NOTFOUND",
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 404
+
+
+class TestSearchKnowledgeUnit:
+    """Unit tests for search_knowledge endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_success(self, mock_config, mock_faiss_manager):
+        """search_knowledge should return search results."""
+        from src.api.knowledge_routes import search_knowledge, SearchRequest
+
+        mock_faiss_manager.search.return_value = [
+            {
+                "content": "Sample content",
+                "source": "test.pdf",
+                "score": 0.85,
+                "document_id": "DOC-001",
+                "chunk_index": 0
+            }
+        ]
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            request = SearchRequest(query="test query")
+            result = await search_knowledge(
+                request=request,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 1
+        assert result['query'] == "test query"
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_empty(self, mock_config, mock_faiss_manager):
+        """search_knowledge should return empty when no results."""
+        from src.api.knowledge_routes import search_knowledge, SearchRequest
+
+        mock_faiss_manager.search.return_value = []
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            request = SearchRequest(query="unknown topic")
+            result = await search_knowledge(
+                request=request,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 0
+
+
+class TestSearchKnowledgeGetUnit:
+    """Unit tests for search_knowledge_get endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_search_get_success(self, mock_config, mock_faiss_manager):
+        """search_knowledge_get should return search results."""
+        from src.api.knowledge_routes import search_knowledge_get
+
+        mock_faiss_manager.search.return_value = [
+            {
+                "content": "Result content",
+                "source": "doc.pdf",
+                "score": 0.9,
+                "document_id": "DOC-001",
+                "chunk_index": 0
+            }
+        ]
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await search_knowledge_get(
+                query="search term",
+                top_k=5,
+                category=None,
+                visibility=None,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 1
+
+
+class TestIndexStatusUnit:
+    """Unit tests for get_index_status endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_index_status_success(self, mock_config, mock_faiss_manager):
+        """get_index_status should return status."""
+        from src.api.knowledge_routes import get_index_status
+
+        mock_faiss_manager.get_status.return_value = {
+            "total_documents": 5,
+            "indexed_documents": 4,
+            "pending_documents": 1,
+            "error_documents": 0,
+            "public_documents": 3,
+            "private_documents": 2,
+            "total_chunks": 100,
+            "index_size_bytes": 10240,
+            "last_updated": "2025-01-01T00:00:00"
+        }
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await get_index_status(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['total_documents'] == 5
+
+
+class TestRebuildIndexUnit:
+    """Unit tests for rebuild_index endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_rebuild_index_success(self, mock_config, mock_faiss_manager):
+        """rebuild_index should rebuild and return status."""
+        from src.api.knowledge_routes import rebuild_index
+
+        mock_faiss_manager.get_status.return_value = {
+            "total_documents": 3,
+            "indexed_documents": 3,
+            "pending_documents": 0,
+            "error_documents": 0,
+            "public_documents": 3,
+            "private_documents": 0,
+            "total_chunks": 50,
+            "index_size_bytes": 5120,
+            "last_updated": "2025-01-01T00:00:00"
+        }
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await rebuild_index(config=mock_config)
+
+        assert result['success'] is True
+        assert result['message'] == 'Index rebuilt'
+        mock_faiss_manager._rebuild_index.assert_called_once()
+
+
+class TestListCategoriesUnit:
+    """Unit tests for list_categories endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_list_categories_success(self, mock_config, mock_faiss_manager):
+        """list_categories should return category counts."""
+        from src.api.knowledge_routes import list_categories, DocumentMetadata
+
+        mock_docs = [
+            DocumentMetadata(
+                document_id="DOC-001",
+                filename="test1.pdf",
+                category="general",
+                file_type="pdf",
+                file_size=1024,
+                status="indexed",
+                uploaded_at="2025-01-01T00:00:00"
+            ),
+            DocumentMetadata(
+                document_id="DOC-002",
+                filename="test2.pdf",
+                category="general",
+                file_type="pdf",
+                file_size=2048,
+                status="indexed",
+                uploaded_at="2025-01-02T00:00:00"
+            ),
+            DocumentMetadata(
+                document_id="DOC-003",
+                filename="test3.pdf",
+                category="specific",
+                file_type="pdf",
+                file_size=512,
+                status="indexed",
+                uploaded_at="2025-01-03T00:00:00"
+            )
+        ]
+        mock_faiss_manager.get_documents.return_value = mock_docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await list_categories(config=mock_config)
+
+        assert result['success'] is True
+        # Should have 2 categories
+        assert len(result['data']) == 2
+
+        # Find general category
+        general = next((c for c in result['data'] if c['name'] == 'general'), None)
+        assert general is not None
+        assert general['count'] == 2
+
+
+# ==================== Global KB Proxy Tests ====================
+
+class TestGlobalKnowledgeBaseProxy:
+    """Test global knowledge base proxy endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_global_documents_success(self):
+        """list_global_documents should proxy to Travel Platform."""
+        from src.api.knowledge_routes import list_global_documents
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "documents": [
+                {
+                    "id": "doc-123",
+                    "title": "Travel Guide",
+                    "source_type": "pdf",
+                    "file_size": 1024,
+                    "chunk_count": 10,
+                    "created_at": "2025-01-01T00:00:00",
+                    "content_preview": "Sample preview",
+                    "category": "guides",
+                    "has_original_file": True
+                }
+            ],
+            "total": 1
+        }
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response):
+            result = await list_global_documents(
+                search=None,
+                limit=100,
+                offset=0
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 1
+        assert result['data'][0]['filename'] == 'Travel Guide'
+        assert result['data'][0]['visibility'] == 'global'
+
+    @pytest.mark.asyncio
+    async def test_list_global_documents_with_search(self):
+        """list_global_documents should pass search parameter."""
+        from src.api.knowledge_routes import list_global_documents
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"documents": [], "total": 0}
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response) as mock_get:
+            await list_global_documents(
+                search="hotel booking",
+                limit=100,
+                offset=0
+            )
+
+        # Verify search was passed in params
+        call_kwargs = mock_get.call_args
+        assert 'params' in call_kwargs[1]
+        assert call_kwargs[1]['params']['search'] == 'hotel booking'
+
+    @pytest.mark.asyncio
+    async def test_list_global_documents_timeout(self):
+        """list_global_documents should handle timeout."""
+        from src.api.knowledge_routes import list_global_documents
+        import requests
+
+        with patch('src.api.knowledge_routes.http_requests.get', side_effect=requests.exceptions.Timeout()):
+            result = await list_global_documents(
+                search=None,
+                limit=100,
+                offset=0
+            )
+
+        assert result['success'] is False
+        assert 'timed out' in result['error'].lower()
+        assert result['data'] == []
+
+    @pytest.mark.asyncio
+    async def test_list_global_documents_connection_error(self):
+        """list_global_documents should handle connection error."""
+        from src.api.knowledge_routes import list_global_documents
+        import requests
+
+        with patch('src.api.knowledge_routes.http_requests.get', side_effect=requests.exceptions.ConnectionError()):
+            result = await list_global_documents(
+                search=None,
+                limit=100,
+                offset=0
+            )
+
+        assert result['success'] is False
+        assert 'connect' in result['error'].lower()
+
+    @pytest.mark.asyncio
+    async def test_list_global_documents_error_status(self):
+        """list_global_documents should handle error status codes."""
+        from src.api.knowledge_routes import list_global_documents
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response):
+            result = await list_global_documents(
+                search=None,
+                limit=100,
+                offset=0
+            )
+
+        assert result['success'] is False
+        assert '500' in result['error']
+
+    @pytest.mark.asyncio
+    async def test_get_global_document_content_success(self):
+        """get_global_document_content should proxy content request."""
+        from src.api.knowledge_routes import get_global_document_content
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "content": "Document content here",
+            "metadata": {"title": "Test Doc"}
+        }
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response):
+            result = await get_global_document_content(document_id="doc-123")
+
+        assert result['content'] == "Document content here"
+
+    @pytest.mark.asyncio
+    async def test_get_global_document_content_error(self):
+        """get_global_document_content should handle errors."""
+        from src.api.knowledge_routes import get_global_document_content
+        from fastapi.responses import JSONResponse
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response):
+            result = await get_global_document_content(document_id="doc-notfound")
+
+        assert isinstance(result, JSONResponse)
+        assert result.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_download_global_document_success(self):
+        """download_global_document should proxy download."""
+        from src.api.knowledge_routes import download_global_document
+        from starlette.responses import Response
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"PDF content here"
+        mock_response.headers = {
+            "content-type": "application/pdf",
+            "content-disposition": 'attachment; filename="test.pdf"'
+        }
+
+        with patch('src.api.knowledge_routes.http_requests.get', return_value=mock_response):
+            result = await download_global_document(document_id="doc-123")
+
+        assert isinstance(result, Response)
+        assert result.media_type == "application/pdf"
+
+
+# ==================== FAISSIndexManager Additional Tests ====================
+
+class TestFAISSExtractText:
+    """Test text extraction functionality."""
+
+    def test_extract_text_txt(self, mock_config, tmp_path):
+        """_extract_text should extract text from txt files."""
+        from src.api.knowledge_routes import FAISSIndexManager
+
+        # Create a test text file
+        txt_file = tmp_path / "test.txt"
+        txt_file.write_text("Sample text content for testing.")
+
+        with patch.object(FAISSIndexManager, '__init__', return_value=None):
+            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+
+            text = manager._extract_text(txt_file, "txt")
+
+            assert "Sample text content" in text
+
+    def test_extract_text_md(self, mock_config, tmp_path):
+        """_extract_text should extract text from markdown files."""
+        from src.api.knowledge_routes import FAISSIndexManager
+
+        # Create a test markdown file
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Header\n\nSome markdown content.")
+
+        with patch.object(FAISSIndexManager, '__init__', return_value=None):
+            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+
+            text = manager._extract_text(md_file, "md")
+
+            assert "Header" in text
+            assert "markdown content" in text
+
+    def test_extract_text_unsupported(self, mock_config, tmp_path):
+        """_extract_text should raise error for unsupported types."""
+        from src.api.knowledge_routes import FAISSIndexManager
+        from fastapi import HTTPException
+
+        # Create a test file with unsupported extension
+        other_file = tmp_path / "test.xyz"
+        other_file.write_bytes(b"binary content")
+
+        with patch.object(FAISSIndexManager, '__init__', return_value=None):
+            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+
+            with pytest.raises(HTTPException) as exc_info:
+                manager._extract_text(other_file, "xyz")
+
+            assert exc_info.value.status_code == 400
+
+
+class TestDocumentUploadHandler:
+    """Test document upload handler."""
+
+    @pytest.mark.asyncio
+    async def test_upload_document_handler(self, mock_config, mock_faiss_manager):
+        """upload_document should add document and optionally index."""
+        from src.api.knowledge_routes import upload_document, DocumentMetadata
+
+        mock_doc = DocumentMetadata(
+            document_id="DOC-NEW",
+            filename="uploaded.txt",
+            category="general",
+            file_type="txt",
+            file_size=100,
+            status="indexed",
+            uploaded_at="2025-01-01T00:00:00"
+        )
+        mock_faiss_manager.add_document.return_value = mock_doc
+        mock_faiss_manager.index_document.return_value = mock_doc
+
+        mock_file = MagicMock()
+        mock_file.filename = "uploaded.txt"
+        mock_file.file = io.BytesIO(b"Test content")
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = await upload_document(
+                file=mock_file,
+                category="general",
+                tags="tag1,tag2",
+                visibility="public",
+                auto_index=True,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        mock_faiss_manager.add_document.assert_called_once()
+        mock_faiss_manager.index_document.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
