@@ -532,3 +532,765 @@ class TestPrivacyEdgeCases:
         for fmt in ["json", "csv"]:
             export = DataExportRequest(email="test@example.com", format=fmt)
             assert export.format == fmt
+
+
+# ==================== Unit Tests for Endpoint Handlers ====================
+
+class TestGetMyConsentsUnit:
+    """Unit tests for get_my_consents endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_my_consents_success(self, mock_config, mock_user):
+        """get_my_consents should return consent map."""
+        from src.api.privacy_routes import get_my_consents
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[
+            {
+                "consent_type": "marketing_email",
+                "granted": True,
+                "granted_at": "2025-01-01T00:00:00",
+                "expires_at": None,
+                "withdrawn_at": None
+            }
+        ])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await get_my_consents(
+                current_user=mock_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert 'consents' in result
+        assert 'marketing_email' in result['consents']
+        assert result['consents']['marketing_email']['granted'] is True
+
+    @pytest.mark.asyncio
+    async def test_get_my_consents_empty(self, mock_config, mock_user):
+        """get_my_consents should return defaults when no consents exist."""
+        from src.api.privacy_routes import get_my_consents
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await get_my_consents(
+                current_user=mock_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        # All consent types should be present with granted=False
+        assert result['consents']['marketing_email']['granted'] is False
+        assert result['consents']['analytics']['granted'] is False
+
+
+class TestUpdateConsentUnit:
+    """Unit tests for update_consent endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.client = MagicMock()
+        request.client.host = "192.168.1.1"
+        request.headers = {"user-agent": "Test Agent"}
+        return request
+
+    @pytest.mark.asyncio
+    async def test_update_consent_new(self, mock_config, mock_user, mock_request):
+        """update_consent should create new consent record."""
+        from src.api.privacy_routes import update_consent, ConsentUpdate
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[])  # No existing
+        mock_supabase.client.table.return_value = mock_query
+
+        consent = ConsentUpdate(
+            consent_type="marketing_email",
+            granted=True
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            with patch('src.api.privacy_routes._log_pii_access'):
+                result = await update_consent(
+                    consent=consent,
+                    request=mock_request,
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+        assert result['success'] is True
+        assert result['consent_type'] == 'marketing_email'
+        assert result['granted'] is True
+
+    @pytest.mark.asyncio
+    async def test_update_consent_existing(self, mock_config, mock_user, mock_request):
+        """update_consent should update existing consent record."""
+        from src.api.privacy_routes import update_consent, ConsentUpdate
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[{'id': 'consent-123'}])
+        mock_query.update.return_value = mock_query
+        mock_supabase.client.table.return_value = mock_query
+
+        consent = ConsentUpdate(
+            consent_type="marketing_email",
+            granted=False
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            with patch('src.api.privacy_routes._log_pii_access'):
+                result = await update_consent(
+                    consent=consent,
+                    request=mock_request,
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+        assert result['success'] is True
+        assert result['granted'] is False
+
+
+class TestSubmitDSARUnit:
+    """Unit tests for submit_dsar endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.client = MagicMock()
+        request.client.host = "192.168.1.1"
+        return request
+
+    @pytest.mark.asyncio
+    async def test_submit_dsar_success(self, mock_config, mock_user, mock_request):
+        """submit_dsar should create DSAR record."""
+        from src.api.privacy_routes import submit_dsar, DSARRequest
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.insert.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[{
+            'id': 'dsar-123',
+            'request_number': 'DSAR-2025-001',
+            'due_date': '2025-02-15'
+        }])
+        mock_supabase.client.table.return_value = mock_query
+
+        mock_background = MagicMock()
+
+        dsar = DSARRequest(
+            request_type="access",
+            email="user@example.com",
+            name="Test User"
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            with patch('src.api.privacy_routes._log_pii_access'):
+                result = await submit_dsar(
+                    dsar=dsar,
+                    request=mock_request,
+                    background_tasks=mock_background,
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+        assert result['success'] is True
+        assert result['request_number'] == 'DSAR-2025-001'
+        assert result['status'] == 'pending'
+
+    @pytest.mark.asyncio
+    async def test_submit_dsar_for_other_user_denied(self, mock_config, mock_user, mock_request):
+        """submit_dsar should deny requests for other users."""
+        from src.api.privacy_routes import submit_dsar, DSARRequest
+        from fastapi import HTTPException
+
+        mock_background = MagicMock()
+
+        dsar = DSARRequest(
+            request_type="access",
+            email="other@example.com",  # Different email
+            name="Other User"
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool'):
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_dsar(
+                    dsar=dsar,
+                    request=mock_request,
+                    background_tasks=mock_background,
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 403
+
+
+class TestGetMyDSARsUnit:
+    """Unit tests for get_my_dsars endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_my_dsars_success(self, mock_config, mock_user):
+        """get_my_dsars should return user's DSAR history."""
+        from src.api.privacy_routes import get_my_dsars
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[
+            {'id': 'dsar-1', 'request_number': 'DSAR-001', 'status': 'completed'},
+            {'id': 'dsar-2', 'request_number': 'DSAR-002', 'status': 'pending'}
+        ])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await get_my_dsars(
+                current_user=mock_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert len(result['requests']) == 2
+
+
+class TestGetDSARStatusUnit:
+    """Unit tests for get_dsar_status endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_dsar_status_success(self, mock_config, mock_user):
+        """get_dsar_status should return DSAR details."""
+        from src.api.privacy_routes import get_dsar_status
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.single.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data={
+            'id': 'dsar-123',
+            'email': 'user@example.com',
+            'status': 'pending'
+        })
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await get_dsar_status(
+                request_id="dsar-123",
+                current_user=mock_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['request']['status'] == 'pending'
+
+    @pytest.mark.asyncio
+    async def test_get_dsar_status_not_found(self, mock_config, mock_user):
+        """get_dsar_status should raise 404 when not found."""
+        from src.api.privacy_routes import get_dsar_status
+        from fastapi import HTTPException
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.single.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=None)
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_dsar_status(
+                    request_id="notfound",
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+            assert exc_info.value.status_code == 404
+
+
+class TestRequestDataExportUnit:
+    """Unit tests for request_data_export endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.client = MagicMock()
+        request.client.host = "192.168.1.1"
+        return request
+
+    @pytest.mark.asyncio
+    async def test_request_data_export_success(self, mock_config, mock_user, mock_request):
+        """request_data_export should create export request."""
+        from src.api.privacy_routes import request_data_export, DataExportRequest
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.insert.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[{'id': 'dsar-export-123'}])
+        mock_supabase.client.table.return_value = mock_query
+
+        mock_background = MagicMock()
+
+        export_req = DataExportRequest(
+            email="user@example.com",
+            include_quotes=True,
+            include_invoices=True
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await request_data_export(
+                export_request=export_req,
+                request=mock_request,
+                background_tasks=mock_background,
+                current_user=mock_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['request_id'] == 'dsar-export-123'
+
+
+class TestRequestDataErasureUnit:
+    """Unit tests for request_data_erasure endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_user(self):
+        return {
+            "id": "user-123",
+            "email": "user@example.com",
+            "is_admin": False
+        }
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock()
+        request.client = MagicMock()
+        request.client.host = "192.168.1.1"
+        return request
+
+    @pytest.mark.asyncio
+    async def test_request_data_erasure_success(self, mock_config, mock_user, mock_request):
+        """request_data_erasure should create erasure request."""
+        from src.api.privacy_routes import request_data_erasure
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.insert.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[{'id': 'dsar-erasure-123'}])
+        mock_supabase.client.table.return_value = mock_query
+
+        mock_background = MagicMock()
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            with patch('src.api.privacy_routes._log_pii_access'):
+                result = await request_data_erasure(
+                    email="user@example.com",
+                    request=mock_request,
+                    background_tasks=mock_background,
+                    current_user=mock_user,
+                    config=mock_config
+                )
+
+        assert result['success'] is True
+        assert result['request_id'] == 'dsar-erasure-123'
+
+
+class TestAdminListDSARsUnit:
+    """Unit tests for list_all_dsars admin endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_admin_user(self):
+        return {
+            "id": "admin-123",
+            "email": "admin@example.com",
+            "is_admin": True
+        }
+
+    @pytest.mark.asyncio
+    async def test_list_all_dsars_success(self, mock_config, mock_admin_user):
+        """list_all_dsars should return all DSARs for tenant."""
+        from src.api.privacy_routes import list_all_dsars
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.range.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[
+            {'id': 'dsar-1', 'status': 'pending'},
+            {'id': 'dsar-2', 'status': 'completed'}
+        ])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await list_all_dsars(
+                status=None,
+                limit=50,
+                offset=0,
+                current_user=mock_admin_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+
+class TestAdminUpdateDSARUnit:
+    """Unit tests for update_dsar_status admin endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_admin_user(self):
+        return {
+            "id": "admin-123",
+            "email": "admin@example.com",
+            "is_admin": True
+        }
+
+    @pytest.mark.asyncio
+    async def test_update_dsar_status_success(self, mock_config, mock_admin_user):
+        """update_dsar_status should update DSAR status."""
+        from src.api.privacy_routes import update_dsar_status, DSARStatusUpdate
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.update.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[])
+        mock_supabase.client.table.return_value = mock_query
+
+        update = DSARStatusUpdate(
+            status="completed",
+            notes="Request processed"
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await update_dsar_status(
+                request_id="dsar-123",
+                update=update,
+                current_user=mock_admin_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['status'] == 'completed'
+
+
+class TestAdminAuditLogUnit:
+    """Unit tests for get_audit_log admin endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_admin_user(self):
+        return {
+            "id": "admin-123",
+            "email": "admin@example.com",
+            "is_admin": True
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_audit_log_success(self, mock_config, mock_admin_user):
+        """get_audit_log should return audit entries."""
+        from src.api.privacy_routes import get_audit_log
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.range.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[
+            {'id': 'log-1', 'action': 'read', 'resource_type': 'consent'},
+            {'id': 'log-2', 'action': 'update', 'resource_type': 'consent'}
+        ])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await get_audit_log(
+                resource_type=None,
+                action=None,
+                user_email=None,
+                start_date=None,
+                end_date=None,
+                limit=100,
+                offset=0,
+                current_user=mock_admin_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+
+class TestAdminReportBreachUnit:
+    """Unit tests for report_breach admin endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_admin_user(self):
+        return {
+            "id": "admin-123",
+            "email": "admin@example.com",
+            "is_admin": True
+        }
+
+    @pytest.mark.asyncio
+    async def test_report_breach_success(self, mock_config, mock_admin_user):
+        """report_breach should create breach record."""
+        from src.api.privacy_routes import report_breach, BreachReport
+        from datetime import datetime
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.insert.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[{
+            'id': 'breach-123',
+            'breach_number': 'BREACH-2025-001'
+        }])
+        mock_supabase.client.table.return_value = mock_query
+
+        mock_background = MagicMock()
+
+        breach = BreachReport(
+            breach_type="unauthorized_access",
+            severity="high",
+            description="Test breach",
+            discovered_at=datetime.now(),
+            affected_data_types=["email", "name"]
+        )
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await report_breach(
+                breach=breach,
+                background_tasks=mock_background,
+                current_user=mock_admin_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['breach_number'] == 'BREACH-2025-001'
+
+
+class TestAdminListBreachesUnit:
+    """Unit tests for list_breaches admin endpoint handler."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.client_id = "test-tenant"
+        config.tenant_id = "test-tenant"
+        return config
+
+    @pytest.fixture
+    def mock_admin_user(self):
+        return {
+            "id": "admin-123",
+            "email": "admin@example.com",
+            "is_admin": True
+        }
+
+    @pytest.mark.asyncio
+    async def test_list_breaches_success(self, mock_config, mock_admin_user):
+        """list_breaches should return breach records."""
+        from src.api.privacy_routes import list_breaches
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[
+            {'id': 'breach-1', 'severity': 'high', 'status': 'open'},
+            {'id': 'breach-2', 'severity': 'low', 'status': 'closed'}
+        ])
+        mock_supabase.client.table.return_value = mock_query
+
+        with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
+            result = await list_breaches(
+                status=None,
+                current_user=mock_admin_user,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert len(result['breaches']) == 2
+
+
+class TestGetClientConfigDependency:
+    """Test get_client_config dependency function."""
+
+    def test_get_client_config_caches(self):
+        """get_client_config should cache config instances."""
+        from src.api.privacy_routes import get_client_config, _client_configs
+
+        # Clear cache
+        _client_configs.clear()
+
+        with patch('src.api.privacy_routes.get_config') as mock_get_config:
+            mock_config = MagicMock()
+            mock_get_config.return_value = mock_config
+
+            # First call
+            result1 = get_client_config(x_client_id="test-tenant")
+            # Second call should use cache
+            result2 = get_client_config(x_client_id="test-tenant")
+
+            assert mock_get_config.call_count == 1
+            assert result1 is result2
+
+    def test_get_client_config_error_handling(self):
+        """get_client_config should raise 500 on config error."""
+        from src.api.privacy_routes import get_client_config, _client_configs
+        from fastapi import HTTPException
+
+        # Clear cache
+        _client_configs.clear()
+
+        with patch('src.api.privacy_routes.get_config', side_effect=Exception("Config error")):
+            with pytest.raises(HTTPException) as exc_info:
+                get_client_config(x_client_id="bad-tenant")
+
+            assert exc_info.value.status_code == 500
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
