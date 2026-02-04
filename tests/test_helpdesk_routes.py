@@ -349,3 +349,275 @@ class TestClientConfigHelper:
 
             # Should return None on error
             assert result is None
+
+
+# ==================== Pydantic Model Tests ====================
+
+class TestAskQuestionModel:
+    """Tests for AskQuestion Pydantic model."""
+
+    def test_ask_question_requires_question(self):
+        """AskQuestion should require question field."""
+        from src.api.helpdesk_routes import AskQuestion
+
+        question = AskQuestion(question="How do I create a quote?")
+        assert question.question == "How do I create a quote?"
+
+    def test_ask_question_validation_fails_without_question(self):
+        """AskQuestion should fail validation without question."""
+        from src.api.helpdesk_routes import AskQuestion
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AskQuestion()
+
+
+class TestHelpdeskResponseModel:
+    """Tests for HelpdeskResponse Pydantic model."""
+
+    def test_helpdesk_response_success(self):
+        """HelpdeskResponse should handle success case."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        response = HelpdeskResponse(
+            success=True,
+            answer="Here's how to create a quote...",
+            sources=[{"name": "doc1", "score": "0.9"}]  # sources expects Dict[str, str]
+        )
+
+        assert response.success is True
+        assert response.answer == "Here's how to create a quote..."
+        assert len(response.sources) == 1
+
+    def test_helpdesk_response_failure(self):
+        """HelpdeskResponse should handle failure case."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        response = HelpdeskResponse(success=False)
+
+        assert response.success is False
+        assert response.answer is None
+        assert response.sources is None
+
+    def test_helpdesk_response_serializes(self):
+        """HelpdeskResponse should serialize to dict."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        response = HelpdeskResponse(success=True, answer="Test")
+        data = response.model_dump()
+
+        assert isinstance(data, dict)
+        assert data["success"] is True
+
+
+# ==================== Constants Tests ====================
+
+class TestHelpdeskTopicsConstant:
+    """Tests for HELPDESK_TOPICS constant."""
+
+    def test_helpdesk_topics_is_list(self):
+        """HELPDESK_TOPICS should be a list."""
+        from src.api.helpdesk_routes import HELPDESK_TOPICS
+
+        assert isinstance(HELPDESK_TOPICS, list)
+        assert len(HELPDESK_TOPICS) > 0
+
+    def test_helpdesk_topics_have_required_fields(self):
+        """Each topic should have id, name, description, icon."""
+        from src.api.helpdesk_routes import HELPDESK_TOPICS
+
+        for topic in HELPDESK_TOPICS:
+            assert "id" in topic
+            assert "name" in topic
+            assert "description" in topic
+            assert "icon" in topic
+
+    def test_helpdesk_topics_ids_are_unique(self):
+        """Topic IDs should be unique."""
+        from src.api.helpdesk_routes import HELPDESK_TOPICS
+
+        ids = [t["id"] for t in HELPDESK_TOPICS]
+        assert len(ids) == len(set(ids))
+
+    def test_helpdesk_topics_includes_expected_topics(self):
+        """HELPDESK_TOPICS should include expected topics."""
+        from src.api.helpdesk_routes import HELPDESK_TOPICS
+
+        topic_ids = [t["id"] for t in HELPDESK_TOPICS]
+        expected = ["quotes", "invoices", "clients", "hotels", "system"]
+
+        for expected_id in expected:
+            assert expected_id in topic_ids
+
+
+class TestHelpResponsesConstant:
+    """Tests for HELP_RESPONSES constant."""
+
+    def test_help_responses_is_dict(self):
+        """HELP_RESPONSES should be a dictionary."""
+        from src.api.helpdesk_routes import HELP_RESPONSES
+
+        assert isinstance(HELP_RESPONSES, dict)
+        assert len(HELP_RESPONSES) > 0
+
+    def test_help_responses_has_default(self):
+        """HELP_RESPONSES should have a default response."""
+        from src.api.helpdesk_routes import HELP_RESPONSES
+
+        assert "default" in HELP_RESPONSES
+        assert len(HELP_RESPONSES["default"]) > 0
+
+    def test_help_responses_has_quote_responses(self):
+        """HELP_RESPONSES should have quote-related responses."""
+        from src.api.helpdesk_routes import HELP_RESPONSES
+
+        assert "quote_create" in HELP_RESPONSES
+        assert "quote_send" in HELP_RESPONSES
+
+    def test_help_responses_are_non_empty_strings(self):
+        """All responses should be non-empty strings."""
+        from src.api.helpdesk_routes import HELP_RESPONSES
+
+        for key, value in HELP_RESPONSES.items():
+            assert isinstance(value, str)
+            assert len(value) > 10  # Reasonable minimum length
+
+
+# ==================== Search Function Tests ====================
+
+class TestSearchPrivateKnowledgeBase:
+    """Tests for search_private_knowledge_base function."""
+
+    def test_returns_empty_list_without_config(self):
+        """Should return empty list when config is None."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        result = search_private_knowledge_base(None, "test query")
+
+        assert result == []
+
+    def test_returns_empty_on_exception(self, mock_config):
+        """Should return empty list on exception."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        with patch('src.api.helpdesk_routes.get_index_manager', side_effect=Exception("Error")):
+            result = search_private_knowledge_base(mock_config, "test query")
+
+        assert result == []
+
+    def test_transforms_results_correctly(self, mock_config):
+        """Should transform results to standard format."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        mock_manager = MagicMock()
+        mock_manager.search.return_value = [
+            {"content": "Test content", "score": 0.8, "source": "doc.pdf"}
+        ]
+
+        with patch('src.api.helpdesk_routes.get_index_manager', return_value=mock_manager):
+            result = search_private_knowledge_base(mock_config, "test query")
+
+        assert len(result) == 1
+        assert result[0]["content"] == "Test content"
+        assert result[0]["source_type"] == "private_kb"
+        assert result[0]["visibility"] == "private"
+
+
+class TestSearchTravelPlatformRag:
+    """Tests for search_travel_platform_rag function."""
+
+    def test_returns_error_when_unavailable(self):
+        """Should return error when RAG client unavailable."""
+        from src.api.helpdesk_routes import search_travel_platform_rag
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client') as mock:
+            mock_client = MagicMock()
+            mock_client.is_available.return_value = False
+            mock.return_value = mock_client
+
+            result = search_travel_platform_rag("test query")
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_returns_results_on_success(self):
+        """Should return results on successful search."""
+        from src.api.helpdesk_routes import search_travel_platform_rag
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client') as mock:
+            mock_client = MagicMock()
+            mock_client.is_available.return_value = True
+            mock_client.search.return_value = {
+                "success": True,
+                "answer": "Test answer",
+                "citations": [],
+                "confidence": 0.9
+            }
+            mock.return_value = mock_client
+
+            result = search_travel_platform_rag("test query")
+
+        assert result["success"] is True
+        assert result["confidence"] == 0.9
+
+    def test_handles_exception_gracefully(self):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import search_travel_platform_rag
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client', side_effect=Exception("Error")):
+            result = search_travel_platform_rag("test query")
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+class TestSearchDualKnowledgeBase:
+    """Tests for search_dual_knowledge_base function."""
+
+    def test_merges_global_and_private_results(self, mock_config):
+        """Should merge results from both sources."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": True,
+                "answer": "Global answer",
+                "citations": [{"content": "Global", "relevance_score": 0.9}]
+            }
+
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = [
+                    {"content": "Private", "score": 0.8, "source_type": "private_kb"}
+                ]
+
+                result = search_dual_knowledge_base(mock_config, "test query")
+
+        assert result["success"] is True
+        assert result["answer"] == "Global answer"
+        assert "sources_breakdown" in result
+
+    def test_returns_breakdown_counts(self, mock_config):
+        """Should return source breakdown counts."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": True,
+                "answer": "",
+                "citations": [
+                    {"content": "G1", "relevance_score": 0.9},
+                    {"content": "G2", "relevance_score": 0.8}
+                ]
+            }
+
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = [
+                    {"content": "P1", "score": 0.7, "source_type": "private_kb"}
+                ]
+
+                result = search_dual_knowledge_base(mock_config, "test", top_k=10)
+
+        breakdown = result["sources_breakdown"]
+        assert breakdown["global"] == 2
+        assert breakdown["private"] == 1
+        assert breakdown["total"] == 3
