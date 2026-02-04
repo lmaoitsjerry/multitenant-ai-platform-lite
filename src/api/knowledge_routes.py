@@ -1,8 +1,8 @@
 """
 Knowledge Base API Routes
 
-Manages document uploads, FAISS indexing, and knowledge search.
-Per-tenant document storage and vector indexes.
+Manages document uploads, indexing, and knowledge search.
+Per-tenant document storage with text-based search.
 
 Endpoints:
 - /api/v1/knowledge/documents - Document CRUD
@@ -18,14 +18,21 @@ import hashlib
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+import requests as http_requests
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.responses import Response
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
+
+# Shared Travel Platform config for global KB proxy endpoints
+TRAVEL_PLATFORM_URL = os.getenv("TRAVEL_PLATFORM_URL", "https://zorah-travel-platform-1031318281967.us-central1.run.app")
+TRAVEL_PLATFORM_API_KEY = os.getenv("TRAVEL_PLATFORM_API_KEY", "")
 
 # ==================== Router ====================
 
@@ -76,28 +83,11 @@ class SearchResult(BaseModel):
     chunk_index: int
 
 
-# ==================== Dependency ====================
 
-_client_configs = {}
+# ==================== Knowledge Index Manager ====================
 
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    import os
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-    return _client_configs[client_id]
-
-
-# ==================== FAISS Index Manager ====================
-
-class FAISSIndexManager:
-    """Manages per-tenant FAISS indexes"""
+class KnowledgeIndexManager:
+    """Manages per-tenant knowledge base with text-based search"""
 
     def __init__(self, config: ClientConfig):
         self.config = config
@@ -106,7 +96,7 @@ class FAISSIndexManager:
         # Paths
         self.base_path = Path(f"clients/{self.client_id}/data/knowledge")
         self.documents_path = self.base_path / "documents"
-        self.index_path = self.base_path / "faiss_index"
+        self.index_path = self.base_path / "index"
         self.metadata_file = self.base_path / "metadata.json"
 
         # Ensure directories exist
@@ -115,10 +105,6 @@ class FAISSIndexManager:
 
         # Load or create metadata
         self.metadata = self._load_metadata()
-
-        # FAISS index (lazy loaded)
-        self._index = None
-        self._embeddings = None
 
     def _load_metadata(self) -> Dict:
         """Load document metadata"""
@@ -138,40 +124,9 @@ class FAISSIndexManager:
         with open(self.metadata_file, 'w') as f:
             json.dump(self.metadata, f, indent=2)
 
-    def _get_embeddings_model(self):
-        """Get embeddings model"""
-        if self._embeddings is None:
-            try:
-                # Try sentence-transformers first
-                from sentence_transformers import SentenceTransformer
-                self._embeddings = SentenceTransformer('all-MiniLM-L6-v2')
-                logger.info("Using sentence-transformers for embeddings")
-            except ImportError:
-                try:
-                    # Fall back to OpenAI
-                    import openai
-                    self._embeddings = "openai"
-                    logger.info("Using OpenAI for embeddings")
-                except ImportError:
-                    logger.error("No embeddings model available")
-                    raise HTTPException(status_code=500, detail="No embeddings model available")
-        return self._embeddings
-
-    def _embed_text(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for texts"""
-        model = self._get_embeddings_model()
-
-        if model == "openai":
-            import openai
-            response = openai.embeddings.create(
-                model="text-embedding-ada-002",
-                input=texts
-            )
-            return [e.embedding for e in response.data]
-        else:
-            # sentence-transformers
-            embeddings = model.encode(texts, convert_to_numpy=True)
-            return embeddings.tolist()
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text for search"""
+        return text.lower().strip()
 
     def _extract_text(self, file_path: Path, file_type: str) -> str:
         """Extract text from document"""
@@ -272,7 +227,7 @@ class FAISSIndexManager:
         return DocumentMetadata(**doc_metadata)
 
     def index_document(self, document_id: str) -> DocumentMetadata:
-        """Index a document into FAISS"""
+        """Index a document for text-based search"""
 
         if document_id not in self.metadata["documents"]:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -290,30 +245,13 @@ class FAISSIndexManager:
             if not chunks:
                 raise ValueError("No content extracted from document")
 
-            # Generate embeddings
-            embeddings = self._embed_text(chunks)
-
-            # Load or create FAISS index
-            import faiss
-            import numpy as np
-
-            index_file = self.index_path / "index.faiss"
+            # Load existing chunks
             chunks_file = self.index_path / "chunks.json"
-
-            dimension = len(embeddings[0])
-
-            if index_file.exists():
-                index = faiss.read_index(str(index_file))
+            if chunks_file.exists():
                 with open(chunks_file, 'r') as f:
                     all_chunks = json.load(f)
             else:
-                index = faiss.IndexFlatL2(dimension)
                 all_chunks = []
-
-            # Add to index
-            start_idx = len(all_chunks)
-            vectors = np.array(embeddings).astype('float32')
-            index.add(vectors)
 
             # Add chunk metadata (including visibility)
             for i, chunk in enumerate(chunks):
@@ -321,12 +259,12 @@ class FAISSIndexManager:
                     "document_id": document_id,
                     "chunk_index": i,
                     "content": chunk,
+                    "content_normalized": self._normalize_text(chunk),
                     "category": doc["category"],
                     "visibility": doc.get("visibility", "public")
                 })
 
-            # Save index
-            faiss.write_index(index, str(index_file))
+            # Save chunks
             with open(chunks_file, 'w') as f:
                 json.dump(all_chunks, f)
 
@@ -356,39 +294,25 @@ class FAISSIndexManager:
         top_k: int = 5,
         category: Optional[str] = None,
         visibility: Optional[str] = None,
-        min_score: float = 0.5
+        min_score: float = 0.3
     ) -> List[Dict]:
-        """Search the knowledge base"""
+        """Search the knowledge base using text matching"""
 
-        index_file = self.index_path / "index.faiss"
         chunks_file = self.index_path / "chunks.json"
 
-        if not index_file.exists():
+        if not chunks_file.exists():
             return []
 
         try:
-            import faiss
-            import numpy as np
-
-            # Load index
-            index = faiss.read_index(str(index_file))
             with open(chunks_file, 'r') as f:
                 all_chunks = json.load(f)
 
-            # Embed query
-            query_embedding = self._embed_text([query])[0]
-            query_vector = np.array([query_embedding]).astype('float32')
-
-            # Search
-            distances, indices = index.search(query_vector, min(top_k * 2, len(all_chunks)))
+            # Normalize query
+            query_normalized = self._normalize_text(query)
+            query_words = set(query_normalized.split())
 
             results = []
-            for dist, idx in zip(distances[0], indices[0]):
-                if idx < 0 or idx >= len(all_chunks):
-                    continue
-
-                chunk = all_chunks[idx]
-
+            for chunk in all_chunks:
                 # Filter by category
                 if category and chunk.get("category") != category:
                     continue
@@ -397,8 +321,21 @@ class FAISSIndexManager:
                 if visibility and chunk.get("visibility", "public") != visibility:
                     continue
 
-                # Convert distance to similarity score (L2 distance)
-                score = 1 / (1 + dist)
+                # Calculate text similarity score based on word overlap
+                content_normalized = chunk.get("content_normalized", self._normalize_text(chunk["content"]))
+                content_words = set(content_normalized.split())
+
+                # Jaccard similarity
+                if not query_words or not content_words:
+                    continue
+
+                intersection = query_words & content_words
+                union = query_words | content_words
+                score = len(intersection) / len(union) if union else 0
+
+                # Boost score if query appears as substring
+                if query_normalized in content_normalized:
+                    score = min(score + 0.3, 1.0)
 
                 if score >= min_score:
                     results.append({
@@ -410,10 +347,9 @@ class FAISSIndexManager:
                         "visibility": chunk.get("visibility", "public")
                     })
 
-                if len(results) >= top_k:
-                    break
-
-            return results
+            # Sort by score descending and take top_k
+            results.sort(key=lambda x: x["score"], reverse=True)
+            return results[:top_k]
 
         except Exception as e:
             logger.error(f"Search failed: {e}")
@@ -455,13 +391,9 @@ class FAISSIndexManager:
         return True
 
     def _rebuild_index(self):
-        """Rebuild FAISS index from remaining documents"""
+        """Rebuild index from remaining documents"""
         try:
-            import faiss
-            import numpy as np
-
             all_chunks = []
-            all_embeddings = []
 
             for doc_id, doc in self.metadata["documents"].items():
                 if doc["status"] != "indexed":
@@ -473,34 +405,24 @@ class FAISSIndexManager:
 
                 text = self._extract_text(file_path, doc["file_type"])
                 chunks = self._chunk_text(text)
-                embeddings = self._embed_text(chunks)
 
-                for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                for i, chunk in enumerate(chunks):
                     all_chunks.append({
                         "document_id": doc_id,
                         "chunk_index": i,
                         "content": chunk,
+                        "content_normalized": self._normalize_text(chunk),
                         "category": doc["category"],
                         "visibility": doc.get("visibility", "public")
                     })
-                    all_embeddings.append(emb)
 
-            index_file = self.index_path / "index.faiss"
             chunks_file = self.index_path / "chunks.json"
 
-            if all_embeddings:
-                dimension = len(all_embeddings[0])
-                index = faiss.IndexFlatL2(dimension)
-                vectors = np.array(all_embeddings).astype('float32')
-                index.add(vectors)
-
-                faiss.write_index(index, str(index_file))
+            if all_chunks:
                 with open(chunks_file, 'w') as f:
                     json.dump(all_chunks, f)
             else:
-                # Remove index files
-                if index_file.exists():
-                    index_file.unlink()
+                # Remove index file
                 if chunks_file.exists():
                     chunks_file.unlink()
 
@@ -511,18 +433,18 @@ class FAISSIndexManager:
 
     def get_status(self) -> Dict:
         """Get index status"""
-        index_file = self.index_path / "index.faiss"
+        chunks_file = self.index_path / "chunks.json"
 
         total_docs = len(self.metadata["documents"])
         indexed_docs = sum(1 for d in self.metadata["documents"].values() if d["status"] == "indexed")
         pending_docs = sum(1 for d in self.metadata["documents"].values() if d["status"] == "pending")
         error_docs = sum(1 for d in self.metadata["documents"].values() if d["status"] == "error")
-        
+
         # Count by visibility
         public_docs = sum(1 for d in self.metadata["documents"].values() if d.get("visibility", "public") == "public")
         private_docs = sum(1 for d in self.metadata["documents"].values() if d.get("visibility") == "private")
 
-        index_size = index_file.stat().st_size if index_file.exists() else 0
+        index_size = chunks_file.stat().st_size if chunks_file.exists() else 0
 
         return {
             "total_documents": total_docs,
@@ -539,12 +461,12 @@ class FAISSIndexManager:
 
 # ==================== Index Manager Cache ====================
 
-_index_managers: Dict[str, FAISSIndexManager] = {}
+_index_managers: Dict[str, KnowledgeIndexManager] = {}
 
-def get_index_manager(config: ClientConfig) -> FAISSIndexManager:
+def get_index_manager(config: ClientConfig) -> KnowledgeIndexManager:
     """Get or create index manager for tenant"""
     if config.client_id not in _index_managers:
-        _index_managers[config.client_id] = FAISSIndexManager(config)
+        _index_managers[config.client_id] = KnowledgeIndexManager(config)
     return _index_managers[config.client_id]
 
 
@@ -756,7 +678,7 @@ async def get_index_status(
 async def rebuild_index(
     config: ClientConfig = Depends(get_client_config)
 ):
-    """Rebuild the entire FAISS index"""
+    """Rebuild the entire knowledge index"""
     manager = get_index_manager(config)
 
     manager._rebuild_index()
@@ -790,3 +712,104 @@ async def list_categories(
         "success": True,
         "data": list(categories.values())
     }
+
+
+# ==================== Global Knowledge Base Proxy ====================
+
+@knowledge_router.get("/global")
+async def list_global_documents(
+    search: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)
+):
+    """
+    Proxy endpoint to fetch documents from Travel Platform Global Knowledge Base.
+    This avoids CORS issues by proxying through the backend.
+    """
+    try:
+        params = {"limit": limit, "offset": offset}
+        if search:
+            params["search"] = search
+
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base"
+        logger.info(f"Fetching global KB documents from: {url}")
+
+        response = http_requests.get(
+            url, params=params, timeout=120,
+            headers={"Accept": "application/json"}
+        )
+
+        if response.status_code != 200:
+            logger.warning(f"Travel Platform returned {response.status_code}: {response.text[:200]}")
+            return {"success": False, "error": f"Travel Platform returned {response.status_code}", "data": [], "total": 0}
+
+        data = response.json()
+        documents = [
+            {
+                "document_id": doc.get("id", ""),
+                "filename": doc.get("title", doc.get("filename", "Unknown")),
+                "file_type": doc.get("source_type", "pdf"),
+                "file_size": doc.get("file_size", 0),
+                "status": "indexed",
+                "chunk_count": doc.get("chunk_count", 0),
+                "uploaded_at": doc.get("created_at"),
+                "visibility": "global",
+                "content_preview": doc.get("content_preview", ""),
+                "category": doc.get("category", "general"),
+                "has_original_file": doc.get("has_original_file", False),
+                "original_file_url": f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base/{doc.get('id', '')}/original" if doc.get("has_original_file") else None,
+            }
+            for doc in data.get("documents", [])
+        ]
+
+        return {"success": True, "data": documents, "total": data.get("total", len(documents)), "count": len(documents)}
+
+    except http_requests.exceptions.Timeout:
+        logger.error("Travel Platform request timed out after 120s")
+        return {"success": False, "error": "Request timed out - Travel Platform may be starting up, please try again", "data": [], "total": 0}
+    except http_requests.exceptions.ConnectionError as e:
+        logger.error(f"Failed to connect to Travel Platform: {e}")
+        return {"success": False, "error": "Failed to connect to Travel Platform", "data": [], "total": 0}
+    except Exception as e:
+        logger.error(f"Global KB fetch error: {e}", exc_info=True)
+        return {"success": False, "error": "Failed to fetch knowledge base", "data": [], "total": 0}
+
+
+@knowledge_router.get("/global/{document_id}/content")
+async def get_global_document_content(document_id: str):
+    """Proxy to fetch document content from Travel Platform."""
+    try:
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/documents/{document_id}/content"
+        response = http_requests.get(
+            url, timeout=120,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {TRAVEL_PLATFORM_API_KEY}"}
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        return JSONResponse(status_code=response.status_code, content={"detail": f"Travel Platform returned {response.status_code}"})
+    except Exception as e:
+        logger.error(f"Global KB content fetch error: {e}", exc_info=True)
+        return JSONResponse(status_code=502, content={"detail": "Failed to fetch document content"})
+
+
+@knowledge_router.get("/global/{document_id}/download")
+async def download_global_document(document_id: str):
+    """Proxy to download document from Travel Platform."""
+    try:
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/documents/{document_id}/download"
+        response = http_requests.get(
+            url, timeout=120,
+            headers={"Authorization": f"Bearer {TRAVEL_PLATFORM_API_KEY}"}
+        )
+
+        if response.status_code == 200:
+            content_type = response.headers.get("content-type", "application/octet-stream")
+            content_disp = response.headers.get("content-disposition", "")
+            headers = {"content-disposition": content_disp} if content_disp else {}
+            return Response(content=response.content, media_type=content_type, headers=headers)
+
+        return JSONResponse(status_code=response.status_code, content={"detail": f"Travel Platform returned {response.status_code}"})
+    except Exception as e:
+        logger.error(f"Global KB download error: {e}", exc_info=True)
+        return JSONResponse(status_code=502, content={"detail": "Failed to download document"})
