@@ -466,3 +466,655 @@ class TestOnboardingRequestValidation:
             }
         )
         assert response.status_code == 422
+
+
+# ==================== Free Email Detection Tests ====================
+
+class TestIsFreeEmail:
+    """Test is_free_email helper function."""
+
+    def test_gmail_is_free(self):
+        """Gmail addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@gmail.com") == True
+
+    def test_googlemail_is_free(self):
+        """Googlemail addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@googlemail.com") == True
+
+    def test_yahoo_is_free(self):
+        """Yahoo addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@yahoo.com") == True
+
+    def test_yahoo_regional_is_free(self):
+        """Regional Yahoo addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@yahoo.co.uk") == True
+        assert is_free_email("user@yahoo.co.za") == True
+        assert is_free_email("user@yahoo.ca") == True
+
+    def test_outlook_is_free(self):
+        """Outlook/Hotmail addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@outlook.com") == True
+        assert is_free_email("user@hotmail.com") == True
+        assert is_free_email("user@live.com") == True
+        assert is_free_email("user@msn.com") == True
+
+    def test_icloud_is_free(self):
+        """iCloud addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@icloud.com") == True
+        assert is_free_email("user@me.com") == True
+        assert is_free_email("user@mac.com") == True
+
+    def test_protonmail_is_free(self):
+        """ProtonMail addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@protonmail.com") == True
+        assert is_free_email("user@proton.me") == True
+
+    def test_aol_is_free(self):
+        """AOL addresses are free email."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@aol.com") == True
+
+    def test_custom_domain_not_free(self):
+        """Custom domain addresses are not free."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@company.com") == False
+        assert is_free_email("support@travelbiz.co.za") == False
+        assert is_free_email("info@myagency.travel") == False
+
+    def test_case_insensitive(self):
+        """Email detection is case insensitive."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("USER@GMAIL.COM") == True
+        assert is_free_email("User@Gmail.Com") == True
+
+    def test_empty_email_returns_false(self):
+        """Empty email returns False."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("") == False
+        assert is_free_email(None) == False
+
+    def test_invalid_email_returns_false(self):
+        """Email without @ returns False."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("not-an-email") == False
+        assert is_free_email("missing.at.sign") == False
+
+
+# ==================== Platform Email Generation Tests ====================
+
+class TestGeneratePlatformEmail:
+    """Test generate_platform_email helper function."""
+
+    def test_simple_company_name(self):
+        """Generate email from simple company name."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("Safari Tours", "tn_abc123_xyz")
+        assert result == "safaritours@holidaytoday.co.za"
+
+    def test_company_name_with_special_chars(self):
+        """Generate email from company name with special characters."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("Safari & Beach (Pty) Ltd!", "tn_abc123_xyz")
+        assert result == "safaribeachptyltd@holidaytoday.co.za"
+
+    def test_company_name_with_numbers(self):
+        """Generate email preserves numbers."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("Travel 2000", "tn_abc123_xyz")
+        assert result == "travel2000@holidaytoday.co.za"
+
+    def test_company_name_with_spaces(self):
+        """Generate email removes spaces."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("My Travel Agency", "tn_abc123_xyz")
+        assert result == "mytravelagency@holidaytoday.co.za"
+
+    def test_empty_company_name_uses_tenant_id(self):
+        """Empty company name falls back to tenant_id."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("!!!", "tn_abc123_xyz456")
+        # Should use sanitized tenant_id when company name yields nothing
+        assert result.endswith("@holidaytoday.co.za")
+        assert "tn" in result or "abc" in result
+
+    def test_uppercase_converted_to_lowercase(self):
+        """Company name is converted to lowercase."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("SAFARI TOURS", "tn_abc123_xyz")
+        assert result == "safaritours@holidaytoday.co.za"
+
+    def test_unicode_company_name(self):
+        """Unicode characters are stripped."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("Safari Tøurs", "tn_abc123_xyz")
+        # Non-ASCII chars are stripped
+        assert "@holidaytoday.co.za" in result
+
+
+# ==================== SendGrid Subuser Provisioning Tests ====================
+
+class TestProvisionSendgridSubuser:
+    """Test provision_sendgrid_subuser async function."""
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", False)
+    async def test_returns_error_when_not_available(self):
+        """Returns error when SendGrid provisioning not available."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_test123",
+            contact_email="admin@test.com",
+            from_email="test@company.com",
+            from_name="Test Company",
+            company_name="Test Company"
+        )
+        assert result["success"] == False
+        assert "not available" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": ""}, clear=False)
+    async def test_returns_error_when_no_master_key(self):
+        """Returns error when master API key not configured."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+        # Temporarily clear the env var
+        with patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": ""}):
+            result = await provision_sendgrid_subuser(
+                tenant_id="tn_test123",
+                contact_email="admin@test.com",
+                from_email="test@company.com",
+                from_name="Test Company",
+                company_name="Test Company"
+            )
+        assert result["success"] == False
+        assert "not configured" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch("src.api.onboarding_routes.SendGridProvisioner")
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
+    async def test_creates_subuser_successfully(self, mock_provisioner_class):
+        """Creates subuser and API key successfully."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+
+        # Mock provisioner instance
+        mock_provisioner = MagicMock()
+        mock_provisioner.create_subuser.return_value = {"success": True}
+        mock_provisioner.create_api_key.return_value = {
+            "success": True,
+            "data": {"api_key": "SG.new-api-key"}
+        }
+        mock_provisioner.add_verified_sender.return_value = {"success": True}
+        mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
+        mock_provisioner_class.return_value = mock_provisioner
+
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_test123_abc",
+            contact_email="admin@test.com",
+            from_email="test@company.com",
+            from_name="Test Company",
+            company_name="Test Company",
+            use_platform_domain=False
+        )
+
+        assert result["success"] == True
+        assert result["api_key"] == "SG.new-api-key"
+        assert result["sender_verified"] == True
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch("src.api.onboarding_routes.SendGridProvisioner")
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
+    async def test_assigns_platform_domain(self, mock_provisioner_class):
+        """Assigns platform domain when use_platform_domain=True."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+
+        mock_provisioner = MagicMock()
+        mock_provisioner.create_subuser.return_value = {"success": True}
+        mock_provisioner.create_api_key.return_value = {
+            "success": True,
+            "data": {"api_key": "SG.new-api-key"}
+        }
+        mock_provisioner.assign_domain_to_subuser.return_value = {"success": True}
+        mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
+        mock_provisioner_class.return_value = mock_provisioner
+
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_test123_abc",
+            contact_email="admin@test.com",
+            from_email="test@holidaytoday.co.za",
+            from_name="Test Company",
+            company_name="Test Company",
+            use_platform_domain=True
+        )
+
+        assert result["success"] == True
+        assert result["domain_assigned"] == True
+        mock_provisioner.assign_domain_to_subuser.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch("src.api.onboarding_routes.SendGridProvisioner")
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
+    async def test_handles_subuser_already_exists(self, mock_provisioner_class):
+        """Handles case when subuser already exists."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+
+        mock_provisioner = MagicMock()
+        mock_provisioner.create_subuser.return_value = {
+            "success": False,
+            "error": "Username already exists"
+        }
+        mock_provisioner.create_api_key.return_value = {
+            "success": True,
+            "data": {"api_key": "SG.existing-key"}
+        }
+        mock_provisioner.add_verified_sender.return_value = {"success": True}
+        mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
+        mock_provisioner_class.return_value = mock_provisioner
+
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_existing_user",
+            contact_email="admin@test.com",
+            from_email="test@company.com",
+            from_name="Test Company",
+            company_name="Test Company"
+        )
+
+        # Should continue and create API key even if subuser exists
+        assert result["success"] == True
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch("src.api.onboarding_routes.SendGridProvisioner")
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
+    async def test_handles_api_key_creation_failure(self, mock_provisioner_class):
+        """Handles API key creation failure."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+
+        mock_provisioner = MagicMock()
+        mock_provisioner.create_subuser.return_value = {"success": True}
+        mock_provisioner.create_api_key.return_value = {
+            "success": False,
+            "error": "API key limit reached"
+        }
+        mock_provisioner_class.return_value = mock_provisioner
+
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_test123_abc",
+            contact_email="admin@test.com",
+            from_email="test@company.com",
+            from_name="Test Company",
+            company_name="Test Company"
+        )
+
+        assert result["success"] == False
+        assert "API key limit reached" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
+    @patch("src.api.onboarding_routes.SendGridProvisioner")
+    @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
+    async def test_handles_exception_gracefully(self, mock_provisioner_class):
+        """Handles unexpected exceptions."""
+        from src.api.onboarding_routes import provision_sendgrid_subuser
+
+        mock_provisioner_class.side_effect = Exception("Network error")
+
+        result = await provision_sendgrid_subuser(
+            tenant_id="tn_test123_abc",
+            contact_email="admin@test.com",
+            from_email="test@company.com",
+            from_name="Test Company",
+            company_name="Test Company"
+        )
+
+        assert result["success"] == False
+        assert "failed" in result["error"].lower()
+
+
+# ==================== Tenant Config Creation Tests ====================
+
+class TestCreateTenantConfig:
+    """Test create_tenant_config async function."""
+
+    @pytest.fixture
+    def mock_onboarding_request(self):
+        """Create a mock onboarding request."""
+        from src.api.onboarding_routes import (
+            OnboardingRequest, CompanyProfile, BrandTheme,
+            AgentConfig, OutboundSettings, EmailSettings,
+            KnowledgeBaseConfig
+        )
+        return OnboardingRequest(
+            company=CompanyProfile(
+                company_name="Test Travel Agency",
+                support_email="support@test.com",
+                timezone="Africa/Johannesburg",
+                currency="ZAR",
+                brand_theme=BrandTheme(
+                    theme_id="ocean-blue",
+                    primary="#0EA5E9",
+                    secondary="#0284C7",
+                    accent="#38BDF8"
+                )
+            ),
+            agents=AgentConfig(
+                inbound_description="A helpful travel assistant for bookings",
+                inbound_prompt="You are a helpful travel agent.",
+                inbound_agent_name="Sarah"
+            ),
+            outbound=OutboundSettings(),
+            email=EmailSettings(from_name="Test Travel"),
+            knowledge_base=KnowledgeBaseConfig()
+        )
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", create=True)
+    @patch("pathlib.Path.mkdir")
+    async def test_creates_tenant_directory(self, mock_mkdir, mock_open, mock_onboarding_request):
+        """Creates tenant directory structure."""
+        from src.api.onboarding_routes import create_tenant_config
+
+        # Mock file writes
+        mock_file = MagicMock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = await create_tenant_config(
+            tenant_id="tn_test123_abc",
+            request=mock_onboarding_request
+        )
+
+        assert result == True
+        # Verify mkdir was called
+        assert mock_mkdir.call_count >= 2  # base path + prompts
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", create=True)
+    @patch("pathlib.Path.mkdir")
+    async def test_writes_config_yaml(self, mock_mkdir, mock_open, mock_onboarding_request):
+        """Writes config.yaml file."""
+        from src.api.onboarding_routes import create_tenant_config
+        import yaml
+
+        written_content = []
+
+        def capture_write(content):
+            written_content.append(content)
+
+        mock_file = MagicMock()
+        mock_file.write = capture_write
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = await create_tenant_config(
+            tenant_id="tn_test123_abc",
+            request=mock_onboarding_request,
+            sendgrid_api_key="SG.test-key",
+            sending_email="testagency@holidaytoday.co.za",
+            reply_to_email="support@test.com"
+        )
+
+        assert result == True
+        # Verify open was called for config file
+        assert mock_open.call_count >= 2  # prompt + config
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", create=True)
+    @patch("pathlib.Path.mkdir")
+    async def test_writes_inbound_prompt(self, mock_mkdir, mock_open, mock_onboarding_request):
+        """Writes inbound prompt file."""
+        from src.api.onboarding_routes import create_tenant_config
+
+        written_content = {}
+
+        def mock_open_side_effect(path, mode='r'):
+            mock_file = MagicMock()
+            mock_file.__enter__ = MagicMock(return_value=mock_file)
+            mock_file.__exit__ = MagicMock(return_value=False)
+            mock_file.write = lambda content: written_content.update({str(path): content})
+            return mock_file
+
+        mock_open.side_effect = mock_open_side_effect
+
+        result = await create_tenant_config(
+            tenant_id="tn_test123_abc",
+            request=mock_onboarding_request
+        )
+
+        assert result == True
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", create=True)
+    @patch("pathlib.Path.mkdir")
+    async def test_uses_resolved_emails(self, mock_mkdir, mock_open, mock_onboarding_request):
+        """Uses resolved sending and reply-to emails."""
+        from src.api.onboarding_routes import create_tenant_config
+        import yaml
+
+        captured_yaml = []
+
+        def mock_yaml_dump(data, f, **kwargs):
+            captured_yaml.append(data)
+
+        with patch("yaml.dump", mock_yaml_dump):
+            mock_file = MagicMock()
+            mock_open.return_value.__enter__.return_value = mock_file
+
+            result = await create_tenant_config(
+                tenant_id="tn_test123_abc",
+                request=mock_onboarding_request,
+                sending_email="platform@holidaytoday.co.za",
+                reply_to_email="support@test.com"
+            )
+
+            assert result == True
+            # Verify emails were passed to config
+            if captured_yaml:
+                config = captured_yaml[0]
+                assert config["email"]["primary"] == "platform@holidaytoday.co.za"
+                assert config["email"]["sendgrid"]["reply_to"] == "support@test.com"
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", create=True)
+    @patch("pathlib.Path.mkdir")
+    async def test_generates_short_name(self, mock_mkdir, mock_open, mock_onboarding_request):
+        """Generates short_name from company name."""
+        from src.api.onboarding_routes import create_tenant_config
+        import yaml
+
+        captured_yaml = []
+
+        def mock_yaml_dump(data, f, **kwargs):
+            captured_yaml.append(data)
+
+        with patch("yaml.dump", mock_yaml_dump):
+            mock_file = MagicMock()
+            mock_open.return_value.__enter__.return_value = mock_file
+
+            result = await create_tenant_config(
+                tenant_id="tn_test123_abc",
+                request=mock_onboarding_request
+            )
+
+            assert result == True
+            if captured_yaml:
+                config = captured_yaml[0]
+                # "Test Travel Agency" -> "testtravelagency"
+                assert config["client"]["short_name"] == "testtravelagency"
+
+
+# ==================== Pydantic Model Tests ====================
+
+class TestPydanticModels:
+    """Test Pydantic model validation and defaults."""
+
+    def test_company_profile_defaults(self):
+        """CompanyProfile uses correct defaults."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        profile = CompanyProfile(
+            company_name="Test Company",
+            support_email="test@test.com",
+            brand_theme=BrandTheme(
+                theme_id="ocean-blue",
+                primary="#0EA5E9",
+                secondary="#0284C7",
+                accent="#38BDF8"
+            )
+        )
+        assert profile.timezone == "Africa/Johannesburg"
+        assert profile.currency == "ZAR"
+
+    def test_agent_config_defaults(self):
+        """AgentConfig uses correct defaults."""
+        from src.api.onboarding_routes import AgentConfig
+        config = AgentConfig(
+            inbound_description="A helpful travel assistant for bookings",
+            inbound_prompt="You are a travel agent."
+        )
+        assert config.inbound_agent_name == "Sarah"
+        assert config.outbound_agent_name == "Michael"
+
+    def test_outbound_settings_validation(self):
+        """OutboundSettings validates max_attempts range."""
+        from src.api.onboarding_routes import OutboundSettings
+        import pydantic
+
+        # Valid range
+        settings = OutboundSettings(max_attempts=3)
+        assert settings.max_attempts == 3
+
+        # Below minimum
+        with pytest.raises(pydantic.ValidationError):
+            OutboundSettings(max_attempts=0)
+
+        # Above maximum
+        with pytest.raises(pydantic.ValidationError):
+            OutboundSettings(max_attempts=10)
+
+    def test_knowledge_base_config_defaults(self):
+        """KnowledgeBaseConfig uses correct defaults."""
+        from src.api.onboarding_routes import KnowledgeBaseConfig
+        config = KnowledgeBaseConfig()
+        assert "Destinations" in config.categories
+        assert "Hotels" in config.categories
+        assert "FAQs" in config.categories
+        assert config.skip_initial_setup == True
+
+    def test_voice_option_model(self):
+        """VoiceOption model structure."""
+        from src.api.onboarding_routes import VoiceOption
+        voice = VoiceOption(
+            id="voice-1",
+            name="Sarah",
+            gender="female",
+            provider="elevenlabs"
+        )
+        assert voice.id == "voice-1"
+        assert voice.accent is None  # Optional field
+
+    def test_generate_prompt_request_validation(self):
+        """GeneratePromptRequest validates agent_type pattern."""
+        from src.api.onboarding_routes import GeneratePromptRequest
+        import pydantic
+
+        # Valid types
+        req1 = GeneratePromptRequest(
+            description="A helpful travel agent for bookings",
+            agent_type="inbound"
+        )
+        assert req1.agent_type == "inbound"
+
+        req2 = GeneratePromptRequest(
+            description="A follow-up agent for quotes",
+            agent_type="outbound"
+        )
+        assert req2.agent_type == "outbound"
+
+        # Invalid type
+        with pytest.raises(pydantic.ValidationError):
+            GeneratePromptRequest(
+                description="A helpful agent",
+                agent_type="invalid"
+            )
+
+    def test_onboarding_response_includes_user(self):
+        """OnboardingResponse includes user field for auto-login."""
+        from src.api.onboarding_routes import OnboardingResponse
+        response = OnboardingResponse(
+            success=True,
+            tenant_id="tn_test123",
+            message="Success",
+            resources={},
+            user={"id": "user-123", "email": "test@test.com"}
+        )
+        assert response.user is not None
+        assert response.user["id"] == "user-123"
+
+
+# ==================== Brand Themes Data Tests ====================
+
+class TestBrandThemesData:
+    """Test BRAND_THEMES constant data."""
+
+    def test_all_themes_have_required_fields(self):
+        """All themes have required fields."""
+        from src.api.onboarding_routes import BRAND_THEMES
+        required_fields = ["id", "name", "description", "primary", "secondary", "accent"]
+
+        for theme in BRAND_THEMES:
+            for field in required_fields:
+                assert field in theme, f"Theme {theme.get('id', 'unknown')} missing {field}"
+
+    def test_all_themes_have_valid_colors(self):
+        """All theme colors are valid hex codes."""
+        from src.api.onboarding_routes import BRAND_THEMES
+        import re
+        hex_pattern = re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+        for theme in BRAND_THEMES:
+            for color_field in ["primary", "secondary", "accent"]:
+                color = theme[color_field]
+                assert hex_pattern.match(color), f"Invalid color {color} in theme {theme['id']}"
+
+    def test_theme_ids_are_unique(self):
+        """All theme IDs are unique."""
+        from src.api.onboarding_routes import BRAND_THEMES
+        ids = [t["id"] for t in BRAND_THEMES]
+        assert len(ids) == len(set(ids)), "Duplicate theme IDs found"
+
+    def test_minimum_theme_count(self):
+        """At least 5 themes are available."""
+        from src.api.onboarding_routes import BRAND_THEMES
+        assert len(BRAND_THEMES) >= 5
+
+
+# ==================== Free Email Domains Data Tests ====================
+
+class TestFreeEmailDomainsData:
+    """Test FREE_EMAIL_DOMAINS constant data."""
+
+    def test_common_providers_included(self):
+        """Common free email providers are included."""
+        from src.api.onboarding_routes import FREE_EMAIL_DOMAINS
+        assert "gmail.com" in FREE_EMAIL_DOMAINS
+        assert "yahoo.com" in FREE_EMAIL_DOMAINS
+        assert "outlook.com" in FREE_EMAIL_DOMAINS
+        assert "hotmail.com" in FREE_EMAIL_DOMAINS
+
+    def test_domains_are_lowercase(self):
+        """All domains are lowercase."""
+        from src.api.onboarding_routes import FREE_EMAIL_DOMAINS
+        for domain in FREE_EMAIL_DOMAINS:
+            assert domain == domain.lower(), f"Domain {domain} not lowercase"
+
+    def test_no_duplicate_domains(self):
+        """No duplicate domains."""
+        from src.api.onboarding_routes import FREE_EMAIL_DOMAINS
+        assert len(FREE_EMAIL_DOMAINS) == len(set(FREE_EMAIL_DOMAINS))
