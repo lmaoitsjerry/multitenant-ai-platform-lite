@@ -621,3 +621,924 @@ class TestSearchDualKnowledgeBase:
         assert breakdown["global"] == 2
         assert breakdown["private"] == 1
         assert breakdown["total"] == 3
+
+
+# ==================== Smart Response Tests ====================
+
+class TestGetSmartResponse:
+    """Tests for get_smart_response function."""
+
+    def test_quote_create_keyword_match(self):
+        """Should match quote creation questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I create a new quote?")
+
+        assert topic == "quotes"
+        assert "quote" in answer.lower()
+        assert len(sources) > 0
+
+    def test_quote_send_keyword_match(self):
+        """Should match quote sending questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        # Note: "How" triggers quote_create first, so use question without "how"
+        answer, topic, sources = get_smart_response("I want to send a quote to my client")
+
+        assert topic == "quotes"
+        assert "send" in answer.lower()
+
+    def test_invoice_keyword_match(self):
+        """Should match invoice questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I create an invoice?")
+
+        assert topic == "invoices"
+        assert "invoice" in answer.lower()
+
+    def test_client_add_keyword_match(self):
+        """Should match client add questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I add a new client?")
+
+        assert topic == "clients"
+        assert "client" in answer.lower()
+
+    def test_pipeline_keyword_match(self):
+        """Should match pipeline questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("What are the pipeline stages?")
+
+        assert topic == "pipeline"
+        assert "pipeline" in answer.lower()
+
+    def test_hotel_keyword_match(self):
+        """Should match hotel questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("Where can I find hotel information?")
+
+        assert topic == "hotels"
+        assert "hotel" in answer.lower()
+
+    def test_pricing_keyword_match(self):
+        """Should match pricing questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I update rate information?")
+
+        assert topic == "pricing"
+        assert "pric" in answer.lower() or "rate" in answer.lower()
+
+    def test_settings_keyword_match(self):
+        """Should match settings questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I change my branding settings?")
+
+        assert topic == "settings"
+        assert "setting" in answer.lower()
+
+    def test_default_response_for_unknown(self):
+        """Should return default for unknown questions."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("random gibberish xyz123")
+
+        assert topic == "general"
+        assert "help" in answer.lower()
+
+    def test_payment_maps_to_invoice(self):
+        """Payment questions should map to invoice topic."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do clients pay their invoices?")
+
+        assert topic == "invoices"
+
+    def test_crm_keyword_match(self):
+        """CRM questions should return pipeline help."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How does the CRM work?")
+
+        assert topic == "crm"
+
+
+# ==================== Search Knowledge Base Tests ====================
+
+class TestSearchKnowledgeBase:
+    """Tests for search_knowledge_base function."""
+
+    def test_returns_empty_on_failed_search(self, mock_config):
+        """Should return empty list when RAG search fails."""
+        from src.api.helpdesk_routes import search_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {"success": False, "error": "Service unavailable"}
+
+            result = search_knowledge_base(mock_config, "test query")
+
+        assert result == []
+
+    def test_transforms_citations_correctly(self, mock_config):
+        """Should transform citations to expected format."""
+        from src.api.helpdesk_routes import search_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "citations": [
+                    {
+                        "content": "Test content",
+                        "relevance_score": 0.85,
+                        "source_title": "Test Doc",
+                        "source_url": "http://example.com",
+                        "doc_id": "doc123",
+                        "chunk_id": "chunk456"
+                    }
+                ]
+            }
+
+            result = search_knowledge_base(mock_config, "test query")
+
+        assert len(result) == 1
+        assert result[0]["content"] == "Test content"
+        assert result[0]["score"] == 0.85
+        assert result[0]["source"] == "Test Doc"
+        assert result[0]["source_url"] == "http://example.com"
+
+    def test_handles_missing_citation_fields(self, mock_config):
+        """Should handle citations with missing fields."""
+        from src.api.helpdesk_routes import search_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "citations": [
+                    {"content": "Minimal content"}  # Missing other fields
+                ]
+            }
+
+            result = search_knowledge_base(mock_config, "test query")
+
+        assert len(result) == 1
+        assert result[0]["content"] == "Minimal content"
+        assert result[0]["score"] == 0.0  # Default
+        assert result[0]["source"] == "Knowledge Base"  # Default
+
+
+# ==================== Format Knowledge Response Tests ====================
+
+class TestFormatKnowledgeResponse:
+    """Tests for format_knowledge_response function."""
+
+    def test_calls_rag_service(self):
+        """Should call generate_rag_response with correct args."""
+        from src.api.helpdesk_routes import format_knowledge_response
+
+        mock_results = [{"content": "Test", "score": 0.9}]
+
+        with patch('src.api.helpdesk_routes.generate_rag_response') as mock:
+            mock.return_value = {"answer": "Test answer", "sources": []}
+
+            result = format_knowledge_response(mock_results, "test question")
+
+        mock.assert_called_once_with("test question", mock_results, "general")
+
+    def test_passes_query_type(self):
+        """Should pass query_type to RAG service."""
+        from src.api.helpdesk_routes import format_knowledge_response
+
+        with patch('src.api.helpdesk_routes.generate_rag_response') as mock:
+            mock.return_value = {"answer": "Test", "sources": []}
+
+            format_knowledge_response([], "question", query_type="hotel_info")
+
+        mock.assert_called_once_with("question", [], "hotel_info")
+
+
+# ==================== Score Response Tests ====================
+
+class TestScoreResponse:
+    """Tests for score_response function."""
+
+    def test_full_keyword_match_scores_high(self):
+        """Should score high when all keywords match."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "Maldives resort honeymoon romantic", "method": "rag"}
+        test_case = {
+            "expected_keywords": ["maldives", "resort", "honeymoon", "romantic"],
+            "must_not_contain": []
+        }
+
+        scores = score_response(response, test_case)
+
+        assert scores["keyword_score"] == 1.0
+
+    def test_partial_keyword_match(self):
+        """Should score partial when some keywords match."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "Maldives resort info", "method": "rag"}
+        test_case = {
+            "expected_keywords": ["maldives", "resort", "honeymoon", "romantic"],
+            "must_not_contain": []
+        }
+
+        scores = score_response(response, test_case)
+
+        assert scores["keyword_score"] == 0.5  # 2 out of 4
+
+    def test_forbidden_phrase_scores_zero(self):
+        """Should score zero for forbidden phrases."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "I don't know about that", "method": "rag"}
+        test_case = {
+            "expected_keywords": [],
+            "must_not_contain": ["I don't know"]
+        }
+
+        scores = score_response(response, test_case)
+
+        assert scores["forbidden_score"] == 0.0
+
+    def test_no_forbidden_scores_full(self):
+        """Should score full when no forbidden phrases present."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "Here are some great hotels", "method": "rag"}
+        test_case = {
+            "expected_keywords": ["hotels"],
+            "must_not_contain": ["I don't know", "error"]
+        }
+
+        scores = score_response(response, test_case)
+
+        assert scores["forbidden_score"] == 1.0
+
+    def test_must_contain_any_scores(self):
+        """Should score based on must_contain_any."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "I can't find info on Mars", "method": "rag"}
+        test_case = {
+            "expected_keywords": [],
+            "must_not_contain": [],
+            "must_contain_any": ["can't find", "don't have", "not sure"]
+        }
+
+        scores = score_response(response, test_case)
+
+        assert scores["contain_any_score"] == 1.0
+
+    def test_method_quality_scoring(self):
+        """Should score method quality correctly."""
+        from src.api.helpdesk_routes import score_response
+
+        test_case = {"expected_keywords": [], "must_not_contain": []}
+
+        # RAG method should score highest
+        rag_response = {"answer": "test", "method": "travel_platform_rag"}
+        rag_scores = score_response(rag_response, test_case)
+        assert rag_scores["quality_score"] == 1.0
+
+        # Static should score lower
+        static_response = {"answer": "test", "method": "static"}
+        static_scores = score_response(static_response, test_case)
+        assert static_scores["quality_score"] == 0.5
+
+    def test_overall_score_threshold(self):
+        """Should pass when overall score >= 0.7."""
+        from src.api.helpdesk_routes import score_response
+
+        # Good response
+        good_response = {"answer": "Hotels in Mauritius include great resorts", "method": "rag"}
+        good_case = {"expected_keywords": ["hotels", "mauritius"], "must_not_contain": []}
+
+        good_scores = score_response(good_response, good_case)
+        assert good_scores["passed"] is True
+        assert good_scores["overall_score"] >= 0.7
+
+
+# ==================== Ask Helpdesk Handler Tests ====================
+
+class TestAskHelpdeskHandler:
+    """Tests for ask_helpdesk endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_ask_helpdesk_success_with_dual_kb(self, mock_config):
+        """Should return answer from dual KB search."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="What hotels are in Maldives?")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.HOTEL_INFO, 0.9)
+            mock_instance.get_search_params.return_value = {"k": 10}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Maldives has amazing resorts",
+                    "citations": [{"source": "KB", "score": 0.9, "source_type": "global_kb"}],
+                    "confidence": 0.85,
+                    "latency_ms": 150,
+                    "sources_breakdown": {"global": 1, "private": 0, "total": 1}
+                }
+
+                result = await ask_helpdesk(request, user=None, config=mock_config)
+
+        assert result["success"] is True
+        assert result["answer"] == "Maldives has amazing resorts"
+        assert result["method"] == "dual_kb"
+        assert "timing" in result
+
+    @pytest.mark.asyncio
+    async def test_ask_helpdesk_llm_fallback(self, mock_config):
+        """Should use LLM fallback when KB has no answer."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Random question")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.GENERAL, 0.5)
+            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": False,
+                    "answer": "",
+                    "citations": []
+                }
+
+                with patch('src.api.helpdesk_routes.get_rag_service') as mock_rag:
+                    mock_service = MagicMock()
+                    mock_service.generate_response.return_value = {
+                        "answer": "I can help with that",
+                        "sources": []
+                    }
+                    mock_rag.return_value = mock_service
+
+                    result = await ask_helpdesk(request, user=None, config=mock_config)
+
+        assert result["success"] is True
+        assert result["method"] == "llm_synthesis"
+
+    @pytest.mark.asyncio
+    async def test_ask_helpdesk_error_fallback(self, mock_config):
+        """Should return error fallback on LLM failure."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Test question")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.GENERAL, 0.5)
+            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {"success": False, "answer": "", "citations": []}
+
+                with patch('src.api.helpdesk_routes.get_rag_service', side_effect=Exception("LLM Error")):
+                    result = await ask_helpdesk(request, user=None, config=mock_config)
+
+        assert result["success"] is True
+        assert result["method"] == "error_fallback"
+        assert "trouble" in result["answer"].lower()
+
+    @pytest.mark.asyncio
+    async def test_ask_helpdesk_exception_handling(self, mock_config):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Test")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier', side_effect=Exception("Classifier error")):
+            result = await ask_helpdesk(request, user=None, config=mock_config)
+
+        assert result["success"] is False
+        assert "timing" in result
+
+
+# ==================== Topics Handler Tests ====================
+
+class TestTopicsHandler:
+    """Tests for get_helpdesk_topics endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_get_topics_returns_success(self):
+        """Should return topics successfully."""
+        from src.api.helpdesk_routes import get_helpdesk_topics
+
+        result = await get_helpdesk_topics(user=None)
+
+        assert result["success"] is True
+        assert "topics" in result
+        assert len(result["topics"]) > 0
+
+
+# ==================== Search Handler Tests ====================
+
+class TestSearchHandler:
+    """Tests for search_helpdesk endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_search_without_query_returns_all(self):
+        """Should return all topics when no query."""
+        from src.api.helpdesk_routes import search_helpdesk, HELPDESK_TOPICS
+
+        result = await search_helpdesk(q="", user=None)
+
+        assert result["success"] is True
+        assert result["results"] == HELPDESK_TOPICS
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_name(self):
+        """Should filter topics by name."""
+        from src.api.helpdesk_routes import search_helpdesk
+
+        result = await search_helpdesk(q="quotes", user=None)
+
+        assert result["success"] is True
+        assert len(result["results"]) >= 1
+        assert any("quote" in r["name"].lower() for r in result["results"])
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_description(self):
+        """Should filter topics by description."""
+        from src.api.helpdesk_routes import search_helpdesk
+
+        result = await search_helpdesk(q="pricing", user=None)
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_search_no_match_returns_first_three(self):
+        """Should return first 3 topics when no match."""
+        from src.api.helpdesk_routes import search_helpdesk, HELPDESK_TOPICS
+
+        result = await search_helpdesk(q="xyznonexistent", user=None)
+
+        assert result["success"] is True
+        assert len(result["results"]) == 3
+        assert result["results"] == HELPDESK_TOPICS[:3]
+
+
+# ==================== RAG Status Handler Tests ====================
+
+class TestRagStatusHandler:
+    """Tests for get_rag_status endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_rag_status_success(self):
+        """Should return RAG status successfully."""
+        from src.api.helpdesk_routes import get_rag_status
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client') as mock:
+            mock_client = MagicMock()
+            mock_client.get_status.return_value = {
+                "available": True,
+                "base_url": "http://example.com",
+                "tenant": "test"
+            }
+            mock.return_value = mock_client
+
+            result = await get_rag_status()
+
+        assert result["success"] is True
+        assert "data" in result
+
+    @pytest.mark.asyncio
+    async def test_rag_status_error(self):
+        """Should handle errors gracefully."""
+        from src.api.helpdesk_routes import get_rag_status
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client', side_effect=Exception("Error")):
+            result = await get_rag_status()
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+# ==================== FAISS Status Handler Tests ====================
+
+class TestFaissStatusHandler:
+    """Tests for get_faiss_status endpoint handler (legacy redirect)."""
+
+    @pytest.mark.asyncio
+    async def test_faiss_status_redirects_to_rag(self):
+        """Should redirect to RAG status."""
+        from src.api.helpdesk_routes import get_faiss_status
+
+        with patch('src.api.helpdesk_routes.get_rag_status', new_callable=AsyncMock) as mock:
+            mock.return_value = {"success": True, "data": {"available": True}}
+
+            result = await get_faiss_status()
+
+        mock.assert_called_once()
+        assert result["success"] is True
+
+
+# ==================== Test Search Handler Tests ====================
+
+class TestTestSearchHandler:
+    """Tests for test_rag_search endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_test_search_success(self):
+        """Should return test search results."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": "Test answer about Maldives",
+                "confidence": 0.85,
+                "latency_ms": 120,
+                "citations": [
+                    {
+                        "source_title": "Test Doc",
+                        "relevance_score": 0.9,
+                        "content": "Test content"
+                    }
+                ]
+            }
+
+            result = await test_rag_search(q="Maldives hotels")
+
+        assert result["success"] is True
+        assert result["method"] == "travel_platform_rag"
+        assert result["confidence"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_test_search_no_answer(self):
+        """Should handle no answer response."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": "",
+                "citations": []
+            }
+
+            result = await test_rag_search(q="unknown topic")
+
+        assert result["success"] is False
+        assert "message" in result
+
+    @pytest.mark.asyncio
+    async def test_test_search_exception(self):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag', side_effect=Exception("Search error")):
+            result = await test_rag_search(q="test")
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+# ==================== Health Handler Tests ====================
+
+class TestHelpdeskHealthHandler:
+    """Tests for helpdesk_health endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_healthy(self):
+        """Should return healthy when RAG available."""
+        from src.api.helpdesk_routes import helpdesk_health
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client') as mock:
+            mock_client = MagicMock()
+            mock_client.get_status.return_value = {
+                "available": True,
+                "base_url": "http://rag.example.com",
+                "tenant": "test"
+            }
+            mock.return_value = mock_client
+
+            result = await helpdesk_health()
+
+        assert result["status"] == "healthy"
+        assert result["mode"] == "travel_platform_rag"
+        assert "checks" in result
+
+    @pytest.mark.asyncio
+    async def test_health_check_degraded(self):
+        """Should return degraded when RAG unavailable."""
+        from src.api.helpdesk_routes import helpdesk_health
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client') as mock:
+            mock_client = MagicMock()
+            mock_client.get_status.return_value = {
+                "available": False,
+                "base_url": "",
+                "tenant": ""
+            }
+            mock.return_value = mock_client
+
+            result = await helpdesk_health()
+
+        assert result["status"] == "degraded"
+        assert result["mode"] == "static_fallback"
+
+    @pytest.mark.asyncio
+    async def test_health_check_error(self):
+        """Should return error status on exception."""
+        from src.api.helpdesk_routes import helpdesk_health
+
+        with patch('src.api.helpdesk_routes.get_travel_platform_rag_client', side_effect=Exception("Error")):
+            result = await helpdesk_health()
+
+        assert result["status"] == "error"
+        assert "error" in result
+
+
+# ==================== Agent Chat Handler Tests ====================
+
+class TestAgentChatHandler:
+    """Tests for agent_chat endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_agent_chat_success(self, mock_config):
+        """Should return agent response."""
+        from src.api.helpdesk_routes import agent_chat, AskQuestion
+
+        request = AskQuestion(question="How do I create a quote?")
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent') as mock:
+            mock_agent = MagicMock()
+            mock_agent.chat.return_value = {
+                "response": "Here's how to create a quote...",
+                "tool_used": "knowledge_search",
+                "sources": [{"source": "Guide"}]
+            }
+            mock.return_value = mock_agent
+
+            result = await agent_chat(request, user=None, config=mock_config)
+
+        assert result["success"] is True
+        assert "answer" in result
+        assert result["method"] == "agent"
+
+    @pytest.mark.asyncio
+    async def test_agent_chat_direct_response(self, mock_config):
+        """Should handle direct response without tool."""
+        from src.api.helpdesk_routes import agent_chat, AskQuestion
+
+        request = AskQuestion(question="Hello")
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent') as mock:
+            mock_agent = MagicMock()
+            mock_agent.chat.return_value = {
+                "response": "Hello! How can I help?",
+                "tool_used": None,
+                "sources": []
+            }
+            mock.return_value = mock_agent
+
+            result = await agent_chat(request, user=None, config=mock_config)
+
+        assert result["success"] is True
+        assert result["method"] == "direct"
+
+    @pytest.mark.asyncio
+    async def test_agent_chat_exception(self, mock_config):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import agent_chat, AskQuestion
+
+        request = AskQuestion(question="Test")
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Agent error")):
+            result = await agent_chat(request, user=None, config=mock_config)
+
+        assert result["success"] is False
+        assert "timing_ms" in result
+
+
+# ==================== Agent Reset Handler Tests ====================
+
+class TestAgentResetHandler:
+    """Tests for agent_reset endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_agent_reset_success(self):
+        """Should reset agent successfully."""
+        from src.api.helpdesk_routes import agent_reset
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent') as mock:
+            mock_agent = MagicMock()
+            mock.return_value = mock_agent
+
+            result = await agent_reset()
+
+        assert result["success"] is True
+        mock_agent.reset_conversation.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_agent_reset_exception(self):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import agent_reset
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Reset error")):
+            result = await agent_reset()
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+# ==================== Agent Stats Handler Tests ====================
+
+class TestAgentStatsHandler:
+    """Tests for agent_stats endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_agent_stats_success(self):
+        """Should return agent stats."""
+        from src.api.helpdesk_routes import agent_stats
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent') as mock:
+            mock_agent = MagicMock()
+            mock_agent.get_stats.return_value = {
+                "total_queries": 100,
+                "success_rate": 0.95
+            }
+            mock.return_value = mock_agent
+
+            result = await agent_stats()
+
+        assert result["success"] is True
+        assert "stats" in result
+        assert result["stats"]["total_queries"] == 100
+
+    @pytest.mark.asyncio
+    async def test_agent_stats_exception(self):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import agent_stats
+
+        with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Stats error")):
+            result = await agent_stats()
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+# ==================== Reinit Handler Tests ====================
+
+class TestReinitHandler:
+    """Tests for reinit_rag_client endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_reinit_success(self):
+        """Should reinit RAG client successfully."""
+        from src.api.helpdesk_routes import reinit_rag_client
+
+        with patch('src.services.travel_platform_rag_client.reset_travel_platform_rag_client') as mock_reset:
+            with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client') as mock_get:
+                mock_client = MagicMock()
+                mock_client.is_available.return_value = True
+                mock_client.get_status.return_value = {"available": True}
+                mock_get.return_value = mock_client
+
+                result = await reinit_rag_client()
+
+        assert result["success"] is True
+        assert "status" in result
+
+    @pytest.mark.asyncio
+    async def test_reinit_unavailable(self):
+        """Should report when RAG unavailable after reinit."""
+        from src.api.helpdesk_routes import reinit_rag_client
+
+        with patch('src.services.travel_platform_rag_client.reset_travel_platform_rag_client'):
+            with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client') as mock_get:
+                mock_client = MagicMock()
+                mock_client.is_available.return_value = False
+                mock_client.get_status.return_value = {"available": False}
+                mock_get.return_value = mock_client
+
+                result = await reinit_rag_client()
+
+        assert result["success"] is False
+        assert "unavailable" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_reinit_exception(self):
+        """Should handle exceptions gracefully."""
+        from src.api.helpdesk_routes import reinit_rag_client
+
+        with patch('src.services.travel_platform_rag_client.reset_travel_platform_rag_client',
+                   side_effect=Exception("Reinit error")):
+            result = await reinit_rag_client()
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+# ==================== Accuracy Test Handler Tests ====================
+
+class TestAccuracyTestHandler:
+    """Tests for run_accuracy_tests endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_list_accuracy_test_cases(self):
+        """Should list all test cases."""
+        from src.api.helpdesk_routes import list_accuracy_test_cases
+
+        result = await list_accuracy_test_cases()
+
+        assert result["success"] is True
+        assert "test_cases" in result
+        assert len(result["test_cases"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_run_specific_test(self):
+        """Should run specific test by ID."""
+        from src.api.helpdesk_routes import run_accuracy_tests
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.HOTEL_INFO, 0.9)
+            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Mauritius has many luxury resorts",
+                    "citations": []
+                }
+
+                result = await run_accuracy_tests(test_id="hotel_mauritius_luxury", verbose=True)
+
+        assert result["success"] is True
+        assert result["summary"]["total_tests"] == 1
+
+    @pytest.mark.asyncio
+    async def test_run_all_tests(self):
+        """Should run all accuracy tests."""
+        from src.api.helpdesk_routes import run_accuracy_tests
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.GENERAL, 0.5)
+            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Here is some helpful information",
+                    "citations": []
+                }
+
+                result = await run_accuracy_tests(verbose=False)
+
+        assert result["success"] is True
+        assert "summary" in result
+        assert "tests" in result
+        assert result["summary"]["total_tests"] > 1
+
+    @pytest.mark.asyncio
+    async def test_run_nonexistent_test(self):
+        """Should return error for nonexistent test ID."""
+        from src.api.helpdesk_routes import run_accuracy_tests
+
+        result = await run_accuracy_tests(test_id="nonexistent_test_xyz")
+
+        assert result["success"] is False
+        assert "error" in result
+        assert "available_tests" in result
+
+
+# ==================== Include Router Tests ====================
+
+class TestIncludeHelpdeskRouter:
+    """Tests for include_helpdesk_router function."""
+
+    def test_include_router_adds_to_app(self):
+        """Should add router to FastAPI app."""
+        from src.api.helpdesk_routes import include_helpdesk_router
+
+        mock_app = MagicMock()
+
+        include_helpdesk_router(mock_app)
+
+        mock_app.include_router.assert_called_once()
