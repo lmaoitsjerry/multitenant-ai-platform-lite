@@ -38,7 +38,7 @@ def test_client():
 
 @pytest.fixture
 def mock_faiss_manager():
-    """Create a mock FAISSIndexManager."""
+    """Create a mock KnowledgeIndexManager."""
     manager = MagicMock()
     manager.get_documents.return_value = []
     manager.get_document.return_value = None
@@ -339,18 +339,18 @@ class TestKnowledgeModels:
         assert result.chunk_index == 0
 
 
-# ==================== FAISSIndexManager Unit Tests ====================
+# ==================== KnowledgeIndexManager Unit Tests ====================
 
-class TestFAISSIndexManager:
-    """Test FAISSIndexManager functionality."""
+class TestKnowledgeIndexManager:
+    """Test KnowledgeIndexManager functionality."""
 
     def test_manager_creates_directories(self, mock_config, tmp_path):
-        """FAISSIndexManager should create necessary directories."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        """KnowledgeIndexManager should create necessary directories."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
         # Patch the base path to use temp directory
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
             manager.config = mock_config
             manager.client_id = mock_config.client_id
             manager.base_path = tmp_path / "knowledge"
@@ -367,10 +367,10 @@ class TestFAISSIndexManager:
 
     def test_load_metadata_creates_default(self, mock_config, tmp_path):
         """_load_metadata should create default structure if file missing."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
             manager.metadata_file = tmp_path / "metadata.json"
 
             # Manually call _load_metadata
@@ -382,7 +382,7 @@ class TestFAISSIndexManager:
 
     def test_load_metadata_migrates_visibility(self, mock_config, tmp_path):
         """_load_metadata should add visibility to old documents."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
         # Create old metadata without visibility
         metadata_file = tmp_path / "metadata.json"
@@ -401,8 +401,8 @@ class TestFAISSIndexManager:
         }
         metadata_file.write_text(json.dumps(old_metadata))
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
             manager.metadata_file = metadata_file
 
             # Load metadata
@@ -413,10 +413,10 @@ class TestFAISSIndexManager:
 
     def test_chunk_text_function(self, mock_config):
         """_chunk_text should split text into chunks."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
 
             text = " ".join([f"word{i}" for i in range(1000)])
             chunks = manager._chunk_text(text, chunk_size=100, overlap=10)
@@ -430,10 +430,10 @@ class TestFAISSIndexManager:
 
     def test_get_status_returns_counts(self, mock_config, tmp_path):
         """get_status should return document counts."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
             manager.index_path = tmp_path / "faiss_index"
             manager.index_path.mkdir(parents=True, exist_ok=True)
             manager.metadata = {
@@ -462,14 +462,14 @@ class TestKnowledgeDependencies:
     """Test knowledge route dependencies."""
 
     def test_get_index_manager_returns_manager(self, mock_config):
-        """get_index_manager should return FAISSIndexManager instance."""
+        """get_index_manager should return KnowledgeIndexManager instance."""
         from src.api.knowledge_routes import get_index_manager, _index_managers
         import src.api.knowledge_routes as knowledge_module
 
         # Reset cache
         knowledge_module._index_managers = {}
 
-        with patch('src.api.knowledge_routes.FAISSIndexManager') as MockManager:
+        with patch('src.api.knowledge_routes.KnowledgeIndexManager') as MockManager:
             mock_instance = MagicMock()
             MockManager.return_value = mock_instance
 
@@ -486,7 +486,7 @@ class TestKnowledgeDependencies:
         # Reset cache
         knowledge_module._index_managers = {}
 
-        with patch('src.api.knowledge_routes.FAISSIndexManager') as MockManager:
+        with patch('src.api.knowledge_routes.KnowledgeIndexManager') as MockManager:
             mock_instance = MagicMock()
             MockManager.return_value = mock_instance
 
@@ -1084,21 +1084,21 @@ class TestGlobalKnowledgeBaseProxy:
         assert result.media_type == "application/pdf"
 
 
-# ==================== FAISSIndexManager Additional Tests ====================
+# ==================== KnowledgeIndexManager Additional Tests ====================
 
-class TestFAISSExtractText:
+class TestKnowledgeExtractText:
     """Test text extraction functionality."""
 
     def test_extract_text_txt(self, mock_config, tmp_path):
         """_extract_text should extract text from txt files."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
         # Create a test text file
         txt_file = tmp_path / "test.txt"
         txt_file.write_text("Sample text content for testing.")
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
 
             text = manager._extract_text(txt_file, "txt")
 
@@ -1106,14 +1106,14 @@ class TestFAISSExtractText:
 
     def test_extract_text_md(self, mock_config, tmp_path):
         """_extract_text should extract text from markdown files."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
 
         # Create a test markdown file
         md_file = tmp_path / "test.md"
         md_file.write_text("# Header\n\nSome markdown content.")
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
 
             text = manager._extract_text(md_file, "md")
 
@@ -1122,15 +1122,15 @@ class TestFAISSExtractText:
 
     def test_extract_text_unsupported(self, mock_config, tmp_path):
         """_extract_text should raise error for unsupported types."""
-        from src.api.knowledge_routes import FAISSIndexManager
+        from src.api.knowledge_routes import KnowledgeIndexManager
         from fastapi import HTTPException
 
         # Create a test file with unsupported extension
         other_file = tmp_path / "test.xyz"
         other_file.write_bytes(b"binary content")
 
-        with patch.object(FAISSIndexManager, '__init__', return_value=None):
-            manager = FAISSIndexManager.__new__(FAISSIndexManager)
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            manager = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
 
             with pytest.raises(HTTPException) as exc_info:
                 manager._extract_text(other_file, "xyz")
