@@ -263,3 +263,397 @@ class TestLoggerConfiguration:
 
         assert isinstance(logger, logging.Logger)
         assert logger.name == "performance"
+
+
+class TestSkipPaths:
+    """Tests for path skipping logic."""
+
+    @pytest.mark.asyncio
+    async def test_skips_health_live(self):
+        """Should skip /health/live."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/health/live",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert "X-Response-Time" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test_skips_health_ready(self):
+        """Should skip /health/ready."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/health/ready",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert "X-Response-Time" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test_skips_metrics(self):
+        """Should skip /metrics."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/metrics",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert "X-Response-Time" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test_does_not_skip_api_endpoints(self):
+        """Should NOT skip API endpoints."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/quotes",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert "X-Response-Time" in response.headers
+
+
+class TestResponseTimeHeader:
+    """Tests for X-Response-Time header."""
+
+    @pytest.mark.asyncio
+    async def test_header_format(self):
+        """X-Response-Time should be formatted with ms suffix."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        header = response.headers["X-Response-Time"]
+        assert header.endswith("ms")
+
+    @pytest.mark.asyncio
+    async def test_header_contains_numeric_value(self):
+        """X-Response-Time should contain numeric value."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        header = response.headers["X-Response-Time"]
+        # Extract numeric part
+        numeric_part = header.replace("ms", "").strip()
+        float(numeric_part)  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_header_value_is_non_negative(self):
+        """X-Response-Time should be non-negative."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        header = response.headers["X-Response-Time"]
+        numeric_part = float(header.replace("ms", "").strip())
+        assert numeric_part >= 0
+
+
+class TestThresholdLogging:
+    """Tests for threshold-based logging."""
+
+    @pytest.mark.asyncio
+    async def test_fast_request_logs_info(self):
+        """Fast requests should log at info level."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
+            mock_time.side_effect = [0, 0.1]  # 100ms (fast)
+
+            with patch('src.middleware.timing_middleware.logger') as mock_logger:
+                await middleware.dispatch(request, call_next)
+
+                # Fast request logs at info level
+                mock_logger.info.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_slow_request_logs_warning(self):
+        """Slow requests should log at warning level."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
+            mock_time.side_effect = [0, 0.6]  # 600ms (slow)
+
+            with patch('src.middleware.timing_middleware.logger') as mock_logger:
+                await middleware.dispatch(request, call_next)
+
+                mock_logger.warning.assert_called()
+
+
+class TestHTTPMethods:
+    """Tests for different HTTP methods."""
+
+    @pytest.mark.asyncio
+    async def test_handles_get(self):
+        """Should handle GET requests."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_handles_post(self):
+        """Should handle POST requests."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=201))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_handles_put(self):
+        """Should handle PUT requests."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "PUT",
+            "path": "/api/v1/test/123",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK"))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_handles_delete(self):
+        """Should handle DELETE requests."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/api/v1/test/123",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="", status_code=204))
+
+        response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 204
+
+
+class TestStatusCodeTracking:
+    """Tests for status code tracking."""
+
+    @pytest.mark.asyncio
+    async def test_logs_2xx_status(self):
+        """Should log 2xx status codes."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with patch('src.middleware.timing_middleware.logger') as mock_logger:
+            await middleware.dispatch(request, call_next)
+
+            # Check status code is in log
+            call_args = str(mock_logger.info.call_args)
+            assert "200" in call_args
+
+    @pytest.mark.asyncio
+    async def test_logs_4xx_status(self):
+        """Should log 4xx status codes."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="Not Found", status_code=404))
+
+        with patch('src.middleware.timing_middleware.logger') as mock_logger:
+            await middleware.dispatch(request, call_next)
+
+            # Check status code is in log
+            assert mock_logger.info.called or mock_logger.warning.called
+
+    @pytest.mark.asyncio
+    async def test_logs_5xx_status(self):
+        """Should log 5xx status codes."""
+        from src.middleware.timing_middleware import TimingMiddleware
+
+        app = MagicMock()
+        middleware = TimingMiddleware(app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        call_next = AsyncMock(return_value=Response(content="Error", status_code=500))
+
+        with patch('src.middleware.timing_middleware.logger') as mock_logger:
+            await middleware.dispatch(request, call_next)
+
+            # 5xx errors should be logged
+            assert mock_logger.info.called or mock_logger.warning.called

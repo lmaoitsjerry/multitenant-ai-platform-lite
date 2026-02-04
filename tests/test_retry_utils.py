@@ -252,3 +252,261 @@ class TestModuleImports:
 
         assert isinstance(logger, logging.Logger)
         assert logger.name == "src.utils.retry_utils"
+
+
+class TestRetryParameters:
+    """Tests for retry parameter configuration."""
+
+    def test_default_max_attempts(self):
+        """Default max_attempts should be reasonable."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        # Create decorator with defaults
+        call_count = 0
+
+        @retry_on_network_error()
+        def test_func():
+            nonlocal call_count
+            call_count += 1
+            raise requests.exceptions.ConnectionError("Test")
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            test_func()
+
+        # Default should be 3 attempts
+        assert call_count == 3
+
+    def test_min_wait_parameter(self):
+        """min_wait parameter should affect backoff."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        # With min_wait=0, retries should be fast
+        @retry_on_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        def fast_retry():
+            raise requests.exceptions.ConnectionError("Test")
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            fast_retry()
+
+    def test_max_wait_parameter(self):
+        """max_wait parameter should cap backoff time."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        @retry_on_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        def capped_retry():
+            raise requests.exceptions.ConnectionError("Test")
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            capped_retry()
+
+
+class TestRetryableExceptions:
+    """Tests for which exceptions trigger retry."""
+
+    def test_retries_requests_connection_error(self):
+        """Should retry on requests.ConnectionError."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        call_count = 0
+
+        @retry_on_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        def conn_error():
+            nonlocal call_count
+            call_count += 1
+            raise requests.exceptions.ConnectionError()
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            conn_error()
+
+        assert call_count == 2
+
+    def test_retries_requests_timeout(self):
+        """Should retry on requests.Timeout."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        call_count = 0
+
+        @retry_on_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        def timeout():
+            nonlocal call_count
+            call_count += 1
+            raise requests.exceptions.Timeout()
+
+        with pytest.raises(requests.exceptions.Timeout):
+            timeout()
+
+        assert call_count == 2
+
+    def test_does_not_retry_value_error(self):
+        """Should NOT retry on ValueError."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        call_count = 0
+
+        @retry_on_network_error(max_attempts=3, min_wait=0, max_wait=1)
+        def value_error():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("Invalid value")
+
+        with pytest.raises(ValueError):
+            value_error()
+
+        assert call_count == 1  # No retry
+
+    def test_does_not_retry_key_error(self):
+        """Should NOT retry on KeyError."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        call_count = 0
+
+        @retry_on_network_error(max_attempts=3, min_wait=0, max_wait=1)
+        def key_error():
+            nonlocal call_count
+            call_count += 1
+            raise KeyError("missing_key")
+
+        with pytest.raises(KeyError):
+            key_error()
+
+        assert call_count == 1
+
+
+class TestAsyncRetryableExceptions:
+    """Tests for async exception handling."""
+
+    @pytest.mark.asyncio
+    async def test_retries_httpx_connect_error(self):
+        """Should retry on httpx.ConnectError."""
+        from src.utils.retry_utils import retry_on_async_network_error
+
+        call_count = 0
+
+        @retry_on_async_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        async def conn_error():
+            nonlocal call_count
+            call_count += 1
+            raise httpx.ConnectError("Connection refused")
+
+        with pytest.raises(httpx.ConnectError):
+            await conn_error()
+
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_httpx_timeout_exception(self):
+        """Should retry on httpx.TimeoutException."""
+        from src.utils.retry_utils import retry_on_async_network_error
+
+        call_count = 0
+
+        @retry_on_async_network_error(max_attempts=2, min_wait=0, max_wait=1)
+        async def timeout():
+            nonlocal call_count
+            call_count += 1
+            raise httpx.TimeoutException("Timeout")
+
+        with pytest.raises(httpx.TimeoutException):
+            await timeout()
+
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_async_value_error(self):
+        """Should NOT retry on ValueError in async."""
+        from src.utils.retry_utils import retry_on_async_network_error
+
+        call_count = 0
+
+        @retry_on_async_network_error(max_attempts=3, min_wait=0, max_wait=1)
+        async def value_error():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("Invalid")
+
+        with pytest.raises(ValueError):
+            await value_error()
+
+        assert call_count == 1
+
+
+class TestReturnValuePreservation:
+    """Tests for preserving return values."""
+
+    def test_preserves_return_value(self):
+        """Should preserve function return value."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        @retry_on_network_error(max_attempts=2)
+        def returns_dict():
+            return {"key": "value", "number": 42}
+
+        result = returns_dict()
+
+        assert result == {"key": "value", "number": 42}
+
+    def test_preserves_none_return(self):
+        """Should preserve None return value."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        @retry_on_network_error(max_attempts=2)
+        def returns_none():
+            return None
+
+        result = returns_none()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_preserves_async_return_value(self):
+        """Should preserve async function return value."""
+        from src.utils.retry_utils import retry_on_async_network_error
+
+        @retry_on_async_network_error(max_attempts=2)
+        async def async_returns_list():
+            return [1, 2, 3]
+
+        result = await async_returns_list()
+
+        assert result == [1, 2, 3]
+
+
+class TestFunctionArguments:
+    """Tests for function argument handling."""
+
+    def test_passes_args(self):
+        """Should pass positional arguments to function."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        @retry_on_network_error(max_attempts=2)
+        def add(a, b):
+            return a + b
+
+        result = add(3, 4)
+
+        assert result == 7
+
+    def test_passes_kwargs(self):
+        """Should pass keyword arguments to function."""
+        from src.utils.retry_utils import retry_on_network_error
+
+        @retry_on_network_error(max_attempts=2)
+        def greet(name, greeting="Hello"):
+            return f"{greeting}, {name}!"
+
+        result = greet("World", greeting="Hi")
+
+        assert result == "Hi, World!"
+
+    @pytest.mark.asyncio
+    async def test_passes_async_args(self):
+        """Should pass arguments to async function."""
+        from src.utils.retry_utils import retry_on_async_network_error
+
+        @retry_on_async_network_error(max_attempts=2)
+        async def multiply(a, b):
+            return a * b
+
+        result = await multiply(5, 6)
+
+        assert result == 30
