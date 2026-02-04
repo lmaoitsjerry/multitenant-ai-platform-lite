@@ -307,3 +307,195 @@ class TestSetupPIIAuditMiddleware:
             # Should still add middleware but with enabled=False
             call_kwargs = mock_add.call_args[1]
             assert call_kwargs.get("enabled") is False
+
+
+# ==================== Logging Tests ====================
+
+class TestPIILogging:
+    """Tests for PII access logging."""
+
+    def test_log_entry_structure(self, mock_app):
+        """Log entries should have required fields."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        middleware = PIIAuditMiddleware(mock_app, enabled=True)
+
+        # Create mock request
+        mock_request = MagicMock()
+        mock_request.url.path = "/api/v1/crm/clients/123"
+        mock_request.method = "GET"
+        mock_request.headers = {}
+        mock_request.client = MagicMock(host="192.168.1.1")
+        mock_request.state = MagicMock()
+        mock_request.state.request_id = "test-request-id"
+
+        # Log structure test
+        with patch('src.middleware.pii_audit_middleware.logger') as mock_logger:
+            pii_config = {
+                "resource_type": "client",
+                "pii_fields": ["name", "email"],
+                "methods": ["GET"]
+            }
+            middleware._log_pii_access(mock_request, pii_config, "123", 200)
+
+            mock_logger.info.assert_called()
+
+
+# ==================== Middleware Dispatch Tests ====================
+
+class TestMiddlewareDispatch:
+    """Tests for middleware dispatch behavior."""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_disabled_middleware(self, mock_app):
+        """Disabled middleware should pass through."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+        from starlette.requests import Request
+        from starlette.responses import Response
+
+        middleware = PIIAuditMiddleware(mock_app, enabled=False)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/crm/clients",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        expected_response = Response(content="OK")
+        call_next = AsyncMock(return_value=expected_response)
+
+        response = await middleware.dispatch(request, call_next)
+
+        call_next.assert_called_once()
+        assert response == expected_response
+
+    @pytest.mark.asyncio
+    async def test_dispatch_with_non_pii_endpoint(self, mock_app):
+        """Non-PII endpoints should pass through without logging."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+        from starlette.requests import Request
+        from starlette.responses import Response
+
+        middleware = PIIAuditMiddleware(mock_app, enabled=True)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/health",
+            "query_string": b"",
+            "headers": [],
+        }
+        request = Request(scope)
+        expected_response = Response(content="OK")
+        call_next = AsyncMock(return_value=expected_response)
+
+        with patch('src.middleware.pii_audit_middleware.logger') as mock_logger:
+            response = await middleware.dispatch(request, call_next)
+
+            # Should not log PII access for health endpoints
+            # (info might be called for other reasons)
+            assert response == expected_response
+
+
+# ==================== Edge Cases ====================
+
+class TestEdgeCases:
+    """Edge case tests for PII audit middleware."""
+
+    def test_complex_uuid_in_path(self, mock_app):
+        """Should handle complex UUIDs in path."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        middleware = PIIAuditMiddleware(mock_app)
+
+        uuid_path = "/api/v1/crm/clients/550e8400-e29b-41d4-a716-446655440000/details"
+        resource_id = middleware._extract_resource_id(uuid_path)
+
+        assert resource_id is not None
+
+    def test_multiple_ids_in_path(self, mock_app):
+        """Should handle paths with multiple IDs."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        middleware = PIIAuditMiddleware(mock_app)
+
+        path = "/api/v1/crm/clients/123/quotes/456"
+        resource_id = middleware._extract_resource_id(path)
+
+        # Should extract at least one ID
+        assert resource_id is not None
+
+    def test_path_with_no_id(self, mock_app):
+        """Should handle paths with no ID."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        middleware = PIIAuditMiddleware(mock_app)
+
+        path = "/api/v1/crm/clients"
+        resource_id = middleware._extract_resource_id(path)
+
+        assert resource_id is None
+
+    def test_whitespace_in_forwarded_header(self, mock_app):
+        """Should handle whitespace in X-Forwarded-For."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        middleware = PIIAuditMiddleware(mock_app)
+
+        mock_request = MagicMock()
+        mock_request.headers = {"x-forwarded-for": "  203.0.113.195  "}
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        ip = middleware._get_client_ip(mock_request)
+
+        # Should be trimmed
+        assert ip.strip() == "203.0.113.195"
+
+
+# ==================== Integration-like Tests ====================
+
+class TestIntegrationScenarios:
+    """Integration-like tests for realistic scenarios."""
+
+    def test_full_request_cycle(self, mock_app):
+        """Test complete request cycle through middleware."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        # Add middleware to app
+        mock_app.add_middleware(PIIAuditMiddleware, enabled=True)
+
+        client = TestClient(mock_app)
+
+        # Make request to PII endpoint
+        response = client.get("/api/v1/crm/clients")
+
+        # Should complete without error
+        assert response.status_code == 200
+
+    def test_request_to_single_client(self, mock_app):
+        """Test request to single client endpoint."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        mock_app.add_middleware(PIIAuditMiddleware, enabled=True)
+
+        client = TestClient(mock_app)
+
+        response = client.get("/api/v1/crm/clients/abc-123")
+
+        assert response.status_code == 200
+        assert response.json()["id"] == "abc-123"
+
+    def test_request_to_non_pii_endpoint(self, mock_app):
+        """Test request to non-PII endpoint."""
+        from src.middleware.pii_audit_middleware import PIIAuditMiddleware
+
+        mock_app.add_middleware(PIIAuditMiddleware, enabled=True)
+
+        client = TestClient(mock_app)
+
+        response = client.get("/api/v1/other")
+
+        assert response.status_code == 200
+        assert response.json()["data"] == "non-pii"

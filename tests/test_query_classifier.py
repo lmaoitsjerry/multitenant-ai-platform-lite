@@ -290,3 +290,136 @@ class TestPatternMatching:
 
         # Both should be hotel_info, but second should have higher or equal confidence
         assert conf2 >= conf1
+
+
+class TestEdgeCases:
+    """Edge case tests for query classifier."""
+
+    @pytest.fixture
+    def classifier(self):
+        from src.services.query_classifier import QueryClassifier
+        return QueryClassifier()
+
+    def test_empty_query(self, classifier):
+        """Should handle empty query."""
+        from src.services.query_classifier import QueryType
+
+        query_type, confidence = classifier.classify("")
+
+        assert query_type == QueryType.GENERAL
+        assert confidence == 0.5
+
+    def test_whitespace_only_query(self, classifier):
+        """Should handle whitespace-only query."""
+        from src.services.query_classifier import QueryType
+
+        query_type, _ = classifier.classify("   ")
+
+        assert query_type == QueryType.GENERAL
+
+    def test_very_long_query(self, classifier):
+        """Should handle very long queries."""
+        from src.services.query_classifier import QueryType
+
+        long_query = "What hotels " + "do you have? " * 100
+        query_type, _ = classifier.classify(long_query)
+
+        assert query_type == QueryType.HOTEL_INFO
+
+    def test_special_characters_in_query(self, classifier):
+        """Should handle special characters."""
+        from src.services.query_classifier import QueryType
+
+        query_type, _ = classifier.classify("What hotels??? !!! @#$%")
+
+        assert query_type == QueryType.HOTEL_INFO
+
+    def test_numeric_query(self, classifier):
+        """Should handle numeric queries."""
+        from src.services.query_classifier import QueryType
+
+        query_type, _ = classifier.classify("12345")
+
+        assert query_type == QueryType.GENERAL
+
+
+class TestMixedQueryTypes:
+    """Tests for queries with multiple type indicators."""
+
+    @pytest.fixture
+    def classifier(self):
+        from src.services.query_classifier import QueryClassifier
+        return QueryClassifier()
+
+    def test_hotel_and_price(self, classifier):
+        """Query mentioning hotels and price."""
+        query_type, _ = classifier.classify("What's the price for luxury hotels?")
+
+        # Should classify as one type (not crash)
+        assert query_type is not None
+
+    def test_destination_and_booking(self, classifier):
+        """Query mentioning destination and booking."""
+        query_type, _ = classifier.classify("How do I book a trip to Zanzibar?")
+
+        assert query_type is not None
+
+
+class TestSearchParamsEdgeCases:
+    """Edge cases for search parameters."""
+
+    @pytest.fixture
+    def classifier(self):
+        from src.services.query_classifier import QueryClassifier
+        return QueryClassifier()
+
+    def test_all_query_types_have_params(self, classifier):
+        """All query types should have search params defined."""
+        from src.services.query_classifier import QueryType
+
+        for query_type in QueryType:
+            params = classifier.get_search_params(query_type)
+            assert "k" in params
+            assert "use_mmr" in params
+
+    def test_params_k_is_positive(self, classifier):
+        """k parameter should be positive."""
+        from src.services.query_classifier import QueryType
+
+        for query_type in QueryType:
+            params = classifier.get_search_params(query_type)
+            assert params["k"] > 0
+
+
+class TestGenerationParamsEdgeCases:
+    """Edge cases for generation parameters."""
+
+    @pytest.fixture
+    def classifier(self):
+        from src.services.query_classifier import QueryClassifier
+        return QueryClassifier()
+
+    def test_all_query_types_have_gen_params(self, classifier):
+        """All query types should have generation params defined."""
+        from src.services.query_classifier import QueryType
+
+        for query_type in QueryType:
+            params = classifier.get_generation_params(query_type)
+            assert "temperature" in params
+            assert "max_tokens" in params
+
+    def test_temperature_in_valid_range(self, classifier):
+        """Temperature should be between 0 and 1."""
+        from src.services.query_classifier import QueryType
+
+        for query_type in QueryType:
+            params = classifier.get_generation_params(query_type)
+            assert 0 <= params["temperature"] <= 1
+
+    def test_max_tokens_is_positive(self, classifier):
+        """max_tokens should be positive."""
+        from src.services.query_classifier import QueryType
+
+        for query_type in QueryType:
+            params = classifier.get_generation_params(query_type)
+            assert params["max_tokens"] > 0
