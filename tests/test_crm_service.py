@@ -720,5 +720,619 @@ class TestCRMServiceBatchQueries:
         assert results[0]['destination'] == 'Bali'
 
 
+# ==================== NEW TESTS: Initialization ====================
+
+class TestCRMServiceInitExtended:
+    """Extended tests for CRMService initialization with mocked SupabaseTool."""
+
+    def test_init_creates_supabase_tool(self, mock_config):
+        """CRMService.__init__ should create a SupabaseTool instance."""
+        from src.services.crm_service import CRMService
+
+        mock_supabase_instance = MagicMock()
+        with patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_supabase_instance) as mock_cls:
+            service = CRMService(mock_config)
+            mock_cls.assert_called_once_with(mock_config)
+            assert service.supabase is mock_supabase_instance
+
+    def test_init_supabase_import_error_sets_none(self, mock_config):
+        """CRMService should set supabase=None when SupabaseTool constructor raises."""
+        from src.services.crm_service import CRMService
+
+        with patch('src.tools.supabase_tool.SupabaseTool', side_effect=Exception("connection failed")):
+            service = CRMService(mock_config)
+            assert service.supabase is None
+
+    def test_init_supabase_runtime_error_sets_none(self, mock_config):
+        """CRMService should set supabase=None when SupabaseTool constructor raises RuntimeError."""
+        from src.services.crm_service import CRMService
+
+        with patch('src.tools.supabase_tool.SupabaseTool', side_effect=RuntimeError("connection failed")):
+            service = CRMService(mock_config)
+            assert service.supabase is None
+
+    def test_init_stores_client_id(self, mock_config):
+        """CRMService should store the config's client_id for tenant filtering."""
+        from src.services.crm_service import CRMService
+
+        with patch('src.tools.supabase_tool.SupabaseTool', side_effect=Exception("skip")):
+            service = CRMService(mock_config)
+            assert service.config.client_id == "test_tenant"
+
+
+# ==================== NEW TESTS: PipelineStage Enum ====================
+
+class TestPipelineStageExtended:
+    """Extended tests for PipelineStage enum values and ordering."""
+
+    def test_pipeline_stage_ordering(self):
+        """PipelineStage enum should iterate in the declared order."""
+        from src.services.crm_service import PipelineStage
+
+        stages = list(PipelineStage)
+        assert stages[0] == PipelineStage.QUOTED
+        assert stages[1] == PipelineStage.NEGOTIATING
+        assert stages[2] == PipelineStage.BOOKED
+        assert stages[3] == PipelineStage.PAID
+        assert stages[4] == PipelineStage.TRAVELLED
+        assert stages[5] == PipelineStage.LOST
+
+    def test_pipeline_stage_from_value(self):
+        """PipelineStage should be constructable from a string value."""
+        from src.services.crm_service import PipelineStage
+
+        assert PipelineStage("QUOTED") == PipelineStage.QUOTED
+        assert PipelineStage("LOST") == PipelineStage.LOST
+
+    def test_pipeline_stage_invalid_value_raises(self):
+        """PipelineStage should raise ValueError for unknown string."""
+        from src.services.crm_service import PipelineStage
+
+        with pytest.raises(ValueError):
+            PipelineStage("INVALID_STAGE")
+
+    def test_pipeline_stage_name_equals_value(self):
+        """Each PipelineStage name should equal its value (all uppercase convention)."""
+        from src.services.crm_service import PipelineStage
+
+        for stage in PipelineStage:
+            assert stage.name == stage.value
+
+
+# ==================== NEW TESTS: get_or_create_client ====================
+
+class TestGetOrCreateClientExtended:
+    """Extended tests for get_or_create_client method."""
+
+    def test_returns_none_when_supabase_client_is_none(self, mock_config, mock_supabase):
+        """get_or_create_client returns None when supabase.client is None."""
+        from src.services.crm_service import CRMService
+
+        with patch.object(CRMService, '__init__', return_value=None):
+            service = CRMService.__new__(CRMService)
+            service.config = mock_config
+            service.supabase = MagicMock()
+            service.supabase.client = None
+
+            result = service.get_or_create_client(email="test@example.com", name="Test")
+            assert result is None
+
+    def test_new_client_gets_cli_prefix_id(self, crm_service_with_mock_db, mock_supabase):
+        """Newly created client should have a CLI-XXXXXXXX format ID."""
+        from src.services.crm_service import CRMService
+
+        # No existing client
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        # Capture what gets inserted
+        mock_insert_result = MagicMock()
+        mock_insert_result.data = [{"client_id": "CLI-ABCD1234", "email": "new@example.com", "name": "New"}]
+        mock_supabase.client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+        result = crm_service_with_mock_db.get_or_create_client(email="new@example.com", name="New")
+
+        # Verify insert was called with a record whose client_id starts with CLI-
+        insert_call_args = mock_supabase.client.table.return_value.insert.call_args
+        record = insert_call_args[0][0]
+        assert record['client_id'].startswith('CLI-')
+        assert len(record['client_id']) == 12  # CLI- + 8 hex chars
+
+    def test_new_client_starts_in_quoted_stage(self, crm_service_with_mock_db, mock_supabase):
+        """New client should be created with QUOTED pipeline stage."""
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        mock_insert_result = MagicMock()
+        mock_insert_result.data = [{"client_id": "CLI-12345678", "email": "new@example.com"}]
+        mock_supabase.client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+        crm_service_with_mock_db.get_or_create_client(email="new@example.com", name="New")
+
+        record = mock_supabase.client.table.return_value.insert.call_args[0][0]
+        assert record['pipeline_stage'] == "QUOTED"
+        assert record['quote_count'] == 1
+
+    def test_returns_none_when_insert_returns_no_data(self, crm_service_with_mock_db, mock_supabase):
+        """get_or_create_client returns None when insert returns empty data."""
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        mock_insert_result = MagicMock()
+        mock_insert_result.data = []
+        mock_supabase.client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+        result = crm_service_with_mock_db.get_or_create_client(email="new@example.com", name="New")
+        assert result is None
+
+    def test_handles_exception_during_creation(self, crm_service_with_mock_db, mock_supabase):
+        """get_or_create_client returns None when insert raises an exception."""
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        mock_supabase.client.table.return_value.insert.return_value.execute.side_effect = Exception("DB error")
+
+        result = crm_service_with_mock_db.get_or_create_client(email="new@example.com", name="New")
+        assert result is None
+
+    def test_passes_optional_fields_to_insert(self, crm_service_with_mock_db, mock_supabase):
+        """get_or_create_client passes phone, source, consultant_id to insert."""
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        mock_insert_result = MagicMock()
+        mock_insert_result.data = [{"client_id": "CLI-12345678"}]
+        mock_supabase.client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+        crm_service_with_mock_db.get_or_create_client(
+            email="new@example.com",
+            name="New",
+            phone="+27123456789",
+            source="email",
+            consultant_id="CONS-001"
+        )
+
+        record = mock_supabase.client.table.return_value.insert.call_args[0][0]
+        assert record['phone'] == "+27123456789"
+        assert record['source'] == "email"
+        assert record['consultant_id'] == "CONS-001"
+
+
+# ==================== NEW TESTS: get_client_by_email ====================
+
+class TestGetClientByEmailExtended:
+    """Extended tests for get_client_by_email method."""
+
+    def test_returns_none_when_supabase_client_is_none(self, mock_config):
+        """get_client_by_email returns None when supabase exists but client is None."""
+        from src.services.crm_service import CRMService
+
+        with patch.object(CRMService, '__init__', return_value=None):
+            service = CRMService.__new__(CRMService)
+            service.config = mock_config
+            service.supabase = MagicMock()
+            service.supabase.client = None
+
+            assert service.get_client_by_email("test@example.com") is None
+
+    def test_handles_database_exception(self, crm_service_with_mock_db, mock_supabase):
+        """get_client_by_email returns None on database exception."""
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.side_effect = Exception("timeout")
+
+        result = crm_service_with_mock_db.get_client_by_email("test@example.com")
+        assert result is None
+
+    def test_returns_none_for_none_data(self, crm_service_with_mock_db, mock_supabase):
+        """get_client_by_email returns None when result.data is None."""
+        mock_result = MagicMock()
+        mock_result.data = None
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_result
+
+        result = crm_service_with_mock_db.get_client_by_email("test@example.com")
+        assert result is None
+
+
+# ==================== NEW TESTS: update_client ====================
+
+class TestUpdateClientExtended:
+    """Extended tests for update_client with partial and field updates."""
+
+    def test_partial_update_name_only(self, crm_service_with_mock_db, mock_supabase):
+        """update_client should only include name in update_data when only name is given."""
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+
+        crm_service_with_mock_db.update_client("CLI-12345", name="New Name")
+
+        call_args = mock_supabase.client.table.return_value.update.call_args[0][0]
+        assert call_args['name'] == "New Name"
+        assert 'phone' not in call_args
+        assert 'consultant_id' not in call_args
+        assert 'quote_count' not in call_args
+        assert 'total_value' not in call_args
+        assert 'updated_at' in call_args
+
+    def test_partial_update_total_value(self, crm_service_with_mock_db, mock_supabase):
+        """update_client should update total_value when provided."""
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+
+        crm_service_with_mock_db.update_client("CLI-12345", total_value=15000.50)
+
+        call_args = mock_supabase.client.table.return_value.update.call_args[0][0]
+        assert call_args['total_value'] == 15000.50
+
+    def test_update_with_uuid_format(self, crm_service_with_mock_db, mock_supabase):
+        """update_client should use 'id' column for UUID format client IDs."""
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+
+        result = crm_service_with_mock_db.update_client("uuid-abc-123", name="Name")
+        assert result is True
+
+    def test_update_handles_exception(self, crm_service_with_mock_db, mock_supabase):
+        """update_client returns False when database raises an exception."""
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.side_effect = Exception("DB error")
+
+        result = crm_service_with_mock_db.update_client("CLI-12345", name="Name")
+        assert result is False
+
+    def test_update_all_fields(self, crm_service_with_mock_db, mock_supabase):
+        """update_client should include all fields when all are provided."""
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+
+        crm_service_with_mock_db.update_client(
+            "CLI-12345",
+            name="Full Name",
+            phone="+1234",
+            consultant_id="CONS-X",
+            quote_count=5,
+            total_value=99999.99
+        )
+
+        call_args = mock_supabase.client.table.return_value.update.call_args[0][0]
+        assert call_args['name'] == "Full Name"
+        assert call_args['phone'] == "+1234"
+        assert call_args['consultant_id'] == "CONS-X"
+        assert call_args['quote_count'] == 5
+        assert call_args['total_value'] == 99999.99
+
+
+# ==================== NEW TESTS: update_stage ====================
+
+class TestUpdateStageExtended:
+    """Extended tests for update_stage method - transitions and logging."""
+
+    def test_update_stage_to_each_stage(self, crm_service_with_mock_db, mock_supabase):
+        """update_stage should succeed for every PipelineStage value."""
+        from src.services.crm_service import PipelineStage
+
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+        mock_supabase.log_activity = MagicMock()
+
+        for stage in PipelineStage:
+            result = crm_service_with_mock_db.update_stage("CLI-12345", stage)
+            assert result is True
+
+    def test_update_stage_logs_correct_description(self, crm_service_with_mock_db, mock_supabase):
+        """update_stage should log the correct stage value in the activity description."""
+        from src.services.crm_service import PipelineStage
+
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+        mock_supabase.log_activity = MagicMock()
+
+        crm_service_with_mock_db.update_stage("CLI-12345", PipelineStage.PAID)
+
+        mock_supabase.log_activity.assert_called_once_with(
+            client_id='CLI-12345',
+            activity_type='stage_change',
+            description='Pipeline stage changed to PAID'
+        )
+
+    def test_update_stage_handles_exception(self, crm_service_with_mock_db, mock_supabase):
+        """update_stage returns False when database update raises exception."""
+        from src.services.crm_service import PipelineStage
+
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.side_effect = Exception("DB error")
+
+        result = crm_service_with_mock_db.update_stage("CLI-12345", PipelineStage.BOOKED)
+        assert result is False
+
+    def test_update_stage_uses_uuid_for_non_cli_id(self, crm_service_with_mock_db, mock_supabase):
+        """update_stage should work with UUID format client IDs."""
+        from src.services.crm_service import PipelineStage
+
+        mock_supabase.client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+        mock_supabase.log_activity = MagicMock()
+
+        result = crm_service_with_mock_db.update_stage("uuid-abc", PipelineStage.LOST)
+        assert result is True
+
+
+# ==================== NEW TESTS: search_clients / list_clients ====================
+
+class TestSearchClientsExtended:
+    """Extended tests for search_clients with filters, pagination, edge cases."""
+
+    def test_filters_by_stage(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should apply stage filter to the query."""
+        from src.services.crm_service import PipelineStage
+
+        mock_result = MagicMock()
+        mock_result.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.eq.return_value.execute.return_value = mock_result
+
+        crm_service_with_mock_db.search_clients(stage=PipelineStage.BOOKED)
+
+        # Verify the chain was called (the .eq for stage filter)
+        mock_supabase.client.table.assert_called()
+
+    def test_filters_by_consultant_id(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should filter by consultant_id when provided."""
+        mock_result = MagicMock()
+        mock_result.data = []
+        # Deep chain mock for stage + consultant filters
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.eq.return_value.execute.return_value = mock_result
+
+        crm_service_with_mock_db.search_clients(consultant_id="CONS-001")
+        mock_supabase.client.table.assert_called()
+
+    def test_search_by_email_query(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should match query against email addresses."""
+        clients = [
+            {"client_id": "CLI-001", "name": "Alpha", "email": "alpha@special.com", "phone": None},
+            {"client_id": "CLI-002", "name": "Beta", "email": "beta@example.com", "phone": None}
+        ]
+
+        mock_result = MagicMock()
+        mock_result.data = clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value = mock_result
+
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value = mock_empty
+
+        result = crm_service_with_mock_db.search_clients(query="special")
+
+        assert len(result) == 1
+        assert result[0]["email"] == "alpha@special.com"
+
+    def test_search_by_phone_query(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should match query against phone numbers."""
+        clients = [
+            {"client_id": "CLI-001", "name": "Alpha", "email": "a@test.com", "phone": "+27821234567"},
+            {"client_id": "CLI-002", "name": "Beta", "email": "b@test.com", "phone": "+44987654321"}
+        ]
+
+        mock_result = MagicMock()
+        mock_result.data = clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value = mock_result
+
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value = mock_empty
+
+        result = crm_service_with_mock_db.search_clients(query="+2782")
+
+        assert len(result) == 1
+        assert result[0]["client_id"] == "CLI-001"
+
+    def test_search_case_insensitive(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients query matching should be case-insensitive."""
+        clients = [
+            {"client_id": "CLI-001", "name": "John DOE", "email": "john@test.com", "phone": None}
+        ]
+
+        mock_result = MagicMock()
+        mock_result.data = clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value = mock_result
+
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value = mock_empty
+
+        result = crm_service_with_mock_db.search_clients(query="john doe")
+
+        assert len(result) == 1
+
+    def test_search_handles_exception(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients returns empty list when database query raises."""
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.side_effect = Exception("timeout")
+
+        result = crm_service_with_mock_db.search_clients()
+        assert result == []
+
+    def test_search_enriches_with_last_activity_fallback(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should fall back to updated_at when no activities exist."""
+        clients = [
+            {"client_id": "CLI-001", "name": "A", "email": "a@test.com", "total_value": 0, "updated_at": "2024-06-01"}
+        ]
+
+        def table_handler(table_name):
+            mock = MagicMock()
+            if table_name == 'clients':
+                mock.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = clients
+            elif table_name == 'quotes':
+                mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = []
+            elif table_name == 'activities':
+                mock.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value.data = []
+            return mock
+
+        mock_supabase.client.table = table_handler
+
+        result = crm_service_with_mock_db.search_clients()
+
+        assert len(result) == 1
+        assert result[0]['last_activity'] == '2024-06-01'
+
+
+# ==================== NEW TESTS: get_pipeline_summary ====================
+
+class TestGetPipelineSummaryExtended:
+    """Extended tests for get_pipeline_summary counts and values."""
+
+    @patch('src.services.crm_service.get_redis_client', return_value=None)
+    def test_all_stages_present_in_summary(self, mock_redis, crm_service_with_mock_db, mock_supabase):
+        """get_pipeline_summary should include all 6 stages even with no clients."""
+        from src.services.crm_service import PipelineStage
+
+        mock_clients = MagicMock()
+        mock_clients.data = []
+        mock_active = MagicMock()
+        mock_active.data = []
+
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.execute.return_value = mock_active
+
+        result = crm_service_with_mock_db.get_pipeline_summary()
+
+        for stage in PipelineStage:
+            assert stage.value in result
+            assert result[stage.value]['count'] == 0
+            assert result[stage.value]['value'] == 0
+
+    @patch('src.services.crm_service.get_redis_client', return_value=None)
+    def test_pipeline_summary_handles_exception(self, mock_redis, crm_service_with_mock_db, mock_supabase):
+        """get_pipeline_summary returns empty dict on exception."""
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.side_effect = Exception("DB down")
+
+        result = crm_service_with_mock_db.get_pipeline_summary()
+        assert result == {}
+
+    @patch('src.services.crm_service.get_redis_client')
+    def test_pipeline_summary_uses_redis_cache(self, mock_get_redis, crm_service_with_mock_db, mock_supabase):
+        """get_pipeline_summary should return cached result from Redis when available."""
+        import json
+
+        cached_data = {"QUOTED": {"count": 5, "value": 1000}}
+        mock_redis_client = MagicMock()
+        mock_redis_client.get.return_value = json.dumps(cached_data)
+        mock_get_redis.return_value = mock_redis_client
+
+        result = crm_service_with_mock_db.get_pipeline_summary()
+
+        assert result == cached_data
+        # Supabase should not have been called because cache was hit
+        mock_supabase.client.table.assert_not_called()
+
+    @patch('src.services.crm_service.get_redis_client')
+    def test_pipeline_summary_caches_result_in_redis(self, mock_get_redis, crm_service_with_mock_db, mock_supabase):
+        """get_pipeline_summary should cache the computed result in Redis."""
+        import json
+
+        mock_redis_client = MagicMock()
+        mock_redis_client.get.return_value = None  # No cache
+        mock_get_redis.return_value = mock_redis_client
+
+        mock_clients = MagicMock()
+        mock_clients.data = [{"pipeline_stage": "QUOTED"}]
+        mock_active = MagicMock()
+        mock_active.data = []
+
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.execute.return_value = mock_active
+
+        crm_service_with_mock_db.get_pipeline_summary()
+
+        # Redis setex should be called with 60s TTL
+        mock_redis_client.setex.assert_called_once()
+        args = mock_redis_client.setex.call_args[0]
+        assert args[1] == 60  # TTL
+
+
+# ==================== NEW TESTS: Edge cases ====================
+
+class TestCRMServiceEdgeCases:
+    """Edge cases: empty strings, None values, special characters."""
+
+    def test_get_client_by_email_empty_string(self, crm_service_with_mock_db, mock_supabase):
+        """get_client_by_email with empty string should still query (no crash)."""
+        mock_result = MagicMock()
+        mock_result.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_result
+
+        result = crm_service_with_mock_db.get_client_by_email("")
+        assert result is None
+
+    def test_search_clients_special_chars_in_query(self, crm_service_with_mock_db, mock_supabase):
+        """search_clients should handle special characters in query without error."""
+        clients = [
+            {"client_id": "CLI-001", "name": "O'Malley & Sons", "email": "omalley@test.com", "phone": None}
+        ]
+
+        mock_result = MagicMock()
+        mock_result.data = clients
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value = mock_result
+
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.in_.return_value.order.return_value.execute.return_value = mock_empty
+
+        result = crm_service_with_mock_db.search_clients(query="O'Malley")
+        assert len(result) == 1
+
+    def test_count_by_field_empty_list(self, crm_service_with_mock_db):
+        """_count_by_field should return empty dict for empty items list."""
+        result = crm_service_with_mock_db._count_by_field([], "source")
+        assert result == {}
+
+    def test_get_client_id_filter_empty_string(self, crm_service_with_mock_db):
+        """_get_client_id_filter with empty string should return 'id' column."""
+        column, value = crm_service_with_mock_db._get_client_id_filter("")
+        assert column == "id"
+        assert value == ""
+
+    def test_get_activities_returns_empty_on_exception(self, crm_service_with_mock_db, mock_supabase):
+        """get_activities returns empty list when database raises exception."""
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.side_effect = Exception("err")
+
+        result = crm_service_with_mock_db.get_activities("CLI-12345")
+        assert result == []
+
+    def test_get_client_stats_handles_none_total_price(self, crm_service_with_mock_db, mock_supabase):
+        """get_client_stats should treat None total_price as 0."""
+        mock_clients = MagicMock()
+        mock_clients.data = [{"pipeline_stage": "QUOTED", "source": "web"}]
+        mock_quotes = MagicMock()
+        mock_quotes.data = [{"total_price": None}, {"total_price": 500}]
+
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.side_effect = [
+            mock_clients,
+            mock_quotes
+        ]
+
+        with patch('src.services.crm_service.get_redis_client', return_value=None):
+            result = crm_service_with_mock_db.get_client_stats()
+
+        assert result['total_value'] == 500
+
+    def test_get_client_exception_returns_none(self, crm_service_with_mock_db, mock_supabase):
+        """get_client returns None when database query raises."""
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.side_effect = Exception("err")
+
+        result = crm_service_with_mock_db.get_client("CLI-12345")
+        assert result is None
+
+    def test_get_or_create_client_with_special_chars_in_name(self, crm_service_with_mock_db, mock_supabase):
+        """get_or_create_client should handle special characters in name."""
+        mock_empty = MagicMock()
+        mock_empty.data = []
+        mock_supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = mock_empty
+
+        mock_insert_result = MagicMock()
+        mock_insert_result.data = [{"client_id": "CLI-12345678", "name": "Jose Garcia-Lopez", "email": "jose@test.com"}]
+        mock_supabase.client.table.return_value.insert.return_value.execute.return_value = mock_insert_result
+
+        result = crm_service_with_mock_db.get_or_create_client(
+            email="jose@test.com",
+            name="Jose Garcia-Lopez"
+        )
+
+        assert result is not None
+        assert result['created'] is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

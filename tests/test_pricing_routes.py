@@ -958,5 +958,1057 @@ class TestBigQueryClientCreation:
         assert client is None
 
 
+# ==================== NEW TESTS: Pydantic Model Validation Extended ====================
+
+class TestRateBaseModelExtended:
+    """Extended tests for RateBase Pydantic model."""
+
+    def test_rate_base_rejects_zero_nights(self):
+        """RateBase rejects nights=0 (minimum is 1)."""
+        from src.api.pricing_routes import RateBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RateBase(
+                hotel_name="Test Hotel",
+                destination="Cape Town",
+                room_type="Standard",
+                meal_plan="BB",
+                check_in_date="2025-01-01",
+                check_out_date="2025-01-08",
+                nights=0,
+                total_7nights_pps=1200.0
+            )
+
+    def test_rate_base_rejects_negative_nights(self):
+        """RateBase rejects negative nights."""
+        from src.api.pricing_routes import RateBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RateBase(
+                hotel_name="Test Hotel",
+                destination="Cape Town",
+                room_type="Standard",
+                meal_plan="BB",
+                check_in_date="2025-01-01",
+                check_out_date="2025-01-08",
+                nights=-1,
+                total_7nights_pps=1200.0
+            )
+
+    def test_rate_base_rejects_over_30_nights(self):
+        """RateBase rejects nights > 30."""
+        from src.api.pricing_routes import RateBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RateBase(
+                hotel_name="Test Hotel",
+                destination="Cape Town",
+                room_type="Standard",
+                meal_plan="BB",
+                check_in_date="2025-01-01",
+                check_out_date="2025-02-15",
+                nights=31,
+                total_7nights_pps=1200.0
+            )
+
+    def test_rate_base_defaults_for_optional_fields(self):
+        """RateBase optional fields have correct defaults."""
+        from src.api.pricing_routes import RateBase
+
+        rate = RateBase(
+            hotel_name="Test Hotel",
+            destination="Maldives",
+            room_type="Suite",
+            meal_plan="AI",
+            check_in_date="2025-03-01",
+            check_out_date="2025-03-08",
+            nights=7,
+            total_7nights_pps=3500.0
+        )
+
+        assert rate.total_7nights_single is None
+        assert rate.total_7nights_child is None
+        assert rate.flights_adult == 0
+        assert rate.flights_child == 0
+        assert rate.transfers_adult == 0
+        assert rate.transfers_child == 0
+        assert rate.is_active is True
+
+    def test_rate_base_accepts_max_nights(self):
+        """RateBase accepts nights=30 (maximum)."""
+        from src.api.pricing_routes import RateBase
+
+        rate = RateBase(
+            hotel_name="Test Hotel",
+            destination="Bali",
+            room_type="Villa",
+            meal_plan="FB",
+            check_in_date="2025-01-01",
+            check_out_date="2025-01-31",
+            nights=30,
+            total_7nights_pps=5000.0
+        )
+        assert rate.nights == 30
+
+    def test_rate_base_missing_required_field_raises(self):
+        """RateBase raises ValidationError when required fields are missing."""
+        from src.api.pricing_routes import RateBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RateBase(
+                hotel_name="Test Hotel",
+                destination="Cape Town",
+                # Missing room_type, meal_plan, dates, nights, price
+            )
+
+
+class TestRateUpdateModelExtended:
+    """Extended tests for RateUpdate Pydantic model."""
+
+    def test_rate_update_empty_is_valid(self):
+        """RateUpdate with no fields is valid (all optional)."""
+        from src.api.pricing_routes import RateUpdate
+
+        update = RateUpdate()
+        assert update.room_type is None
+        assert update.meal_plan is None
+        assert update.total_7nights_pps is None
+        assert update.is_active is None
+
+    def test_rate_update_single_price_field(self):
+        """RateUpdate can update just the price."""
+        from src.api.pricing_routes import RateUpdate
+
+        update = RateUpdate(total_7nights_pps=1800.0)
+        dumped = update.model_dump(exclude_unset=True)
+        assert dumped == {"total_7nights_pps": 1800.0}
+
+    def test_rate_update_multiple_fields(self):
+        """RateUpdate can update several fields at once."""
+        from src.api.pricing_routes import RateUpdate
+
+        update = RateUpdate(
+            room_type="Deluxe",
+            meal_plan="AI",
+            total_7nights_pps=2200.0,
+            flights_adult=600.0
+        )
+        assert update.room_type == "Deluxe"
+        assert update.meal_plan == "AI"
+        assert update.total_7nights_pps == 2200.0
+        assert update.flights_adult == 600.0
+
+    def test_rate_update_deactivate(self):
+        """RateUpdate can deactivate a rate."""
+        from src.api.pricing_routes import RateUpdate
+
+        update = RateUpdate(is_active=False)
+        dumped = update.model_dump(exclude_unset=True)
+        assert dumped == {"is_active": False}
+
+
+class TestHotelModelExtended:
+    """Extended tests for Hotel Pydantic models."""
+
+    def test_hotel_base_rejects_star_rating_zero(self):
+        """HotelBase rejects star_rating=0 (minimum is 1)."""
+        from src.api.pricing_routes import HotelBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HotelBase(
+                hotel_name="Test Hotel",
+                destination="Cape Town",
+                star_rating=0
+            )
+
+    def test_hotel_base_with_amenities(self):
+        """HotelBase accepts amenities list."""
+        from src.api.pricing_routes import HotelBase
+
+        hotel = HotelBase(
+            hotel_name="Grand Resort",
+            destination="Maldives",
+            star_rating=5,
+            amenities=["pool", "spa", "gym", "restaurant"],
+            adults_only=True
+        )
+        assert len(hotel.amenities) == 4
+        assert hotel.adults_only is True
+
+    def test_hotel_base_rejects_short_name(self):
+        """HotelBase rejects hotel_name shorter than 2 characters."""
+        from src.api.pricing_routes import HotelBase
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HotelBase(
+                hotel_name="X",
+                destination="Test"
+            )
+
+    def test_hotel_create_inherits_from_base(self):
+        """HotelCreate inherits all fields from HotelBase."""
+        from src.api.pricing_routes import HotelCreate
+
+        hotel = HotelCreate(
+            hotel_name="New Resort",
+            destination="Zanzibar",
+            star_rating=4,
+            description="A beautiful resort"
+        )
+        assert hotel.hotel_name == "New Resort"
+        assert hotel.description == "A beautiful resort"
+
+    def test_hotel_update_all_optional(self):
+        """HotelUpdate has all optional fields."""
+        from src.api.pricing_routes import HotelUpdate
+
+        update = HotelUpdate()
+        assert update.hotel_name is None
+        assert update.destination is None
+        assert update.star_rating is None
+        assert update.is_active is None
+
+
+class TestSeasonDefinitionExtended:
+    """Extended tests for SeasonDefinition model."""
+
+    def test_season_definition_default_multiplier(self):
+        """SeasonDefinition defaults to price_multiplier=1.0."""
+        from src.api.pricing_routes import SeasonDefinition
+
+        season = SeasonDefinition(
+            destination="Cape Town",
+            season_name="Shoulder",
+            start_date="03-01",
+            end_date="05-31"
+        )
+        assert season.price_multiplier == 1.0
+
+    def test_season_definition_low_season(self):
+        """SeasonDefinition can represent low season with multiplier < 1."""
+        from src.api.pricing_routes import SeasonDefinition
+
+        season = SeasonDefinition(
+            destination="Zanzibar",
+            season_name="Low",
+            start_date="04-01",
+            end_date="06-30",
+            price_multiplier=0.75
+        )
+        assert season.price_multiplier == 0.75
+
+
+class TestImportResultExtended:
+    """Extended tests for ImportResult model."""
+
+    def test_import_result_no_errors(self):
+        """ImportResult with empty errors list."""
+        from src.api.pricing_routes import ImportResult
+
+        result = ImportResult(
+            success=True,
+            total_rows=50,
+            imported=50,
+            errors=[]
+        )
+        assert result.success is True
+        assert len(result.errors) == 0
+        assert result.total_rows == result.imported
+
+    def test_import_result_partial_failure(self):
+        """ImportResult with some errors."""
+        from src.api.pricing_routes import ImportResult
+
+        result = ImportResult(
+            success=False,
+            total_rows=100,
+            imported=87,
+            errors=[
+                {"row": 5, "error": "Invalid date format"},
+                {"row": 23, "error": "Missing hotel_name"},
+                {"row": 45, "error": "Negative price"}
+            ]
+        )
+        assert result.success is False
+        assert result.imported == 87
+        assert len(result.errors) == 3
+
+
+# ==================== NEW TESTS: list_rates with filters ====================
+
+class TestListRatesFilters:
+    """Tests for list_rates with various query filters."""
+
+    @pytest.mark.asyncio
+    async def test_list_rates_with_destination_filter(self, mock_config):
+        """list_rates passes destination filter to BigQuery query."""
+        from src.api.pricing_routes import list_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = []
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = []
+
+            result = await list_rates(
+                destination="Zanzibar",
+                hotel_name=None,
+                meal_plan=None,
+                is_active=True,
+                check_in_after=None,
+                check_in_before=None,
+                limit=100,
+                offset=0,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['data'] == []
+        assert result['count'] == 0
+
+    @pytest.mark.asyncio
+    async def test_list_rates_with_date_range(self, mock_config):
+        """list_rates with check_in_after and check_in_before filters."""
+        from src.api.pricing_routes import list_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = []
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = []
+
+            result = await list_rates(
+                destination=None,
+                hotel_name=None,
+                meal_plan=None,
+                is_active=True,
+                check_in_after="2025-06-01",
+                check_in_before="2025-08-31",
+                limit=50,
+                offset=0,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+
+    @pytest.mark.asyncio
+    async def test_list_rates_with_pagination(self, mock_config):
+        """list_rates respects limit and offset parameters."""
+        from src.api.pricing_routes import list_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = []
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = []
+
+            result = await list_rates(
+                destination=None,
+                hotel_name=None,
+                meal_plan=None,
+                is_active=True,
+                check_in_after=None,
+                check_in_before=None,
+                limit=10,
+                offset=20,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+
+
+# ==================== NEW TESTS: get_rate found / not-found ====================
+
+class TestGetRateUnitExtended:
+    """Extended unit tests for get_rate endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_get_rate_found(self, mock_config):
+        """get_rate returns rate data when found."""
+        from src.api.pricing_routes import get_rate
+        import src.api.pricing_routes as pricing_module
+
+        rate_data = {
+            'rate_id': 'RATE-ABC123',
+            'hotel_name': 'Beach Resort',
+            'destination': 'Zanzibar',
+            'room_type': 'Deluxe',
+            'meal_plan': 'AI',
+            'check_in_date': '2025-06-01',
+            'check_out_date': '2025-06-08',
+            'nights': 7,
+            'total_7nights_pps': 2500.0,
+            'is_active': True
+        }
+
+        mock_row = MagicMock()
+        mock_row.__iter__ = lambda s: iter(rate_data.items())
+        mock_row.keys.return_value = rate_data.keys()
+        mock_row.values.return_value = rate_data.values()
+        mock_row.items.return_value = rate_data.items()
+        mock_row.get = lambda key, default=None: rate_data.get(key, default)
+        mock_row.__getitem__ = lambda s, key: rate_data[key]
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = [rate_data]
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await get_rate(rate_id="RATE-ABC123", config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['rate_id'] == 'RATE-ABC123'
+        assert result['data']['hotel_name'] == 'Beach Resort'
+
+    @pytest.mark.asyncio
+    async def test_get_rate_bigquery_error(self, mock_config):
+        """get_rate raises 500 on BigQuery exception."""
+        from src.api.pricing_routes import get_rate
+        from fastapi import HTTPException
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.query.side_effect = Exception("BigQuery connection lost")
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            with pytest.raises(HTTPException) as exc_info:
+                await get_rate(rate_id="RATE-001", config=mock_config)
+
+            assert exc_info.value.status_code == 500
+
+
+# ==================== NEW TESTS: create_rate with various data ====================
+
+class TestCreateRateUnitExtended:
+    """Extended unit tests for create_rate."""
+
+    @pytest.mark.asyncio
+    async def test_create_rate_generates_rate_id(self, mock_config):
+        """create_rate generates a RATE-XXXXXXXX format ID."""
+        from src.api.pricing_routes import create_rate, RateCreate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = []
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            rate = RateCreate(
+                hotel_name="Ocean View",
+                destination="Maldives",
+                room_type="Water Villa",
+                meal_plan="AI",
+                check_in_date="2025-07-01",
+                check_out_date="2025-07-08",
+                nights=7,
+                total_7nights_pps=4500.0
+            )
+
+            result = await create_rate(rate=rate, config=mock_config)
+
+        rate_id = result['data']['rate_id']
+        assert rate_id.startswith("RATE-")
+        assert len(rate_id) == 13  # RATE- + 8 hex chars
+
+    @pytest.mark.asyncio
+    async def test_create_rate_with_all_optional_fields(self, mock_config):
+        """create_rate includes optional fields (flights, transfers)."""
+        from src.api.pricing_routes import create_rate, RateCreate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = []
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            rate = RateCreate(
+                hotel_name="Luxury Resort",
+                destination="Seychelles",
+                room_type="Presidential Suite",
+                meal_plan="AI",
+                check_in_date="2025-12-20",
+                check_out_date="2025-12-27",
+                nights=7,
+                total_7nights_pps=8000.0,
+                total_7nights_single=12000.0,
+                total_7nights_child=4000.0,
+                flights_adult=800.0,
+                flights_child=400.0,
+                transfers_adult=150.0,
+                transfers_child=75.0
+            )
+
+            result = await create_rate(rate=rate, config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['flights_adult'] == 800.0
+        assert result['data']['transfers_child'] == 75.0
+
+    @pytest.mark.asyncio
+    async def test_create_rate_calls_insert_rows_json(self, mock_config):
+        """create_rate calls BigQuery insert_rows_json with correct table."""
+        from src.api.pricing_routes import create_rate, RateCreate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = []
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            rate = RateCreate(
+                hotel_name="Test",
+                destination="Test",
+                room_type="Standard",
+                meal_plan="BB",
+                check_in_date="2025-01-01",
+                check_out_date="2025-01-08",
+                nights=7,
+                total_7nights_pps=1000.0
+            )
+
+            await create_rate(rate=rate, config=mock_config)
+
+        # Verify insert was called
+        mock_client.insert_rows_json.assert_called_once()
+        call_args = mock_client.insert_rows_json.call_args
+        table_id = call_args[0][0]
+        assert "hotel_rates" in table_id
+        assert mock_config.gcp_project_id in table_id
+
+
+# ==================== NEW TESTS: update_rate with different field types ====================
+
+class TestUpdateRateUnitExtended:
+    """Extended unit tests for update_rate."""
+
+    @pytest.mark.asyncio
+    async def test_update_rate_price_only(self, mock_config):
+        """update_rate with only price field calls BQ with correct params."""
+        from src.api.pricing_routes import update_rate, RateUpdate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = None
+        mock_client.query.return_value = mock_query_job
+
+        # For the get_rate call after update
+        rate_data = {
+            'rate_id': 'RATE-001',
+            'hotel_name': 'Test',
+            'destination': 'Test',
+            'room_type': 'Standard',
+            'meal_plan': 'BB',
+            'check_in_date': '2025-01-01',
+            'check_out_date': '2025-01-08',
+            'nights': 7,
+            'total_7nights_pps': 1800.0,
+            'is_active': True
+        }
+
+        # Second call (get_rate) returns the data
+        def query_side_effect(*args, **kwargs):
+            job = MagicMock()
+            if "UPDATE" in args[0]:
+                job.result.return_value = None
+            else:
+                job.result.return_value = [rate_data]
+            return job
+
+        mock_client.query.side_effect = query_side_effect
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            update = RateUpdate(total_7nights_pps=1800.0)
+            result = await update_rate(rate_id="RATE-001", update=update, config=mock_config)
+
+        assert result['success'] is True
+
+    @pytest.mark.asyncio
+    async def test_update_rate_deactivate(self, mock_config):
+        """update_rate can deactivate a rate via is_active=False."""
+        from src.api.pricing_routes import update_rate, RateUpdate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+
+        rate_data = {
+            'rate_id': 'RATE-002',
+            'hotel_name': 'Test',
+            'destination': 'Test',
+            'room_type': 'Standard',
+            'meal_plan': 'BB',
+            'check_in_date': '2025-01-01',
+            'check_out_date': '2025-01-08',
+            'nights': 7,
+            'total_7nights_pps': 1200.0,
+            'is_active': False
+        }
+
+        def query_side_effect(*args, **kwargs):
+            job = MagicMock()
+            if "UPDATE" in args[0]:
+                job.result.return_value = None
+            else:
+                job.result.return_value = [rate_data]
+            return job
+
+        mock_client.query.side_effect = query_side_effect
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            update = RateUpdate(is_active=False)
+            result = await update_rate(rate_id="RATE-002", update=update, config=mock_config)
+
+        assert result['success'] is True
+
+
+# ==================== NEW TESTS: delete_rate soft vs hard ====================
+
+class TestDeleteRateUnitExtended:
+    """Extended unit tests for delete_rate endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_delete_rate_soft_uses_update_query(self, mock_config):
+        """Soft delete uses UPDATE query (sets is_active=FALSE)."""
+        from src.api.pricing_routes import delete_rate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = None
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await delete_rate(rate_id="RATE-001", hard_delete=False, config=mock_config)
+
+        # Verify query called with UPDATE (not DELETE)
+        query_str = mock_client.query.call_args[0][0]
+        assert "UPDATE" in query_str
+        assert "is_active = FALSE" in query_str
+
+    @pytest.mark.asyncio
+    async def test_delete_rate_hard_uses_delete_query(self, mock_config):
+        """Hard delete uses DELETE FROM query."""
+        from src.api.pricing_routes import delete_rate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = None
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await delete_rate(rate_id="RATE-001", hard_delete=True, config=mock_config)
+
+        # Verify query called with DELETE FROM
+        query_str = mock_client.query.call_args[0][0]
+        assert "DELETE FROM" in query_str
+
+    @pytest.mark.asyncio
+    async def test_delete_rate_message_format(self, mock_config):
+        """delete_rate message includes rate_id."""
+        from src.api.pricing_routes import delete_rate
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = None
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await delete_rate(rate_id="RATE-XYZ789", hard_delete=False, config=mock_config)
+
+        assert "RATE-XYZ789" in result['message']
+
+
+# ==================== NEW TESTS: list_hotels with BigQuery data ====================
+
+class TestListHotelsUnitExtended:
+    """Extended unit tests for list_hotels."""
+
+    @pytest.mark.asyncio
+    async def test_list_hotels_with_data(self, mock_config):
+        """list_hotels returns formatted hotel list from BigQuery."""
+        from src.api.pricing_routes import list_hotels
+        import src.api.pricing_routes as pricing_module
+
+        hotel_data = [
+            {"hotel_name": "Hilton", "destination": "Cape Town", "star_rating": 5, "is_active": True},
+            {"hotel_name": "Marriott", "destination": "Cape Town", "star_rating": 4, "is_active": True},
+        ]
+
+        mock_client = MagicMock()
+        mock_query_job = MagicMock()
+        mock_query_job.result.return_value = hotel_data
+        mock_client.query.return_value = mock_query_job
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = hotel_data
+
+            result = await list_hotels(
+                destination="Cape Town",
+                is_active=True,
+                config=mock_config
+            )
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+    @pytest.mark.asyncio
+    async def test_list_hotels_error_returns_empty(self, mock_config):
+        """list_hotels returns empty on BigQuery error."""
+        from src.api.pricing_routes import list_hotels
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.query.side_effect = Exception("BigQuery error")
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        result = await list_hotels(
+            destination=None,
+            is_active=True,
+            config=mock_config
+        )
+
+        assert result['success'] is True
+        assert result['data'] == []
+
+
+# ==================== NEW TESTS: get_pricing_stats with data ====================
+
+class TestGetPricingStatsExtended:
+    """Extended unit tests for get_pricing_stats."""
+
+    @pytest.mark.asyncio
+    async def test_pricing_stats_with_data(self, mock_config):
+        """get_pricing_stats returns formatted stats from BigQuery."""
+        from src.api.pricing_routes import get_pricing_stats
+        import src.api.pricing_routes as pricing_module
+
+        stats_data = {
+            'total_rates': 150,
+            'total_hotels': 25,
+            'total_destinations': 8,
+            'active_rates': 140,
+            'avg_price': 2100.50,
+            'min_price': 800.0,
+            'max_price': 8500.0
+        }
+
+        mock_client = MagicMock()
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = [stats_data]
+
+            result = await get_pricing_stats(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['total_rates'] == 150
+        assert result['data']['total_hotels'] == 25
+
+    @pytest.mark.asyncio
+    async def test_pricing_stats_error_returns_defaults(self, mock_config):
+        """get_pricing_stats returns default zeros on BigQuery error."""
+        from src.api.pricing_routes import get_pricing_stats
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.query.side_effect = Exception("Connection error")
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        result = await get_pricing_stats(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data']['total_rates'] == 0
+        assert result['data']['total_hotels'] == 0
+        assert result['data']['total_destinations'] == 0
+
+
+# ==================== NEW TESTS: import_rates edge cases ====================
+
+class TestImportRatesExtended:
+    """Extended tests for import_rates endpoint handler."""
+
+    @pytest.mark.asyncio
+    async def test_import_rates_multiple_rows(self, mock_config):
+        """import_rates processes multiple CSV rows."""
+        from src.api.pricing_routes import import_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = []
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        csv_content = (
+            b"hotel_name,destination,room_type,meal_plan,check_in_date,check_out_date,nights,total_7nights_pps\n"
+            b"Hotel A,Cape Town,Standard,BB,2025-01-01,2025-01-08,7,1200\n"
+            b"Hotel B,Zanzibar,Deluxe,AI,2025-02-01,2025-02-08,7,2500\n"
+            b"Hotel C,Maldives,Suite,FB,2025-03-01,2025-03-08,7,4000\n"
+        )
+
+        mock_file = MagicMock()
+        mock_file.read = AsyncMock(return_value=csv_content)
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await import_rates(file=mock_file, config=mock_config)
+
+        assert result['imported'] == 3
+        assert result['total_rows'] == 3
+        assert len(result['errors']) == 0
+
+    @pytest.mark.asyncio
+    async def test_import_rates_meal_plan_uppercased(self, mock_config):
+        """import_rates uppercases meal_plan values."""
+        from src.api.pricing_routes import import_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = []
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        csv_content = b"hotel_name,destination,room_type,meal_plan,check_in_date,check_out_date,nights,total_7nights_pps\nTest Hotel,Cape Town,Standard,bb,2025-01-01,2025-01-08,7,1200"
+
+        mock_file = MagicMock()
+        mock_file.read = AsyncMock(return_value=csv_content)
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await import_rates(file=mock_file, config=mock_config)
+
+        # Verify the meal_plan was uppercased in the insert call
+        insert_call_rows = mock_client.insert_rows_json.call_args[0][1]
+        assert insert_call_rows[0]['meal_plan'] == 'BB'
+
+    @pytest.mark.asyncio
+    async def test_import_rates_bigquery_insert_error(self, mock_config):
+        """import_rates reports BigQuery insert errors per row."""
+        from src.api.pricing_routes import import_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.insert_rows_json.return_value = [
+            {'index': 0, 'errors': 'Schema mismatch'}
+        ]
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        csv_content = b"hotel_name,destination,room_type,meal_plan,check_in_date,check_out_date,nights,total_7nights_pps\nTest Hotel,Cape Town,Standard,BB,2025-01-01,2025-01-08,7,1200"
+
+        mock_file = MagicMock()
+        mock_file.read = AsyncMock(return_value=csv_content)
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await import_rates(file=mock_file, config=mock_config)
+
+        assert result['success'] is False
+        assert len(result['errors']) > 0
+
+
+# ==================== NEW TESTS: get_hotel_rates with data ====================
+
+class TestGetHotelRatesExtended:
+    """Extended unit tests for get_hotel_rates."""
+
+    @pytest.mark.asyncio
+    async def test_get_hotel_rates_with_data(self, mock_config):
+        """get_hotel_rates returns formatted rates for a hotel."""
+        from src.api.pricing_routes import get_hotel_rates
+        import src.api.pricing_routes as pricing_module
+
+        rates = [
+            {'rate_id': 'RATE-001', 'hotel_name': 'Hilton', 'check_in_date': '2025-01-01',
+             'check_out_date': '2025-01-08', 'room_type': 'Standard', 'meal_plan': 'BB',
+             'total_7nights_pps': 1200.0},
+            {'rate_id': 'RATE-002', 'hotel_name': 'Hilton', 'check_in_date': '2025-02-01',
+             'check_out_date': '2025-02-08', 'room_type': 'Deluxe', 'meal_plan': 'AI',
+             'total_7nights_pps': 2500.0},
+        ]
+
+        mock_client = MagicMock()
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = rates
+
+            result = await get_hotel_rates(hotel_name="Hilton", config=mock_config)
+
+        assert result['success'] is True
+        assert result['hotel_name'] == "Hilton"
+        assert result['count'] == 2
+
+    @pytest.mark.asyncio
+    async def test_get_hotel_rates_error_returns_empty(self, mock_config):
+        """get_hotel_rates returns empty on BigQuery error."""
+        from src.api.pricing_routes import get_hotel_rates
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.query.side_effect = Exception("Table not found")
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        result = await get_hotel_rates(hotel_name="NonExistent", config=mock_config)
+
+        assert result['success'] is True
+        assert result['data'] == []
+        assert result['hotel_name'] == "NonExistent"
+
+
+# ==================== NEW TESTS: list_destinations with data ====================
+
+class TestListDestinationsExtended:
+    """Extended unit tests for list_destinations."""
+
+    @pytest.mark.asyncio
+    async def test_list_destinations_with_data(self, mock_config):
+        """list_destinations returns destination data from BigQuery."""
+        from src.api.pricing_routes import list_destinations
+        import src.api.pricing_routes as pricing_module
+
+        dest_data = [
+            {"destination": "Cape Town", "hotel_count": 10, "rate_count": 50, "min_price": 800, "max_price": 3000},
+            {"destination": "Zanzibar", "hotel_count": 8, "rate_count": 40, "min_price": 1200, "max_price": 5000},
+        ]
+
+        mock_client = MagicMock()
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        with patch('src.api.pricing_routes.asyncio.to_thread', new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = dest_data
+
+            result = await list_destinations(config=mock_config)
+
+        assert result['success'] is True
+        assert result['count'] == 2
+
+    @pytest.mark.asyncio
+    async def test_list_destinations_error_returns_empty(self, mock_config):
+        """list_destinations returns empty on BigQuery error."""
+        from src.api.pricing_routes import list_destinations
+        import src.api.pricing_routes as pricing_module
+
+        mock_client = MagicMock()
+        mock_client.query.side_effect = Exception("Access denied")
+
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: mock_client}
+
+        result = await list_destinations(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data'] == []
+
+
+# ==================== NEW TESTS: BigQuery client caching ====================
+
+class TestBigQueryClientCaching:
+    """Tests for BigQuery client caching behavior."""
+
+    @pytest.mark.asyncio
+    async def test_bigquery_client_cached_per_project(self, mock_config):
+        """get_bigquery_client_async returns cached client for same project."""
+        from src.api.pricing_routes import get_bigquery_client_async
+        import src.api.pricing_routes as pricing_module
+
+        cached_client = MagicMock()
+        pricing_module._bigquery_available = True
+        pricing_module._bigquery_clients = {mock_config.gcp_project_id: cached_client}
+
+        with patch('src.api.pricing_routes.check_bigquery_available', new_callable=AsyncMock, return_value=True):
+            result = await get_bigquery_client_async(mock_config)
+
+        assert result is cached_client
+
+    @pytest.mark.asyncio
+    async def test_check_bigquery_returns_cached_true(self):
+        """check_bigquery_available returns cached True without re-checking."""
+        from src.api.pricing_routes import check_bigquery_available
+        import src.api.pricing_routes as pricing_module
+
+        pricing_module._bigquery_available = True
+
+        result = await check_bigquery_available()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_check_bigquery_returns_cached_false(self):
+        """check_bigquery_available returns cached False without re-checking."""
+        from src.api.pricing_routes import check_bigquery_available
+        import src.api.pricing_routes as pricing_module
+
+        pricing_module._bigquery_available = False
+
+        result = await check_bigquery_available()
+        assert result is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

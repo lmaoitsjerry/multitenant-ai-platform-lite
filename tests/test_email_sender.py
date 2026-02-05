@@ -26,6 +26,16 @@ from src.utils.email_sender import EmailSender
 
 # ==================== Fixtures ====================
 
+@pytest.fixture(autouse=True)
+def reset_sendgrid_circuit():
+    """Reset the SendGrid circuit breaker before each test to prevent cross-test contamination."""
+    from src.utils.circuit_breaker import sendgrid_circuit
+    sendgrid_circuit.failures = 0
+    sendgrid_circuit.state = "closed"
+    sendgrid_circuit.last_failure_time = 0
+    yield
+
+
 @pytest.fixture
 def mock_config_sendgrid():
     """Create a mock config with SendGrid enabled."""
@@ -762,6 +772,792 @@ class TestEmailSenderErrors:
         )
 
         assert result is False
+
+
+# ==================== NEW TESTS: Initialization Extended ====================
+
+class TestEmailSenderInitExtended:
+    """Extended tests for EmailSender initialization and config handling."""
+
+    def test_init_defaults_from_email_to_primary_email(self, mock_supabase_tool):
+        """Should use primary_email as fallback when sendgrid_from_email is missing."""
+        config = MagicMock()
+        config.client_id = "test"
+        config.sendgrid_api_key = None
+        config.sendgrid_from_email = None
+        config.sendgrid_from_name = None
+        config.sendgrid_reply_to = None
+        config.primary_email = "fallback@company.com"
+        config.company_name = "Fallback Co"
+        config.smtp_host = "smtp.test.com"
+        config.smtp_port = 465
+        config.smtp_username = ""
+        config.smtp_password = ""
+
+        sender = EmailSender(config)
+
+        assert sender.from_email == "fallback@company.com"
+        assert sender.from_name == "Fallback Co"
+
+    def test_init_reply_to_defaults_to_from_email(self, mock_supabase_tool):
+        """reply_to should default to from_email when no explicit reply_to."""
+        config = MagicMock()
+        config.client_id = "test"
+        config.sendgrid_api_key = "SG.key"
+        config.sendgrid_from_email = "noreply@test.com"
+        config.sendgrid_from_name = "Test"
+        config.sendgrid_reply_to = None
+        config.primary_email = "noreply@test.com"
+        config.company_name = "Test"
+
+        sender = EmailSender(config)
+
+        assert sender.reply_to == "noreply@test.com"
+
+    def test_init_partial_db_settings_merge(self):
+        """Should merge partial DB settings with config file values."""
+        with patch('src.tools.supabase_tool.SupabaseTool') as mock_supabase:
+            mock_instance = MagicMock()
+            # DB only has API key, not from_email
+            mock_instance.get_tenant_settings.return_value = {
+                'sendgrid_api_key': 'SG.from-db',
+                'email_from_email': None,
+                'email_from_name': None,
+                'email_reply_to': None
+            }
+            mock_supabase.return_value = mock_instance
+
+            config = MagicMock()
+            config.client_id = "test"
+            config.sendgrid_api_key = "SG.from-config"
+            config.sendgrid_from_email = "config@test.com"
+            config.sendgrid_from_name = "Config Name"
+            config.sendgrid_reply_to = "reply@test.com"
+            config.primary_email = "admin@test.com"
+            config.company_name = "Test Co"
+
+            sender = EmailSender(config)
+
+            # DB API key wins
+            assert sender.sendgrid_api_key == 'SG.from-db'
+            # Config from_email wins since DB returned None
+            assert sender.from_email == "config@test.com"
+
+    def test_init_use_sendgrid_false_when_no_key(self, mock_supabase_tool):
+        """use_sendgrid should be False when there is no API key anywhere."""
+        config = MagicMock()
+        config.client_id = "test"
+        config.sendgrid_api_key = None
+        config.sendgrid_from_email = None
+        config.sendgrid_from_name = None
+        config.sendgrid_reply_to = None
+        config.primary_email = "test@test.com"
+        config.company_name = "Test"
+        config.smtp_host = "smtp.test.com"
+        config.smtp_port = 587
+        config.smtp_username = "user"
+        config.smtp_password = "pass"
+
+        sender = EmailSender(config)
+
+        assert sender.use_sendgrid is False
+
+
+# ==================== NEW TESTS: send_quote_email ====================
+
+class TestSendQuoteEmailExtended:
+    """Extended tests for send_quote_email functionality."""
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_filename_without_quote_id(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should use customer name in filename when no quote_id."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="John Doe",
+            quote_pdf_data=b"PDF data",
+            destination="Zanzibar"
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert payload['attachments'][0]['filename'] == "Zanzibar_Quote_John_Doe.pdf"
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_subject_includes_destination(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Subject should include the destination name."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="Jane",
+            quote_pdf_data=b"PDF",
+            destination="Maldives"
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert "Maldives" in payload['subject']
+        assert "Test Travel Co" in payload['subject']
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_html_contains_customer_name(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """HTML body should contain the customer's name."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="Alice Wonderland",
+            quote_pdf_data=b"PDF",
+            destination="Kenya"
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        html_content = payload['content'][-1]['value']
+        assert "Alice Wonderland" in html_content
+        assert "Kenya" in html_content
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_failure_returns_false(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """send_quote_email should return False when SendGrid returns error."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "Bad request"
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        result = sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="Test",
+            quote_pdf_data=b"PDF",
+            destination="Paris"
+        )
+
+        assert result is False
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_name_with_slash_sanitized(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Customer name with slash should be sanitized in filename."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="John/Jane Doe",
+            quote_pdf_data=b"PDF",
+            destination="Rome"
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        filename = payload['attachments'][0]['filename']
+        assert "/" not in filename
+
+
+# ==================== NEW TESTS: SendGrid vs SMTP fallback ====================
+
+class TestSendGridSMTPFallback:
+    """Tests for SendGrid vs SMTP fallback behavior."""
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_uses_smtp_when_no_sendgrid_key(self, mock_smtp, mock_config_smtp, mock_supabase_tool):
+        """Should use SMTP path when use_sendgrid is False."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__ = Mock(return_value=mock_server)
+        mock_smtp.return_value.__exit__ = Mock(return_value=False)
+
+        sender = EmailSender(mock_config_smtp)
+        assert sender.use_sendgrid is False
+
+        result = sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        assert result is True
+        mock_server.sendmail.assert_called_once()
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_uses_sendgrid_when_key_available(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should use SendGrid path when API key is present."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        assert sender.use_sendgrid is True
+
+        result = sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        assert result is True
+        mock_post.assert_called_once()
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_smtp_skips_login_without_credentials(self, mock_smtp, mock_supabase_tool):
+        """SMTP should skip login when username/password are empty."""
+        config = MagicMock()
+        config.client_id = "test"
+        config.sendgrid_api_key = None
+        config.sendgrid_from_email = None
+        config.sendgrid_from_name = None
+        config.sendgrid_reply_to = None
+        config.primary_email = "test@test.com"
+        config.company_name = "Test"
+        config.smtp_host = "smtp.test.com"
+        config.smtp_port = 465
+        config.smtp_username = ""
+        config.smtp_password = ""
+
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__ = Mock(return_value=mock_server)
+        mock_smtp.return_value.__exit__ = Mock(return_value=False)
+
+        sender = EmailSender(config)
+        sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+
+        mock_server.login.assert_not_called()
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_smtp_with_attachments(self, mock_smtp, mock_config_smtp, mock_supabase_tool):
+        """SMTP should handle file attachments."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__ = Mock(return_value=mock_server)
+        mock_smtp.return_value.__exit__ = Mock(return_value=False)
+
+        sender = EmailSender(mock_config_smtp)
+        result = sender.send_email(
+            to="test@example.com",
+            subject="With attachment",
+            body_html="<p>See attached</p>",
+            attachments=[{
+                'filename': 'doc.pdf',
+                'data': b'PDF bytes here',
+                'type': 'application/pdf'
+            }]
+        )
+
+        assert result is True
+        # Verify sendmail was called (attachment was constructed)
+        mock_server.sendmail.assert_called_once()
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_smtp_with_custom_from_name(self, mock_smtp, mock_config_smtp, mock_supabase_tool):
+        """SMTP should use custom from_name when provided."""
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__ = Mock(return_value=mock_server)
+        mock_smtp.return_value.__exit__ = Mock(return_value=False)
+
+        sender = EmailSender(mock_config_smtp)
+        sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>",
+            from_name="Custom Sender"
+        )
+
+        # The sendmail call's message should contain "Custom Sender"
+        msg_string = mock_server.sendmail.call_args[0][2]
+        assert "Custom Sender" in msg_string
+
+
+# ==================== NEW TESTS: Attachment handling ====================
+
+class TestAttachmentHandling:
+    """Tests for attachment handling including PDF bytes."""
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_attachment_base64_encoding(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Attachment data should be base64 encoded correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        raw_data = b'\x00\x01\x02\x03\xff\xfe\xfd'
+
+        sender.send_email(
+            to="test@example.com",
+            subject="Binary attachment",
+            body_html="<p>Test</p>",
+            attachments=[{
+                'filename': 'data.bin',
+                'data': raw_data,
+                'type': 'application/octet-stream'
+            }]
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        encoded = payload['attachments'][0]['content']
+        # Verify roundtrip
+        assert base64.b64decode(encoded) == raw_data
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_multiple_attachments(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should handle multiple attachments in a single email."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_email(
+            to="test@example.com",
+            subject="Multi-attach",
+            body_html="<p>Test</p>",
+            attachments=[
+                {'filename': 'quote.pdf', 'data': b'pdf1', 'type': 'application/pdf'},
+                {'filename': 'itinerary.pdf', 'data': b'pdf2', 'type': 'application/pdf'},
+                {'filename': 'photo.jpg', 'data': b'jpg1', 'type': 'image/jpeg'}
+            ]
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert len(payload['attachments']) == 3
+        assert payload['attachments'][0]['filename'] == 'quote.pdf'
+        assert payload['attachments'][2]['filename'] == 'photo.jpg'
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_attachment_default_type(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Attachment without explicit type should default to application/octet-stream."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>",
+            attachments=[{
+                'filename': 'unknown.dat',
+                'data': b'binary data'
+                # No 'type' key
+            }]
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert payload['attachments'][0]['type'] == 'application/octet-stream'
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_attachment_disposition_is_attachment(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """All SendGrid attachments should have disposition='attachment'."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>",
+            attachments=[{'filename': 'file.pdf', 'data': b'data', 'type': 'application/pdf'}]
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert payload['attachments'][0]['disposition'] == 'attachment'
+
+
+# ==================== NEW TESTS: Circuit Breaker Integration ====================
+
+class TestCircuitBreakerIntegration:
+    """Tests for SendGrid circuit breaker behavior."""
+
+    @patch('src.utils.email_sender.sendgrid_circuit')
+    @patch('src.utils.email_sender.requests.post')
+    def test_circuit_open_skips_sending(self, mock_post, mock_circuit, mock_config_sendgrid, mock_supabase_tool):
+        """Should skip sending when circuit breaker is open."""
+        mock_circuit.can_execute.return_value = False
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender._send_via_sendgrid(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        assert result is False
+        mock_post.assert_not_called()
+
+    @patch('src.utils.email_sender.sendgrid_circuit')
+    @patch('src.utils.email_sender.requests.post')
+    def test_circuit_records_success_on_202(self, mock_post, mock_circuit, mock_config_sendgrid, mock_supabase_tool):
+        """Should record success with circuit breaker on successful send."""
+        mock_circuit.can_execute.return_value = True
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender._send_via_sendgrid(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        mock_circuit.record_success.assert_called_once()
+
+    @patch('src.utils.email_sender.sendgrid_circuit')
+    @patch('src.utils.email_sender.requests.post')
+    def test_circuit_records_failure_on_error(self, mock_post, mock_circuit, mock_config_sendgrid, mock_supabase_tool):
+        """Should record failure with circuit breaker on API error."""
+        mock_circuit.can_execute.return_value = True
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Server error"
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender._send_via_sendgrid(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        mock_circuit.record_failure.assert_called_once()
+
+    @patch('src.utils.email_sender.sendgrid_circuit')
+    @patch('src.utils.email_sender.requests.post')
+    def test_circuit_records_failure_on_exception(self, mock_post, mock_circuit, mock_config_sendgrid, mock_supabase_tool):
+        """Should record failure with circuit breaker on network exception."""
+        mock_circuit.can_execute.return_value = True
+        mock_post.side_effect = Exception("Connection refused")
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender._send_via_sendgrid(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        mock_circuit.record_failure.assert_called_once()
+
+
+# ==================== NEW TESTS: Template Variable Substitution ====================
+
+class TestTemplateRendering:
+    """Tests for email template HTML construction and variable substitution."""
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_quote_email_uses_config_colors(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Quote email HTML should use the config's primary and secondary colors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender.send_quote_email(
+            customer_email="test@example.com",
+            customer_name="Test",
+            quote_pdf_data=b"PDF",
+            destination="Safari"
+        )
+
+        html = mock_post.call_args.kwargs['json']['content'][-1]['value']
+        assert "#FF6B6B" in html
+        assert "#4ECDC4" in html
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_invoice_email_includes_amount_formatted(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Invoice email should format the amount with commas and decimals."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender.send_invoice_email(
+            customer_email="test@example.com",
+            customer_name="Test",
+            invoice_pdf_data=b"PDF",
+            invoice_id="INV-001",
+            total_amount=12500.50,
+            currency="ZAR",
+            due_date="2026-03-15"
+        )
+
+        html = mock_post.call_args.kwargs['json']['content'][-1]['value']
+        assert "ZAR 12,500.50" in html
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_invoice_email_without_banking_details(self, mock_post, mock_supabase_tool):
+        """Invoice email should omit banking section when no bank_name configured."""
+        config = MagicMock()
+        config.client_id = "test"
+        config.sendgrid_api_key = "SG.key"
+        config.sendgrid_from_email = "from@test.com"
+        config.sendgrid_from_name = "Test"
+        config.sendgrid_reply_to = "reply@test.com"
+        config.primary_email = "from@test.com"
+        config.company_name = "Test"
+        config.primary_color = "#333"
+        config.secondary_color = "#666"
+        config.email_signature = "Thanks"
+        config.bank_name = ""
+        config.bank_account_name = ""
+        config.bank_account_number = ""
+        config.bank_branch_code = ""
+        config.payment_reference_prefix = "INV"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(config)
+        sender.send_invoice_email(
+            customer_email="test@example.com",
+            customer_name="Test",
+            invoice_pdf_data=b"PDF",
+            invoice_id="INV-001",
+            total_amount=100.00,
+            currency="USD",
+            due_date="2026-03-15"
+        )
+
+        html = mock_post.call_args.kwargs['json']['content'][-1]['value']
+        assert "Payment Details" not in html
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_invitation_email_expiry_datetime_format(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Invitation email should format expiry datetime nicely."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        expires = datetime(2026, 6, 15, 14, 30, 0)
+
+        sender.send_invitation_email(
+            to_email="test@example.com",
+            to_name="User",
+            invited_by_name="Admin",
+            organization_name="TestOrg",
+            invitation_token="tok123",
+            expires_at=expires
+        )
+
+        html = mock_post.call_args.kwargs['json']['content'][-1]['value']
+        assert "June 15, 2026" in html
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_invitation_email_string_expiry(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Invitation email should handle string expiry without strftime."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+
+        sender.send_invitation_email(
+            to_email="test@example.com",
+            to_name="User",
+            invited_by_name="Admin",
+            organization_name="TestOrg",
+            invitation_token="tok",
+            expires_at="2026-06-15 14:30:00"  # String, not datetime
+        )
+
+        html = mock_post.call_args.kwargs['json']['content'][-1]['value']
+        assert "2026-06-15 14:30:00" in html
+
+
+# ==================== NEW TESTS: Error Handling Extended ====================
+
+class TestEmailSenderErrorsExtended:
+    """Extended error handling tests for each send method."""
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_sendgrid_403_forbidden(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should handle 403 Forbidden response."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is False
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_sendgrid_200_is_success(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """200 should be accepted as success alongside 201 and 202."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is True
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_sendgrid_201_is_success(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """201 Created should be accepted as success."""
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is True
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_send_email_connection_error(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should return False on ConnectionError."""
+        from requests.exceptions import ConnectionError as ReqConnectionError
+        mock_post.side_effect = ReqConnectionError("Connection refused")
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is False
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_smtp_authentication_error(self, mock_smtp, mock_config_smtp, mock_supabase_tool):
+        """Should return False on SMTP authentication failure."""
+        mock_server = MagicMock()
+        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"Authentication failed")
+        mock_smtp.return_value.__enter__ = Mock(return_value=mock_server)
+        mock_smtp.return_value.__exit__ = Mock(return_value=False)
+
+        sender = EmailSender(mock_config_smtp)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is False
+
+    @patch('src.utils.email_sender.smtplib.SMTP_SSL')
+    def test_smtp_connection_refused(self, mock_smtp, mock_config_smtp, mock_supabase_tool):
+        """Should return False when SMTP server connection is refused."""
+        mock_smtp.side_effect = ConnectionRefusedError("Connection refused")
+
+        sender = EmailSender(mock_config_smtp)
+        result = sender.send_email(to="test@example.com", subject="Test", body_html="<p>Test</p>")
+        assert result is False
+
+
+# ==================== NEW TESTS: Edge Cases ====================
+
+class TestEmailSenderEdgeCases:
+    """Edge cases: empty recipients, special characters, large payloads."""
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_send_to_email_with_plus_addressing(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should handle plus-addressed emails correctly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(
+            to="user+tag@example.com",
+            subject="Test",
+            body_html="<p>Test</p>"
+        )
+
+        assert result is True
+        payload = mock_post.call_args.kwargs['json']
+        assert payload['personalizations'][0]['to'][0]['email'] == "user+tag@example.com"
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_send_email_with_unicode_subject(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Should handle Unicode characters in subject."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        result = sender.send_email(
+            to="test@example.com",
+            subject="Your Quote for Curacao (R25,000)",
+            body_html="<p>Test</p>"
+        )
+
+        assert result is True
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_send_email_with_empty_cc_list(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Empty CC list should not add cc to personalizations."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender.send_email(
+            to="test@example.com",
+            subject="Test",
+            body_html="<p>Test</p>",
+            cc=[],
+            bcc=[]
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        # Empty lists are falsy, so cc/bcc should not be in personalizations
+        assert 'cc' not in payload['personalizations'][0]
+        assert 'bcc' not in payload['personalizations'][0]
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_no_attachments_key_when_none(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Payload should not have 'attachments' key when attachments is None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender.send_email(
+            to="test@example.com",
+            subject="No attachments",
+            body_html="<p>Test</p>",
+            attachments=None
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert 'attachments' not in payload
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_sendgrid_api_url_constant(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """EmailSender should use the correct SendGrid API URL."""
+        assert EmailSender.SENDGRID_API_URL == "https://api.sendgrid.com/v3/mail/send"
+
+    @patch('src.utils.email_sender.requests.post')
+    def test_invoice_email_no_pdf_data(self, mock_post, mock_config_sendgrid, mock_supabase_tool):
+        """Invoice email with empty PDF data should not include attachments."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_post.return_value = mock_response
+
+        sender = EmailSender(mock_config_sendgrid)
+        sender.send_invoice_email(
+            customer_email="test@example.com",
+            customer_name="Test",
+            invoice_pdf_data=b"",
+            invoice_id="INV-001",
+            total_amount=100.00,
+            currency="USD",
+            due_date="2026-01-01"
+        )
+
+        payload = mock_post.call_args.kwargs['json']
+        assert 'attachments' not in payload
+
+
+# We need smtplib import for SMTPAuthenticationError
+import smtplib
 
 
 if __name__ == '__main__':
