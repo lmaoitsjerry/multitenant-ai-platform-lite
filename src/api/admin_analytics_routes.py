@@ -133,7 +133,7 @@ def get_supabase_admin_client() -> Optional[Any]:
     return create_client(url, key)
 
 
-async def get_all_quotes_stats() -> Dict[str, Any]:
+def get_all_quotes_stats() -> Dict[str, Any]:
     """Get aggregate quote statistics across all tenants"""
     client = get_supabase_admin_client()
     if not client:
@@ -163,7 +163,7 @@ async def get_all_quotes_stats() -> Dict[str, Any]:
         return {"total": 0, "this_month": 0, "last_month": 0}
 
 
-async def get_all_invoices_stats() -> Dict[str, Any]:
+def get_all_invoices_stats() -> Dict[str, Any]:
     """Get aggregate invoice statistics across all tenants"""
     client = get_supabase_admin_client()
     if not client:
@@ -223,7 +223,7 @@ async def get_all_invoices_stats() -> Dict[str, Any]:
         }
 
 
-async def get_user_and_client_counts() -> Dict[str, int]:
+def get_user_and_client_counts() -> Dict[str, int]:
     """Get total users and CRM clients across all tenants"""
     client = get_supabase_admin_client()
     if not client:
@@ -258,7 +258,7 @@ async def get_user_and_client_counts() -> Dict[str, int]:
 # ==================== Endpoints ====================
 
 @admin_analytics_router.get("/overview")
-async def get_platform_overview(
+def get_platform_overview(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """
@@ -287,9 +287,9 @@ async def get_platform_overview(
         trial_tenants = 0
 
         # Fetch all stats (these are already optimized with batch queries)
-        quote_stats = await get_all_quotes_stats()
-        invoice_stats = await get_all_invoices_stats()
-        counts = await get_user_and_client_counts()
+        quote_stats = get_all_quotes_stats()
+        invoice_stats = get_all_invoices_stats()
+        counts = get_user_and_client_counts()
 
         # Calculate growth percentages
         quote_growth = 0
@@ -331,7 +331,7 @@ async def get_platform_overview(
 
 
 @admin_analytics_router.get("/usage")
-async def get_usage_analytics(
+def get_usage_analytics(
     period: str = Query("30d", description="Time period: 7d, 30d, 90d, 1y"),
     metric: str = Query("all", description="Metric to return: all, quotes, invoices, emails"),
     admin_verified: bool = Depends(verify_admin_token)
@@ -417,7 +417,7 @@ async def get_top_tenants(
         # Batch fetch all data in parallel (4 queries total instead of N*4)
         import asyncio
 
-        async def fetch_all_data():
+        def fetch_all_data():
             # Get all quotes grouped by tenant_id
             quotes_result = client.table("quotes").select("tenant_id").execute()
 
@@ -506,7 +506,7 @@ async def get_top_tenants(
 
 
 @admin_analytics_router.get("/growth")
-async def get_growth_metrics(
+def get_growth_metrics(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """

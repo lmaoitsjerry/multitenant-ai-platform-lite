@@ -95,7 +95,7 @@ class BreachReport(BaseModel):
 # ============================================================
 
 @privacy_router.get("/consent")
-async def get_my_consents(
+def get_my_consents(
     current_user: dict = Depends(get_current_user),
     config: ClientConfig = Depends(get_client_config)  # Will be injected by middleware
 ):
@@ -142,7 +142,7 @@ async def get_my_consents(
 
 
 @privacy_router.post("/consent")
-async def update_consent(
+def update_consent(
     consent: ConsentUpdate,
     request: Request,
     current_user: dict = Depends(get_current_user),
@@ -228,7 +228,7 @@ async def update_consents_bulk(
     results = []
     for consent in bulk.consents:
         try:
-            result = await update_consent(consent, request, current_user, config)
+            result = update_consent(consent, request, current_user, config)
             results.append(result)
         except Exception as e:
             results.append({
@@ -245,7 +245,7 @@ async def update_consents_bulk(
 # ============================================================
 
 @privacy_router.post("/dsar")
-async def submit_dsar(
+def submit_dsar(
     dsar: DSARRequest,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -317,7 +317,7 @@ async def submit_dsar(
 
 
 @privacy_router.get("/dsar")
-async def get_my_dsars(
+def get_my_dsars(
     current_user: dict = Depends(get_current_user),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -339,7 +339,7 @@ async def get_my_dsars(
 
 
 @privacy_router.get("/dsar/{request_id}")
-async def get_dsar_status(
+def get_dsar_status(
     request_id: str,
     current_user: dict = Depends(get_current_user),
     config: ClientConfig = Depends(get_client_config)
@@ -373,7 +373,7 @@ async def get_dsar_status(
 # ============================================================
 
 @privacy_router.post("/export")
-async def request_data_export(
+def request_data_export(
     export_request: DataExportRequest,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -428,7 +428,7 @@ async def request_data_export(
 # ============================================================
 
 @privacy_router.post("/erasure")
-async def request_data_erasure(
+def request_data_erasure(
     email: EmailStr,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -493,7 +493,7 @@ async def request_data_erasure(
 # ============================================================
 
 @privacy_router.get("/admin/dsars")
-async def list_all_dsars(
+def list_all_dsars(
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -526,7 +526,7 @@ async def list_all_dsars(
 
 
 @privacy_router.patch("/admin/dsar/{request_id}")
-async def update_dsar_status(
+def update_dsar_status(
     request_id: str,
     update: DSARStatusUpdate,
     current_user: dict = Depends(require_admin),
@@ -559,7 +559,7 @@ async def update_dsar_status(
 
 
 @privacy_router.get("/admin/audit-log")
-async def get_audit_log(
+def get_audit_log(
     resource_type: Optional[str] = None,
     action: Optional[str] = None,
     user_email: Optional[str] = None,
@@ -604,7 +604,7 @@ async def get_audit_log(
 
 
 @privacy_router.post("/admin/breach")
-async def report_breach(
+def report_breach(
     breach: BreachReport,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_admin),
@@ -650,7 +650,7 @@ async def report_breach(
 
 
 @privacy_router.get("/admin/breaches")
-async def list_breaches(
+def list_breaches(
     status: Optional[str] = None,
     current_user: dict = Depends(require_admin),
     config: ClientConfig = Depends(get_client_config)
@@ -707,7 +707,7 @@ def _log_pii_access(
         logger.warning(f"Failed to log PII access: {e}")
 
 
-async def _send_dsar_confirmation(config: ClientConfig, email: str, request_number: str, request_type: str):
+def _send_dsar_confirmation(config: ClientConfig, email: str, request_number: str, request_type: str):
     """Send DSAR confirmation email"""
     try:
         from src.utils.email_sender import EmailSender
@@ -731,7 +731,7 @@ If you have any questions, please contact our privacy team.
         logger.warning(f"Failed to send DSAR confirmation: {e}")
 
 
-async def _notify_admins_of_dsar(config: ClientConfig, dsar_record: dict):
+def _notify_admins_of_dsar(config: ClientConfig, dsar_record: dict):
     """Notify admins of new DSAR"""
     try:
         from src.api.notifications_routes import NotificationService
@@ -743,7 +743,7 @@ async def _notify_admins_of_dsar(config: ClientConfig, dsar_record: dict):
         logger.warning(f"Failed to notify admins of DSAR: {e}")
 
 
-async def _generate_data_export(
+def _generate_data_export(
     config: ClientConfig,
     email: str,
     dsar_id: str,
@@ -814,7 +814,7 @@ For security reasons, please contact our privacy team to receive your full expor
         logger.error(f"Failed to generate data export: {e}")
 
 
-async def _send_breach_alerts(config: ClientConfig, breach_record: dict):
+def _send_breach_alerts(config: ClientConfig, breach_record: dict):
     """Send alerts for high-severity breaches"""
     try:
         logger.critical(f"HIGH SEVERITY BREACH: {breach_record['breach_number']} - {breach_record['description']}")

@@ -12,13 +12,13 @@ Handles white-labeling and branding customization for tenants:
 All endpoints support tenant isolation via X-Client-ID header.
 """
 
-import os
 import logging
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Depends, Header, File, UploadFile, Form
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.constants.theme_presets import (
     THEME_PRESETS,
     DARK_MODE_COLORS,
@@ -34,25 +34,6 @@ from src.utils.error_handler import log_and_raise
 logger = logging.getLogger(__name__)
 
 branding_router = APIRouter(prefix="/api/v1/branding", tags=["Branding"])
-
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-            logger.info(f"Loaded configuration for client: {client_id}")
-        except Exception as e:
-            logger.error(f"Failed to load config for {client_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-    return _client_configs[client_id]
 
 
 # ==================== Pydantic Models ====================
@@ -213,7 +194,7 @@ def db_to_branding_response(db_record: Dict[str, Any], config: ClientConfig) -> 
 # ==================== Endpoints ====================
 
 @branding_router.get("")
-async def get_branding(config: ClientConfig = Depends(get_client_config)):
+def get_branding(config: ClientConfig = Depends(get_client_config)):
     """
     Get tenant branding configuration
 
@@ -236,7 +217,7 @@ async def get_branding(config: ClientConfig = Depends(get_client_config)):
 
 
 @branding_router.put("")
-async def update_branding(
+def update_branding(
     data: BrandingUpdate,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -305,7 +286,7 @@ async def update_branding(
 
 
 @branding_router.get("/presets")
-async def get_theme_presets():
+def get_theme_presets():
     """
     Get available theme presets
 
@@ -331,7 +312,7 @@ async def get_theme_presets():
 
 
 @branding_router.post("/apply-preset/{preset_name}")
-async def apply_preset(
+def apply_preset(
     preset_name: str,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -529,7 +510,7 @@ async def upload_login_background(
 
 
 @branding_router.post("/reset")
-async def reset_branding(config: ClientConfig = Depends(get_client_config)):
+def reset_branding(config: ClientConfig = Depends(get_client_config)):
     """
     Reset branding to defaults
 
@@ -552,7 +533,7 @@ async def reset_branding(config: ClientConfig = Depends(get_client_config)):
 
 
 @branding_router.get("/fonts")
-async def get_available_fonts():
+def get_available_fonts():
     """
     Get available Google Fonts for selection
 
@@ -566,7 +547,7 @@ async def get_available_fonts():
 
 
 @branding_router.post("/preview")
-async def preview_branding(
+def preview_branding(
     data: BrandingUpdate,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -626,7 +607,7 @@ async def preview_branding(
 
 
 @branding_router.get("/css-variables")
-async def get_css_variables(config: ClientConfig = Depends(get_client_config)):
+def get_css_variables(config: ClientConfig = Depends(get_client_config)):
     """
     Get CSS variables for current branding
 
