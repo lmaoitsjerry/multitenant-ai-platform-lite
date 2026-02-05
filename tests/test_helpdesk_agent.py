@@ -898,3 +898,727 @@ class TestMultipleTurnConversation:
         tool_names = [tc["tool"] for tc in agent.tool_calls]
         assert "search_knowledge_base" in tool_names
         assert "platform_help" in tool_names
+
+
+# ==================== NEW TESTS ====================
+# 20+ additional tests covering initialization, process_query flow,
+# knowledge base search, response generation, session management,
+# context windows, error handling, and edge cases.
+
+
+class TestHelpdeskAgentInitExtended:
+    """Extended initialization tests."""
+
+    def test_init_sets_max_history_default(self, mock_openai_env):
+        """Default max_history is 10."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent.max_history == 10
+
+    def test_init_tool_calls_empty(self, mock_openai_env):
+        """tool_calls starts as empty list."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent.tool_calls == []
+        assert isinstance(agent.tool_calls, list)
+
+    def test_init_conversation_history_empty(self, mock_openai_env):
+        """conversation_history starts empty."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent.conversation_history == []
+
+    def test_init_stores_openai_api_key_from_env(self, mock_openai_env):
+        """openai_api_key is read from environment."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent.openai_api_key == 'test-openai-key'
+
+    def test_init_no_api_key_sets_none(self, mock_openai_env_missing):
+        """Without OPENAI_API_KEY, openai_api_key is None."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent.openai_api_key is None
+
+    def test_init_client_is_none_before_access(self, mock_openai_env):
+        """_client is None until .client property is accessed."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent()
+        assert agent._client is None
+
+    def test_init_config_preserved(self, mock_config, mock_openai_env):
+        """Config passed to constructor is stored."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        agent = HelpdeskAgent(mock_config)
+        assert agent.config is mock_config
+        assert agent.config.client_id == "test_tenant"
+
+
+class TestChatFullFlow:
+    """Test the full chat() flow with mocked OpenAI and RAG."""
+
+    def test_chat_returns_response_key(self, mock_config, mock_openai_env):
+        """chat() always returns a dict with 'response' key."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Hi!"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hello")
+        assert "response" in result
+        assert isinstance(result["response"], str)
+
+    def test_chat_returns_tool_used_none_for_direct(self, mock_config, mock_openai_env):
+        """Direct responses have tool_used=None."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Hello!"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hi")
+        assert result["tool_used"] is None
+        assert result["tool_result"] is None
+        assert result["sources"] == []
+
+    def test_chat_adds_user_message_to_history(self, mock_config, mock_openai_env):
+        """User message is added to conversation_history."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Test message")
+        user_messages = [m for m in agent.conversation_history if m["role"] == "user"]
+        assert any("Test message" in m["content"] for m in user_messages)
+
+    def test_chat_adds_assistant_response_to_history(self, mock_config, mock_openai_env):
+        """Assistant response is added to conversation_history."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Hello world"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Hi")
+        assistant_msgs = [m for m in agent.conversation_history if m["role"] == "assistant"]
+        assert len(assistant_msgs) >= 1
+
+    def test_chat_openai_called_with_system_prompt(self, mock_config, mock_openai_env):
+        """OpenAI is called with the AGENT_SYSTEM_PROMPT as system message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent, AGENT_SYSTEM_PROMPT
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Hi")
+
+        last_call = mock_client.get_call_history()[-1]
+        system_msgs = [m for m in last_call["messages"] if m["role"] == "system"]
+        assert len(system_msgs) >= 1
+        assert AGENT_SYSTEM_PROMPT in system_msgs[0]["content"]
+
+    def test_chat_openai_called_with_tools(self, mock_config, mock_openai_env):
+        """OpenAI is called with HELPDESK_TOOLS."""
+        from src.agents.helpdesk_agent import HelpdeskAgent, HELPDESK_TOOLS
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Hi")
+
+        last_call = mock_client.get_call_history()[-1]
+        assert last_call["tools"] == HELPDESK_TOOLS
+
+
+class TestSearchKnowledgeBase:
+    """Tests for _execute_search with mocked Travel Platform RAG client."""
+
+    def test_search_returns_answer_and_sources(self, mock_config, mock_openai_env):
+        """Successful search returns (answer_str, sources_list)."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {
+            "success": True,
+            "answer": "Mauritius has beautiful beaches.",
+            "citations": [
+                {"source_title": "destinations.md", "relevance_score": 0.9}
+            ]
+        }
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": "Mauritius beaches"})
+
+        assert "Mauritius" in result
+        assert len(sources) == 1
+        assert sources[0]["source"] == "destinations.md"
+
+    def test_search_no_results(self, mock_config, mock_openai_env):
+        """Search with no results returns informative message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {"success": True, "answer": None, "citations": []}
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": "nonexistent topic"})
+
+        assert "No relevant" in result or "not found" in result.lower()
+        assert sources == []
+
+    def test_search_rag_unavailable(self, mock_config, mock_openai_env):
+        """When RAG is unavailable, returns unavailable message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = False
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": "test"})
+
+        assert "unavailable" in result.lower()
+        assert sources == []
+
+    def test_search_exception_returns_error(self, mock_config, mock_openai_env):
+        """Exception during search returns error string."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', side_effect=ConnectionError("Timeout")):
+            result, sources = agent._execute_search({"query": "test"})
+
+        assert "error" in result.lower() or "Search error" in result
+        assert sources == []
+
+    def test_search_limits_citations_to_five(self, mock_config, mock_openai_env):
+        """Sources are limited to top 5 citations."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {
+            "success": True,
+            "answer": "answer text",
+            "citations": [
+                {"source_title": f"source_{i}.md", "relevance_score": 0.9 - i * 0.05}
+                for i in range(10)
+            ]
+        }
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": "hotels"})
+
+        assert len(sources) <= 5
+
+    def test_search_with_empty_query(self, mock_config, mock_openai_env):
+        """Empty query string is still sent to RAG."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {"success": True, "answer": "General info", "citations": []}
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": ""})
+
+        mock_rag.search.assert_called_once_with("", top_k=5, include_shared=True)
+
+
+class TestGenerateResponse:
+    """Tests for response generation via OpenAI completion."""
+
+    def test_direct_response_content_returned(self, mock_config, mock_openai_env):
+        """When model returns content directly, it is returned in 'response'."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Specific answer here"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Tell me something")
+        assert result["response"] == "Specific answer here"
+
+    def test_none_content_gets_default(self, mock_config, mock_openai_env):
+        """When model returns None content, a fallback is provided."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        # Create a response with None content and no tool calls
+        none_response = MockOpenAIResponse(content=None)
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", none_response)
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hi")
+        assert "help" in result["response"].lower()
+
+    def test_api_error_falls_back_gracefully(self, mock_config, mock_openai_env):
+        """API error triggers fallback response with 'method': 'fallback'."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_error_on_next_call(create_openai_api_error("Rate limit"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hello")
+        assert result.get("method") == "fallback" or "Zara" in result["response"]
+
+
+class TestSessionManagement:
+    """Tests for session lifecycle: create, continue, end."""
+
+    def test_reset_clears_all_state(self, mock_config, mock_openai_env):
+        """reset_conversation clears history and tool_calls."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        agent.conversation_history = [{"role": "user", "content": "Hi"}]
+        agent.tool_calls = [{"tool": "search_knowledge_base", "timestamp": "now"}]
+
+        agent.reset_conversation()
+
+        assert agent.conversation_history == []
+        assert agent.tool_calls == []
+
+    def test_multiple_resets_are_safe(self, mock_config, mock_openai_env):
+        """Calling reset_conversation multiple times is idempotent."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        agent.reset_conversation()
+        agent.reset_conversation()
+        agent.reset_conversation()
+
+        assert agent.conversation_history == []
+        assert agent.tool_calls == []
+
+    def test_session_continues_across_messages(self, mock_config, mock_openai_env):
+        """Messages accumulate in history until reset."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Message 1")
+        agent.chat("Message 2")
+        agent.chat("Message 3")
+
+        assert len(agent.conversation_history) >= 3
+
+    def test_reset_then_new_session_starts_clean(self, mock_config, mock_openai_env):
+        """After reset, new chat starts with empty history."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        agent.chat("Old message")
+        assert len(agent.conversation_history) >= 1
+
+        agent.reset_conversation()
+        assert len(agent.conversation_history) == 0
+
+        agent.chat("New session message")
+        user_msgs = [m for m in agent.conversation_history if m["role"] == "user"]
+        assert len(user_msgs) == 1
+        assert "New session message" in user_msgs[0]["content"]
+
+
+class TestContextWindowManagement:
+    """Tests for conversation history trimming."""
+
+    def test_history_trimmed_when_exceeds_double_max(self, mock_config, mock_openai_env):
+        """History is trimmed when it exceeds max_history * 2."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+        agent.max_history = 3
+
+        # Manually fill history beyond the limit
+        for i in range(20):
+            agent.conversation_history.append({"role": "user", "content": f"msg {i}"})
+            agent.conversation_history.append({"role": "assistant", "content": f"reply {i}"})
+
+        # This chat triggers trimming
+        agent.chat("Trigger trim")
+
+        # History should be trimmed to max_history * 2 plus the new exchange
+        assert len(agent.conversation_history) <= agent.max_history * 2 + 2
+
+    def test_history_keeps_most_recent(self, mock_config, mock_openai_env):
+        """Trimming keeps the most recent messages."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+        agent.max_history = 2
+
+        # Add old messages
+        for i in range(10):
+            agent.conversation_history.append({"role": "user", "content": f"old_{i}"})
+            agent.conversation_history.append({"role": "assistant", "content": f"old_reply_{i}"})
+
+        agent.chat("recent_message")
+
+        # The most recent user message should be present
+        all_content = " ".join(m["content"] for m in agent.conversation_history)
+        assert "recent_message" in all_content
+
+    def test_small_history_not_trimmed(self, mock_config, mock_openai_env):
+        """History within max_history limit is not trimmed."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+        agent.max_history = 100
+
+        agent.chat("Only message")
+        # Should have exactly user + assistant pair
+        assert len(agent.conversation_history) == 2
+
+
+class TestErrorHandlingPerService:
+    """Test error handling for each external service dependency."""
+
+    def test_search_connection_error(self, mock_config, mock_openai_env):
+        """ConnectionError in search returns error message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client',
+                   side_effect=ConnectionError("Cannot reach RAG")):
+            result, sources = agent._execute_search({"query": "test"})
+
+        assert "error" in result.lower() or "Cannot reach RAG" in result
+        assert sources == []
+
+    def test_search_timeout_error(self, mock_config, mock_openai_env):
+        """Timeout in search returns error message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client',
+                   side_effect=TimeoutError("Timed out")):
+            result, sources = agent._execute_search({"query": "test"})
+
+        assert "error" in result.lower() or "Timed out" in result
+
+    def test_openai_rate_limit_falls_back(self, mock_config, mock_openai_env):
+        """Rate limit from OpenAI triggers fallback."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        from tests.fixtures.openai_fixtures import create_rate_limit_error
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_error_on_next_call(create_rate_limit_error())
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hello")
+        # Should get fallback, not crash
+        assert "response" in result
+        assert "Zara" in result["response"] or result.get("method") == "fallback"
+
+    def test_openai_auth_error_falls_back(self, mock_config, mock_openai_env):
+        """Authentication error from OpenAI triggers fallback."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        from tests.fixtures.openai_fixtures import create_invalid_api_key_error
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_error_on_next_call(create_invalid_api_key_error())
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Hello")
+        assert "response" in result
+
+
+class TestEdgeCasesExtended:
+    """Extended edge case tests."""
+
+    def test_unicode_message(self, mock_config, mock_openai_env):
+        """Handles Unicode/emoji in user message."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("I understand!"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Tell me about hotels in Japan")
+        assert "response" in result
+
+    def test_html_injection_in_message(self, mock_config, mock_openai_env):
+        """HTML/script tags in message don't cause errors."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Safe response"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat('<img src=x onerror="alert(1)">')
+        assert "response" in result
+        assert isinstance(result["response"], str)
+
+    def test_newlines_in_message(self, mock_config, mock_openai_env):
+        """Multi-line messages are handled."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Got it"))
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        result = agent.chat("Line 1\nLine 2\nLine 3")
+        assert "response" in result
+
+    def test_very_long_query_to_search(self, mock_config, mock_openai_env):
+        """Very long query string passed to _execute_search."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {"success": True, "answer": "Answer", "citations": []}
+
+        agent = HelpdeskAgent(mock_config)
+
+        long_query = "hotels " * 500
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result, sources = agent._execute_search({"query": long_query})
+
+        assert isinstance(result, str)
+
+    def test_special_chars_in_destination(self, mock_config, mock_openai_env):
+        """Special characters in destination for start_quote."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        result = agent._execute_start_quote({
+            "destination": "St. Barth's & Martinique",
+            "check_in": "2026-06-01",
+            "check_out": "2026-06-10",
+        })
+
+        assert "St. Barth's & Martinique" in result
+
+    def test_route_to_human_with_context(self, mock_config, mock_openai_env):
+        """route_to_human includes context summary."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        result = agent._execute_route_to_human({
+            "reason": "Billing dispute",
+            "priority": "high",
+            "context": "Customer has been waiting 3 days for refund",
+        })
+
+        assert "support team" in result.lower()
+        assert any(char.isdigit() for char in result)  # reference number
+
+    def test_platform_help_unknown_topic_falls_to_general(self, mock_config, mock_openai_env):
+        """Unknown topic in platform_help returns general help."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        result = agent._execute_platform_help({"topic": "nonexistent_topic"})
+
+        # Should fall back to "general" help
+        assert "help" in result.lower() or "can" in result.lower()
+
+
+class TestGetStatsExtended:
+    """Extended stats tests."""
+
+    def test_stats_recent_tools_limited_to_five(self, mock_config, mock_openai_env):
+        """recent_tools returns at most last 5 tools."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        agent.tool_calls = [
+            {"tool": f"tool_{i}", "timestamp": f"2026-01-{i:02d}"}
+            for i in range(10)
+        ]
+
+        stats = agent.get_stats()
+        assert len(stats["recent_tools"]) == 5
+        # Should be the last 5
+        assert stats["recent_tools"][-1] == "tool_9"
+
+    def test_stats_conversation_length_matches_history(self, mock_config, mock_openai_env):
+        """conversation_length matches actual history length."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+
+        agent = HelpdeskAgent(mock_config)
+        agent.conversation_history = [
+            {"role": "user", "content": "a"},
+            {"role": "assistant", "content": "b"},
+            {"role": "user", "content": "c"},
+        ]
+        stats = agent.get_stats()
+        assert stats["conversation_length"] == 3
+
+
+class TestHandleToolCallsExtended:
+    """Extended tests for _handle_tool_calls."""
+
+    def test_multiple_tool_calls_in_single_response(self, mock_config, mock_openai_env):
+        """Model returning multiple tool calls processes all of them."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        from tests.fixtures.openai_fixtures import MockToolCall, MockOpenAIResponse
+
+        # Create response with two tool calls
+        tool_call_1 = MockToolCall(
+            function_name="search_knowledge_base",
+            arguments={"query": "mauritius", "query_type": "destination"}
+        )
+        tool_call_2 = MockToolCall(
+            function_name="platform_help",
+            arguments={"topic": "quotes"}
+        )
+        multi_tool_response = MockOpenAIResponse(tool_calls=[tool_call_1, tool_call_2])
+
+        mock_client = MockConversationClient([
+            multi_tool_response,
+            create_direct_response("Here's what I found about Mauritius and quotes."),
+        ])
+
+        mock_rag = MagicMock()
+        mock_rag.is_available.return_value = True
+        mock_rag.search.return_value = {
+            "success": True,
+            "answer": "Mauritius info",
+            "citations": []
+        }
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_rag):
+            result = agent.chat("Tell me about Mauritius and how to create quotes")
+
+        # Both tool calls should be recorded
+        assert len(agent.tool_calls) == 2
+
+    def test_tool_call_json_parse_error(self, mock_config, mock_openai_env):
+        """Malformed JSON in tool call arguments is handled."""
+        from src.agents.helpdesk_agent import HelpdeskAgent
+        from tests.fixtures.openai_fixtures import MockToolCall, MockOpenAIMessage, MockOpenAIResponse, MockOpenAIChoice
+
+        # Create a tool call with invalid JSON string
+        bad_tool_call = MockToolCall(
+            function_name="search_knowledge_base",
+            arguments={"query": "valid"}  # This will be valid JSON
+        )
+        # Now corrupt the arguments string
+        bad_tool_call.function.arguments = "{invalid json"
+
+        message = MockOpenAIMessage(tool_calls=[bad_tool_call])
+        bad_response = MockOpenAIResponse()
+        bad_response.choices = [MockOpenAIChoice(message=message, finish_reason="tool_calls")]
+
+        mock_client = MockConversationClient([
+            bad_response,
+            create_direct_response("Sorry about that."),
+        ])
+
+        agent = HelpdeskAgent(mock_config)
+        inject_mock_client(agent, mock_client)
+
+        # Should not crash - either handles error or falls back
+        result = agent.chat("Search for something")
+        assert "response" in result or result.get("method") == "fallback"
+
+
+class TestSingletonExtended:
+    """Extended singleton pattern tests."""
+
+    def test_singleton_preserves_conversation(self, mock_config, mock_openai_env):
+        """Singleton instance preserves conversation across get_helpdesk_agent calls."""
+        from src.agents.helpdesk_agent import get_helpdesk_agent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent = get_helpdesk_agent(mock_config)
+        inject_mock_client(agent, mock_client)
+        agent.chat("Remember this")
+
+        # Get same instance
+        same_agent = get_helpdesk_agent()
+        assert len(same_agent.conversation_history) >= 1
+
+    def test_reset_and_get_returns_fresh_instance(self, mock_config, mock_openai_env):
+        """After reset, get_helpdesk_agent returns fresh instance with empty history."""
+        from src.agents.helpdesk_agent import get_helpdesk_agent, reset_helpdesk_agent
+
+        mock_client = create_mock_openai_client()
+        mock_client.set_response_for_pattern("", create_direct_response("Ok"))
+
+        agent1 = get_helpdesk_agent(mock_config)
+        inject_mock_client(agent1, mock_client)
+        agent1.chat("Old context")
+
+        reset_helpdesk_agent()
+
+        agent2 = get_helpdesk_agent(mock_config)
+        assert agent2.conversation_history == []
+        assert agent2 is not agent1

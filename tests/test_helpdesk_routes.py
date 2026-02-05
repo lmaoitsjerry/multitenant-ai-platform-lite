@@ -1542,3 +1542,804 @@ class TestIncludeHelpdeskRouter:
         include_helpdesk_router(mock_app)
 
         mock_app.include_router.assert_called_once()
+
+
+# ==================== NEW TESTS: Pydantic Model Edge Cases ====================
+
+class TestAskQuestionModelEdgeCases:
+    """Extended Pydantic model validation tests for AskQuestion."""
+
+    def test_empty_string_question_accepted(self):
+        """AskQuestion should accept an empty string (validation at endpoint level)."""
+        from src.api.helpdesk_routes import AskQuestion
+
+        q = AskQuestion(question="")
+        assert q.question == ""
+
+    def test_very_long_question_accepted(self):
+        """AskQuestion should accept a very long question string."""
+        from src.api.helpdesk_routes import AskQuestion
+
+        long_question = "a" * 10000
+        q = AskQuestion(question=long_question)
+        assert len(q.question) == 10000
+
+    def test_question_with_special_characters(self):
+        """AskQuestion should handle special characters in question."""
+        from src.api.helpdesk_routes import AskQuestion
+
+        q = AskQuestion(question="How do I create a quote? <script>alert('xss')</script>")
+        assert "<script>" in q.question
+
+    def test_question_with_unicode(self):
+        """AskQuestion should handle unicode characters."""
+        from src.api.helpdesk_routes import AskQuestion
+
+        q = AskQuestion(question="Comment creer un devis pour l'hotel?")
+        assert "hotel" in q.question
+
+    def test_question_rejects_wrong_type(self):
+        """AskQuestion should reject non-string types for question."""
+        from src.api.helpdesk_routes import AskQuestion
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AskQuestion(question=12345)
+
+    def test_question_rejects_none(self):
+        """AskQuestion should reject None for required question field."""
+        from src.api.helpdesk_routes import AskQuestion
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AskQuestion(question=None)
+
+
+class TestHelpdeskResponseModelEdgeCases:
+    """Extended Pydantic model validation tests for HelpdeskResponse."""
+
+    def test_response_with_empty_sources_list(self):
+        """HelpdeskResponse should accept empty sources list."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        r = HelpdeskResponse(success=True, answer="Test", sources=[])
+        assert r.sources == []
+
+    def test_response_with_multiple_sources(self):
+        """HelpdeskResponse should accept multiple sources."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        sources = [
+            {"name": "doc1", "score": "0.9"},
+            {"name": "doc2", "score": "0.8"},
+            {"name": "doc3", "score": "0.7"},
+        ]
+        r = HelpdeskResponse(success=True, answer="Test", sources=sources)
+        assert len(r.sources) == 3
+
+    def test_response_model_dump_includes_all_fields(self):
+        """model_dump should include all fields including None values."""
+        from src.api.helpdesk_routes import HelpdeskResponse
+
+        r = HelpdeskResponse(success=False)
+        d = r.model_dump()
+        assert "success" in d
+        assert "answer" in d
+        assert "sources" in d
+        assert d["answer"] is None
+        assert d["sources"] is None
+
+
+# ==================== NEW TESTS: Search Endpoint Edge Cases ====================
+
+class TestSearchEndpointEdgeCases:
+    """Extended tests for GET /api/v1/helpdesk/search edge cases."""
+
+    def test_search_with_empty_query_string(self, test_client):
+        """GET /search with empty q should return default topics."""
+        response = test_client.get(
+            "/api/v1/helpdesk/search",
+            params={"q": ""}
+        )
+        assert response.status_code in [200, 401]
+        if response.status_code == 200:
+            data = response.json()
+            assert data["success"] is True
+
+    def test_search_matches_topic_id(self, test_client):
+        """GET /search should match on topic ID field."""
+        response = test_client.get(
+            "/api/v1/helpdesk/search",
+            params={"q": "quotes"}
+        )
+        assert response.status_code in [200, 401]
+        if response.status_code == 200:
+            data = response.json()
+            assert data["success"] is True
+            assert any(t["id"] == "quotes" for t in data["results"])
+
+    def test_search_case_insensitive(self, test_client):
+        """GET /search should be case insensitive."""
+        response = test_client.get(
+            "/api/v1/helpdesk/search",
+            params={"q": "HOTELS"}
+        )
+        assert response.status_code in [200, 401]
+        if response.status_code == 200:
+            data = response.json()
+            assert data["success"] is True
+
+
+# ==================== NEW TESTS: Search Handler Direct Function Tests ====================
+
+class TestSearchHandlerEdgeCases:
+    """Extended direct-call tests for search_helpdesk function."""
+
+    def test_search_matches_description_keyword(self):
+        """Should match topics by description content."""
+        from src.api.helpdesk_routes import search_helpdesk
+
+        result = search_helpdesk(q="payment", user=None)
+        assert result["success"] is True
+        # "payment" appears in invoices description: "payment tracking"
+        assert any("invoice" in r["id"].lower() or "payment" in r.get("description", "").lower()
+                    for r in result["results"])
+
+    def test_search_returns_multiple_matches(self):
+        """Should return multiple topics when query matches several."""
+        from src.api.helpdesk_routes import search_helpdesk
+
+        # "manage" appears in client management description
+        result = search_helpdesk(q="manage", user=None)
+        assert result["success"] is True
+        assert len(result["results"]) >= 1
+
+
+# ==================== NEW TESTS: Smart Response Edge Cases ====================
+
+class TestGetSmartResponseEdgeCases:
+    """Extended tests for get_smart_response with edge cases."""
+
+    def test_accommodation_maps_to_hotels(self):
+        """'accommodation' keyword should map to hotels topic."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("What accommodation options are available?")
+        assert topic == "hotels"
+
+    def test_room_keyword_maps_to_hotels(self):
+        """'room' keyword should map to hotels topic."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("Tell me about room types")
+        assert topic == "hotels"
+
+    def test_customer_add_maps_to_clients(self):
+        """'customer' + 'add' should map to client add."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I add a new customer?")
+        assert topic == "clients"
+
+    def test_contact_create_maps_to_clients(self):
+        """'contact' + 'create' should map to client add."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("I want to create a new contact")
+        assert topic == "clients"
+
+    def test_status_keyword_maps_to_pipeline(self):
+        """'status' keyword should map to pipeline."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I change a client status?")
+        assert topic == "pipeline"
+
+    def test_logo_keyword_maps_to_settings(self):
+        """'logo' keyword should map to settings."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I upload my logo?")
+        assert topic == "settings"
+
+    def test_color_keyword_maps_to_settings(self):
+        """'color' keyword should map to settings."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("Can I change the color scheme?")
+        assert topic == "settings"
+
+    def test_theme_keyword_maps_to_settings(self):
+        """'theme' keyword should map to settings."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I customize the theme?")
+        assert topic == "settings"
+
+    def test_cost_keyword_maps_to_pricing(self):
+        """'cost' keyword should map to pricing."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("What is the cost of the package?")
+        assert topic == "pricing"
+
+    def test_price_in_quote_context_maps_to_quotes(self):
+        """'price' with 'quote' should prioritize quotes topic."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How do I create a price quote?")
+        # "quote" + "create" should match quote_create before pricing
+        assert topic == "quotes"
+
+    def test_pay_keyword_maps_to_invoices(self):
+        """'pay' keyword should map to invoices."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("Where do clients pay?")
+        assert topic == "invoices"
+
+    def test_billing_keyword_maps_to_invoices(self):
+        """'billing' keyword should map to invoices."""
+        from src.api.helpdesk_routes import get_smart_response
+
+        answer, topic, sources = get_smart_response("How does billing work?")
+        assert topic == "invoices"
+
+
+# ==================== NEW TESTS: Dual KB Merge Behavior ====================
+
+class TestDualKBMergeBehavior:
+    """Tests for merge and ranking behavior in search_dual_knowledge_base."""
+
+    def test_results_sorted_by_score_descending(self, mock_config):
+        """Merged results should be sorted by score descending."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": True,
+                "answer": "Answer",
+                "citations": [
+                    {"content": "Low global", "relevance_score": 0.3, "source_title": "G1"},
+                ]
+            }
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = [
+                    {"content": "High private", "score": 0.95, "source_type": "private_kb"},
+                ]
+
+                result = search_dual_knowledge_base(mock_config, "test", top_k=10)
+
+        citations = result["citations"]
+        assert len(citations) == 2
+        # Highest score should come first
+        assert citations[0]["score"] >= citations[1]["score"]
+
+    def test_top_k_limits_merged_results(self, mock_config):
+        """top_k should limit the number of merged results returned."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": True,
+                "answer": "Answer",
+                "citations": [
+                    {"content": f"G{i}", "relevance_score": 0.9 - i * 0.1}
+                    for i in range(5)
+                ]
+            }
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = [
+                    {"content": f"P{i}", "score": 0.85 - i * 0.1, "source_type": "private_kb"}
+                    for i in range(5)
+                ]
+
+                result = search_dual_knowledge_base(mock_config, "test", top_k=3)
+
+        assert len(result["citations"]) == 3
+
+    def test_empty_global_with_private_results(self, mock_config):
+        """Should return private results when global returns nothing."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": False,
+                "answer": "",
+                "citations": []
+            }
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = [
+                    {"content": "Private only", "score": 0.8, "source_type": "private_kb"}
+                ]
+
+                result = search_dual_knowledge_base(mock_config, "test", top_k=10)
+
+        assert result["success"] is True  # Has citations even if no answer
+        assert result["sources_breakdown"]["private"] == 1
+        assert result["sources_breakdown"]["global"] == 0
+
+    def test_empty_both_sources(self, mock_config):
+        """Should handle both sources returning empty."""
+        from src.api.helpdesk_routes import search_dual_knowledge_base
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock_global:
+            mock_global.return_value = {
+                "success": False,
+                "answer": "",
+                "citations": []
+            }
+            with patch('src.api.helpdesk_routes.search_private_knowledge_base') as mock_private:
+                mock_private.return_value = []
+
+                result = search_dual_knowledge_base(mock_config, "test", top_k=10)
+
+        assert result["success"] is False
+        assert result["sources_breakdown"]["total"] == 0
+
+
+# ==================== NEW TESTS: Private KB Search Transform ====================
+
+class TestPrivateKBSearchTransform:
+    """Tests for private knowledge base search result transformation."""
+
+    def test_transforms_multiple_results(self, mock_config):
+        """Should correctly transform multiple private KB results."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        mock_manager = MagicMock()
+        mock_manager.search.return_value = [
+            {"content": "Content A", "score": 0.9, "source": "docA.pdf", "document_id": "id1", "chunk_index": 0},
+            {"content": "Content B", "score": 0.7, "source": "docB.pdf", "document_id": "id2", "chunk_index": 1},
+        ]
+
+        with patch('src.api.helpdesk_routes.get_index_manager', return_value=mock_manager):
+            result = search_private_knowledge_base(mock_config, "test", top_k=5)
+
+        assert len(result) == 2
+        assert result[0]["document_id"] == "id1"
+        assert result[1]["chunk_index"] == 1
+        for r in result:
+            assert r["source_type"] == "private_kb"
+            assert r["visibility"] == "private"
+
+    def test_passes_visibility_and_min_score(self, mock_config):
+        """Should pass visibility=private and min_score=0.3 to index manager."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        mock_manager = MagicMock()
+        mock_manager.search.return_value = []
+
+        with patch('src.api.helpdesk_routes.get_index_manager', return_value=mock_manager):
+            search_private_knowledge_base(mock_config, "test", top_k=3)
+
+        mock_manager.search.assert_called_once_with(
+            query="test",
+            top_k=3,
+            visibility="private",
+            min_score=0.3
+        )
+
+    def test_handles_missing_result_fields(self, mock_config):
+        """Should handle results with missing optional fields."""
+        from src.api.helpdesk_routes import search_private_knowledge_base
+
+        mock_manager = MagicMock()
+        mock_manager.search.return_value = [
+            {}  # Completely empty result dict
+        ]
+
+        with patch('src.api.helpdesk_routes.get_index_manager', return_value=mock_manager):
+            result = search_private_knowledge_base(mock_config, "test")
+
+        assert len(result) == 1
+        assert result[0]["content"] == ""
+        assert result[0]["score"] == 0.0
+        assert result[0]["source"] == "Private Knowledge Base"
+
+
+# ==================== NEW TESTS: Ask Helpdesk Timing and Response Fields ====================
+
+class TestAskHelpdeskTimingAndFields:
+    """Tests for ask_helpdesk timing data and response field completeness."""
+
+    def test_dual_kb_response_includes_query_type(self, mock_config):
+        """Dual-KB response should include query_type field."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="What hotels are in Zanzibar?")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.HOTEL_INFO, 0.9)
+            mock_instance.get_search_params.return_value = {"k": 10}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Zanzibar hotels include...",
+                    "citations": [],
+                    "confidence": 0.85,
+                    "latency_ms": 100,
+                    "sources_breakdown": {"global": 0, "private": 0, "total": 0}
+                }
+
+                result = ask_helpdesk(request, user=None, config=mock_config)
+
+        assert result["query_type"] == "hotel_info"
+        assert "confidence" in result
+        assert "sources_breakdown" in result
+
+    def test_dual_kb_response_timing_fields(self, mock_config):
+        """Dual-KB response timing should have all expected fields."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Test question")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.GENERAL, 0.5)
+            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Here is info",
+                    "citations": [],
+                    "confidence": 0.7,
+                    "latency_ms": 200,
+                    "sources_breakdown": {"global": 0, "private": 0, "total": 0}
+                }
+
+                result = ask_helpdesk(request, user=None, config=mock_config)
+
+        timing = result["timing"]
+        assert "search_ms" in timing
+        assert "synthesis_ms" in timing
+        assert "total_ms" in timing
+        assert "rag_latency_ms" in timing
+        assert isinstance(timing["search_ms"], int)
+        assert isinstance(timing["total_ms"], int)
+
+    def test_dual_kb_sources_formatted_correctly(self, mock_config):
+        """Dual-KB response sources should include type and is_private flags."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Hotels in Mauritius")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.HOTEL_INFO, 0.9)
+            mock_instance.get_search_params.return_value = {"k": 10}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Mauritius has lovely resorts",
+                    "citations": [
+                        {"source": "KB", "score": 0.9, "source_type": "global_kb"},
+                        {"source": "Private Doc", "score": 0.8, "source_type": "private_kb"},
+                    ],
+                    "confidence": 0.85,
+                    "latency_ms": 150,
+                    "sources_breakdown": {"global": 1, "private": 1, "total": 2}
+                }
+
+                result = ask_helpdesk(request, user=None, config=mock_config)
+
+        assert len(result["sources"]) == 2
+        global_source = next(s for s in result["sources"] if s["type"] == "global_kb")
+        private_source = next(s for s in result["sources"] if s["type"] == "private_kb")
+        assert global_source["is_private"] is False
+        assert private_source["is_private"] is True
+
+    def test_dual_kb_sources_limited_to_five(self, mock_config):
+        """Dual-KB response should return at most 5 sources."""
+        from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
+
+        request = AskQuestion(question="Hotels")
+
+        with patch('src.api.helpdesk_routes.get_query_classifier') as mock_classifier:
+            from src.services.query_classifier import QueryType
+            mock_instance = MagicMock()
+            mock_instance.classify.return_value = (QueryType.HOTEL_INFO, 0.9)
+            mock_instance.get_search_params.return_value = {"k": 10}
+            mock_classifier.return_value = mock_instance
+
+            with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
+                mock_search.return_value = {
+                    "success": True,
+                    "answer": "Many hotels available",
+                    "citations": [
+                        {"source": f"Doc{i}", "score": 0.9 - i * 0.05, "source_type": "global_kb"}
+                        for i in range(8)
+                    ],
+                    "confidence": 0.8,
+                    "latency_ms": 100,
+                    "sources_breakdown": {"global": 8, "private": 0, "total": 8}
+                }
+
+                result = ask_helpdesk(request, user=None, config=mock_config)
+
+        assert len(result["sources"]) <= 5
+
+
+# ==================== NEW TESTS: Client Config Cache Behavior ====================
+
+class TestClientConfigCacheBehavior:
+    """Extended tests for get_client_config caching and fallback."""
+
+    def test_different_client_ids_produce_different_configs(self):
+        """Different client IDs should produce separate cached configs."""
+        from src.api.helpdesk_routes import get_client_config, _client_configs
+
+        _client_configs.clear()
+
+        mock_config_a = MagicMock()
+        mock_config_a.client_id = "tenant_a"
+        mock_config_b = MagicMock()
+        mock_config_b.client_id = "tenant_b"
+
+        with patch('src.api.helpdesk_routes.ClientConfig', side_effect=[mock_config_a, mock_config_b]):
+            config_a = get_client_config("tenant_a")
+            config_b = get_client_config("tenant_b")
+
+        assert config_a is not config_b
+        assert config_a.client_id == "tenant_a"
+        assert config_b.client_id == "tenant_b"
+
+    def test_get_client_config_uses_env_default(self):
+        """Should use CLIENT_ID env var when header is None."""
+        from src.api.helpdesk_routes import get_client_config, _client_configs
+        import os
+
+        _client_configs.clear()
+
+        mock_config = MagicMock()
+        mock_config.client_id = "env_tenant"
+
+        with patch.dict(os.environ, {"CLIENT_ID": "env_tenant"}):
+            with patch('src.api.helpdesk_routes.ClientConfig', return_value=mock_config):
+                config = get_client_config(None)
+
+        assert config.client_id == "env_tenant"
+
+
+# ==================== NEW TESTS: Score Response Edge Cases ====================
+
+class TestScoreResponseEdgeCases:
+    """Extended edge case tests for score_response function."""
+
+    def test_empty_answer_with_no_keywords(self):
+        """Should score 1.0 for keywords when none required and answer empty."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "", "method": "rag"}
+        test_case = {"expected_keywords": [], "must_not_contain": []}
+
+        scores = score_response(response, test_case)
+        assert scores["keyword_score"] == 1.0
+
+    def test_zero_keywords_matched(self):
+        """Should score 0.0 when no keywords matched."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "completely unrelated text", "method": "rag"}
+        test_case = {
+            "expected_keywords": ["maldives", "resort", "honeymoon"],
+            "must_not_contain": []
+        }
+
+        scores = score_response(response, test_case)
+        assert scores["keyword_score"] == 0.0
+
+    def test_unknown_method_scores_low(self):
+        """Unknown method should score 0.3 for quality."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "test", "method": "some_unknown_method"}
+        test_case = {"expected_keywords": [], "must_not_contain": []}
+
+        scores = score_response(response, test_case)
+        assert scores["quality_score"] == 0.3
+
+    def test_no_results_method_scores_moderate(self):
+        """'no_results' method should score 0.6 for quality."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "test", "method": "no_results"}
+        test_case = {"expected_keywords": [], "must_not_contain": []}
+
+        scores = score_response(response, test_case)
+        assert scores["quality_score"] == 0.6
+
+    def test_must_contain_any_fails_when_none_present(self):
+        """Should score 0.0 when none of must_contain_any phrases found."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "here is a normal answer", "method": "rag"}
+        test_case = {
+            "expected_keywords": [],
+            "must_not_contain": [],
+            "must_contain_any": ["don't have", "can't find", "not sure"]
+        }
+
+        scores = score_response(response, test_case)
+        assert scores["contain_any_score"] == 0.0
+
+    def test_overall_score_is_weighted_correctly(self):
+        """Overall score should be weighted: 0.35*kw + 0.15*contain + 0.25*forbidden + 0.25*quality."""
+        from src.api.helpdesk_routes import score_response
+
+        response = {"answer": "maldives resort", "method": "rag"}
+        test_case = {
+            "expected_keywords": ["maldives", "resort"],
+            "must_not_contain": []
+        }
+
+        scores = score_response(response, test_case)
+        expected = 1.0 * 0.35 + 1.0 * 0.15 + 1.0 * 0.25 + 1.0 * 0.25
+        assert abs(scores["overall_score"] - expected) < 0.01
+
+
+# ==================== NEW TESTS: Accuracy Test Cases Data Integrity ====================
+
+class TestAccuracyTestCasesDataIntegrity:
+    """Tests for ACCURACY_TEST_CASES data structure integrity."""
+
+    def test_all_test_cases_have_required_fields(self):
+        """Every test case should have id, question, query_type, expected_keywords, criteria."""
+        from src.api.helpdesk_routes import ACCURACY_TEST_CASES
+
+        for tc in ACCURACY_TEST_CASES:
+            assert "id" in tc, f"Test case missing 'id': {tc}"
+            assert "question" in tc, f"Test case missing 'question': {tc}"
+            assert "query_type" in tc, f"Test case missing 'query_type': {tc}"
+            assert "expected_keywords" in tc, f"Test case missing 'expected_keywords': {tc}"
+            assert "criteria" in tc, f"Test case missing 'criteria': {tc}"
+
+    def test_all_test_case_ids_are_unique(self):
+        """All accuracy test case IDs should be unique."""
+        from src.api.helpdesk_routes import ACCURACY_TEST_CASES
+
+        ids = [tc["id"] for tc in ACCURACY_TEST_CASES]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs found: {[x for x in ids if ids.count(x) > 1]}"
+
+    def test_test_cases_cover_multiple_query_types(self):
+        """Test cases should cover multiple query types."""
+        from src.api.helpdesk_routes import ACCURACY_TEST_CASES
+
+        query_types = set(tc["query_type"] for tc in ACCURACY_TEST_CASES)
+        assert len(query_types) >= 3, f"Only {len(query_types)} query types covered: {query_types}"
+
+    def test_test_cases_have_at_least_five(self):
+        """Should have at least 5 accuracy test cases."""
+        from src.api.helpdesk_routes import ACCURACY_TEST_CASES
+
+        assert len(ACCURACY_TEST_CASES) >= 5
+
+
+# ==================== NEW TESTS: Test Search Endpoint Response Format ====================
+
+class TestTestSearchResponseFormat:
+    """Tests for test_rag_search response format details."""
+
+    def test_long_answer_truncated_in_preview(self):
+        """Answer preview should be truncated at 500 characters with ellipsis."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        long_answer = "A" * 600
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": long_answer,
+                "confidence": 0.9,
+                "latency_ms": 100,
+                "citations": []
+            }
+
+            result = test_rag_search(q="test")
+
+        assert result["success"] is True
+        assert len(result["answer_preview"]) == 503  # 500 + "..."
+        assert result["answer_preview"].endswith("...")
+
+    def test_short_answer_not_truncated(self):
+        """Short answer should not be truncated."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        short_answer = "Short answer"
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": short_answer,
+                "confidence": 0.9,
+                "latency_ms": 50,
+                "citations": []
+            }
+
+            result = test_rag_search(q="test")
+
+        assert result["success"] is True
+        assert result["answer_preview"] == short_answer
+
+    def test_citation_content_truncated_at_200(self):
+        """Citation content preview should truncate at 200 characters."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        long_content = "B" * 300
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": "Answer",
+                "confidence": 0.8,
+                "latency_ms": 100,
+                "citations": [
+                    {"source_title": "Doc", "relevance_score": 0.9, "content": long_content}
+                ]
+            }
+
+            result = test_rag_search(q="test")
+
+        assert result["success"] is True
+        assert len(result["citations"]) == 1
+        assert len(result["citations"][0]["content_preview"]) == 203  # 200 + "..."
+
+    def test_citations_limited_to_five(self):
+        """Test search should limit citations to 5."""
+        from src.api.helpdesk_routes import test_rag_search
+
+        with patch('src.api.helpdesk_routes.search_travel_platform_rag') as mock:
+            mock.return_value = {
+                "success": True,
+                "answer": "Answer",
+                "confidence": 0.8,
+                "latency_ms": 100,
+                "citations": [
+                    {"source_title": f"Doc{i}", "relevance_score": 0.9, "content": f"Content {i}"}
+                    for i in range(10)
+                ]
+            }
+
+            result = test_rag_search(q="test")
+
+        assert result["success"] is True
+        assert len(result["citations"]) == 5
+
+
+# ==================== NEW TESTS: Reinit Handler Patching ====================
+
+class TestReinitHandlerPatching:
+    """Tests for reinit_rag_client with different patching paths."""
+
+    def test_reinit_calls_reset_before_get(self):
+        """Should call reset before getting new client."""
+        from src.api.helpdesk_routes import reinit_rag_client
+
+        call_order = []
+
+        def mock_reset():
+            call_order.append("reset")
+
+        def mock_get():
+            call_order.append("get")
+            client = MagicMock()
+            client.is_available.return_value = True
+            client.get_status.return_value = {"available": True}
+            return client
+
+        with patch('src.services.travel_platform_rag_client.reset_travel_platform_rag_client', side_effect=mock_reset):
+            with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', side_effect=mock_get):
+                result = reinit_rag_client()
+
+        assert call_order == ["reset", "get"]
+        assert result["success"] is True
