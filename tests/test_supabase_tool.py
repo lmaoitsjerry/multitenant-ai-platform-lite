@@ -1375,5 +1375,1118 @@ class TestTemplateSettings:
             assert result is not None
 
 
+# ==================== NEW TESTS: Initialization Extended ====================
+
+class TestSupabaseToolInitExtended:
+    """Extended initialization tests for SupabaseTool."""
+
+    def test_init_uses_service_key_over_anon_key(self, mock_config):
+        """Should prefer service_key over anon_key when both available."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            mock_get_client.assert_called_once_with(
+                "https://test.supabase.co",
+                "test-service-key",
+                "test_tenant"
+            )
+
+    def test_init_falls_back_to_anon_key(self, mock_config):
+        """Should use anon_key when service_key is None."""
+        mock_config.supabase_service_key = None
+
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            mock_get_client.assert_called_once_with(
+                "https://test.supabase.co",
+                "test-anon-key",
+                "test_tenant"
+            )
+
+    def test_init_creates_thread_pool_executor(self, mock_config):
+        """Should create a ThreadPoolExecutor for timeout-protected queries."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            assert tool._executor is not None
+            assert tool._default_timeout == 10
+
+    def test_init_all_table_constants(self, mock_config):
+        """Should have all expected table name constants."""
+        from src.tools.supabase_tool import SupabaseTool
+
+        assert SupabaseTool.TABLE_CALL_QUEUE == "outbound_call_queue"
+        assert SupabaseTool.TABLE_CALL_RECORDS == "call_records"
+        assert SupabaseTool.TABLE_TICKETS == "inbound_tickets"
+        assert SupabaseTool.TABLE_INVOICES == "invoices"
+        assert SupabaseTool.TABLE_INVOICE_TRAVELERS == "invoice_travelers"
+        assert SupabaseTool.TABLE_HELPDESK_SESSIONS == "helpdesk_sessions"
+        assert SupabaseTool.TABLE_CLIENTS == "clients"
+        assert SupabaseTool.TABLE_ACTIVITIES == "activities"
+        assert SupabaseTool.TABLE_QUOTES == "quotes"
+
+
+# ==================== NEW TESTS: execute_with_timeout ====================
+
+class TestExecuteWithTimeout:
+    """Tests for execute_with_timeout method."""
+
+    def test_execute_with_timeout_success(self, mock_config):
+        """Should return result on successful query within timeout."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                result = tool.execute_with_timeout(
+                    lambda: {"data": [1, 2, 3]},
+                    timeout=5,
+                    operation="test query"
+                )
+
+                assert result == {"data": [1, 2, 3]}
+                mock_circuit.record_success.assert_called_once()
+
+    def test_execute_with_timeout_circuit_open(self, mock_config):
+        """Should raise ConnectionError when circuit breaker is open."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = False
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                with pytest.raises(ConnectionError, match="circuit breaker OPEN"):
+                    tool.execute_with_timeout(
+                        lambda: None,
+                        operation="blocked query"
+                    )
+
+    def test_execute_with_timeout_query_timeout(self, mock_config):
+        """Should raise TimeoutError when query exceeds timeout."""
+        import time as time_mod
+
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                def slow_query():
+                    time_mod.sleep(5)
+                    return "never"
+
+                with pytest.raises(TimeoutError, match="timed out"):
+                    tool.execute_with_timeout(
+                        slow_query,
+                        timeout=0.1,
+                        operation="slow query"
+                    )
+
+                mock_circuit.record_failure.assert_called_once()
+
+    def test_execute_with_timeout_query_exception(self, mock_config):
+        """Should re-raise exception and record failure on circuit breaker."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                def failing_query():
+                    raise ValueError("DB connection lost")
+
+                with pytest.raises(ValueError, match="DB connection lost"):
+                    tool.execute_with_timeout(
+                        failing_query,
+                        operation="failing query"
+                    )
+
+                mock_circuit.record_failure.assert_called_once()
+
+    def test_execute_with_timeout_uses_default_timeout(self, mock_config):
+        """Should use default timeout when none specified."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = MagicMock()
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                # Default is 10 seconds - query should succeed well within that
+                result = tool.execute_with_timeout(
+                    lambda: "fast result",
+                    operation="fast query"
+                )
+
+                assert result == "fast result"
+
+
+# ==================== NEW TESTS: query_with_timeout ====================
+
+class TestQueryWithTimeout:
+    """Tests for query_with_timeout convenience method."""
+
+    def test_query_with_timeout_basic(self, mock_config):
+        """Should query table with tenant filter and return data."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                mock_result = MagicMock()
+                mock_result.data = [{"id": 1}, {"id": 2}]
+
+                chain = create_chainable_mock()
+                chain.execute.return_value = mock_result
+                mock_client.table.return_value = chain
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                result = tool.query_with_timeout("quotes")
+
+                assert len(result) == 2
+                mock_client.table.assert_called_with("quotes")
+
+    def test_query_with_timeout_with_filters(self, mock_config):
+        """Should apply additional filters to query."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                mock_result = MagicMock()
+                mock_result.data = [{"id": 1, "status": "active"}]
+
+                chain = create_chainable_mock()
+                chain.execute.return_value = mock_result
+                mock_client.table.return_value = chain
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                result = tool.query_with_timeout(
+                    "quotes",
+                    filters={"status": "active", "destination": "Paris"}
+                )
+
+                assert len(result) == 1
+
+    def test_query_with_timeout_empty_result(self, mock_config):
+        """Should return empty list when result.data is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            with patch('src.tools.supabase_tool.supabase_circuit') as mock_circuit:
+                mock_circuit.can_execute.return_value = True
+
+                mock_result = MagicMock()
+                mock_result.data = None
+
+                chain = create_chainable_mock()
+                chain.execute.return_value = mock_result
+                mock_client.table.return_value = chain
+
+                from src.tools.supabase_tool import SupabaseTool
+                tool = SupabaseTool(mock_config)
+
+                result = tool.query_with_timeout("quotes")
+
+                assert result == []
+
+
+# ==================== NEW TESTS: Call Queue Extended ====================
+
+class TestCallQueueExtended:
+    """Extended call queue tests."""
+
+    def test_queue_outbound_call_no_client_returns_none(self, mock_config):
+        """Should return None when Supabase client is not available."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.queue_outbound_call(
+                client_name="Test",
+                client_email="test@example.com",
+                phone_number="+1234567890",
+                quote_details={}
+            )
+
+            assert result is None
+
+    def test_queue_outbound_call_includes_consultant_fields(self, mock_config):
+        """Should include consultant_id and consultant_email in record."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"id": "q1"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.queue_outbound_call(
+                client_name="Test",
+                client_email="test@test.com",
+                phone_number="+27123456",
+                quote_details={"dest": "Cape Town"},
+                consultant_id="c-1",
+                consultant_email="consultant@test.com"
+            )
+
+            call_args = chain.insert.call_args[0][0]
+            assert call_args["consultant_id"] == "c-1"
+            assert call_args["consultant_email"] == "consultant@test.com"
+
+    def test_queue_outbound_call_exception(self, mock_config):
+        """Should return None on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Insert failed")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.queue_outbound_call(
+                client_name="Test",
+                client_email="test@test.com",
+                phone_number="+1",
+                quote_details={}
+            )
+
+            assert result is None
+
+    def test_get_pending_calls_no_client(self, mock_config):
+        """Should return empty list when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_pending_calls()
+
+            assert result == []
+
+    def test_update_call_status_no_client(self, mock_config):
+        """Should return False when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_call_status("q1", "completed")
+
+            assert result is False
+
+    def test_save_call_record_no_client(self, mock_config):
+        """Should return None when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.save_call_record(
+                call_id="c1", phone_number="+1", transcript="hi",
+                outcome="success", duration_seconds=10
+            )
+
+            assert result is None
+
+
+# ==================== NEW TESTS: Invoice Extended ====================
+
+class TestInvoiceExtended:
+    """Extended invoice operation tests."""
+
+    def test_create_invoice_no_client(self, mock_config):
+        """Should return None when no Supabase client."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.create_invoice(
+                customer_name="Test",
+                customer_email="t@t.com",
+                items=[],
+                total_amount=0
+            )
+
+            assert result is None
+
+    def test_create_invoice_generates_invoice_id(self, mock_config):
+        """Should generate an invoice ID with INV- prefix."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"invoice_id": "INV-20260205-ABC123"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.create_invoice(
+                customer_name="Test",
+                customer_email="t@t.com",
+                items=[{"desc": "item"}],
+                total_amount=100
+            )
+
+            call_args = chain.insert.call_args[0][0]
+            assert call_args["invoice_id"].startswith("INV-")
+
+    def test_create_invoice_default_due_date(self, mock_config):
+        """Should set due_date to 7 days from now if not provided."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"invoice_id": "INV-1"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.create_invoice(
+                customer_name="Test",
+                customer_email="t@t.com",
+                items=[],
+                total_amount=500
+            )
+
+            call_args = chain.insert.call_args[0][0]
+            assert "due_date" in call_args
+            # Should be an ISO format string
+            assert "T" in call_args["due_date"]
+
+    def test_create_invoice_raises_on_exception(self, mock_config):
+        """create_invoice should re-raise exception (unlike other methods)."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Constraint violation")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            with pytest.raises(Exception, match="Constraint violation"):
+                tool.create_invoice(
+                    customer_name="Test",
+                    customer_email="t@t.com",
+                    items=[],
+                    total_amount=100
+                )
+
+    def test_update_invoice_status_no_client(self, mock_config):
+        """Should return False when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_invoice_status("INV-1", "paid")
+
+            assert result is False
+
+    def test_update_invoice_status_with_payment_reference(self, mock_config):
+        """Should include payment_reference in update data."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = MagicMock()
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.update_invoice_status(
+                "INV-1", "paid",
+                payment_reference="PAY-REF-123"
+            )
+
+            call_args = chain.update.call_args[0][0]
+            assert call_args["payment_reference"] == "PAY-REF-123"
+
+    def test_list_invoices_enriches_destination_from_items(self, mock_config):
+        """list_invoices should try to extract destination from items."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{
+                'invoice_id': 'INV-1',
+                'items': [{'destination': 'Cape Town', 'amount': 1000}],
+                'total_amount': 1000
+            }]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.list_invoices()
+
+            assert len(result) == 1
+            assert result[0].get('destination') == 'Cape Town'
+
+
+# ==================== NEW TESTS: Branding Extended ====================
+
+class TestBrandingExtended:
+    """Extended branding operation tests."""
+
+    def test_create_branding_with_colors(self, mock_config):
+        """Should map color keys to color_ prefixed DB columns."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"tenant_id": "test_tenant"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.create_branding(
+                colors={"primary": "#FF0000", "secondary": "#00FF00"}
+            )
+
+            call_args = chain.insert.call_args[0][0]
+            assert call_args["color_primary"] == "#FF0000"
+            assert call_args["color_secondary"] == "#00FF00"
+
+    def test_create_branding_with_fonts(self, mock_config):
+        """Should map font keys to font_family_ DB columns."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"tenant_id": "test_tenant"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            tool.create_branding(
+                fonts={"heading": "Inter", "body": "Roboto"}
+            )
+
+            call_args = chain.insert.call_args[0][0]
+            assert call_args["font_family_heading"] == "Inter"
+            assert call_args["font_family_body"] == "Roboto"
+
+    def test_get_branding_no_client(self, mock_config):
+        """Should return None when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_branding()
+
+            assert result is None
+
+    def test_delete_branding_no_client(self, mock_config):
+        """Should return False when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.delete_branding()
+
+            assert result is False
+
+    def test_delete_branding_exception(self, mock_config):
+        """Should return False on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Delete failed")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.delete_branding()
+
+            assert result is False
+
+    def test_update_branding_creates_when_none_exists(self, mock_config):
+        """update_branding should create new record when none exists."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            # get_branding returns None (no existing), create_branding succeeds
+            mock_create_result = MagicMock()
+            mock_create_result.data = [{"preset_theme": "sunset", "tenant_id": "test_tenant"}]
+
+            chain = create_chainable_mock()
+
+            call_count = [0]
+            def side_effect():
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    raise Exception("No rows")  # get_branding fails
+                return mock_create_result
+
+            chain.execute.side_effect = side_effect
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_branding(preset_theme="sunset")
+
+            assert result is not None
+
+
+# ==================== NEW TESTS: Organization Users Extended ====================
+
+class TestOrganizationUsersExtended:
+    """Extended organization user management tests."""
+
+    def test_get_organization_users_include_inactive(self, mock_config):
+        """Should include inactive users when flag is set."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [
+                {"id": "u1", "is_active": True},
+                {"id": "u2", "is_active": False}
+            ]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_organization_users(include_inactive=True)
+
+            assert len(result) == 2
+
+    def test_get_organization_users_exception(self, mock_config):
+        """Should return empty list on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("DB error")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_organization_users()
+
+            assert result == []
+
+    def test_update_organization_user_filters_allowed_fields(self, mock_config):
+        """Should only update allowed fields (name, role, is_active, phone)."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [{"id": "u1", "name": "New Name"}]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_organization_user("u1", {
+                "name": "New Name",
+                "role": "admin",
+                "email": "hacked@evil.com",  # Should be filtered out
+                "tenant_id": "other-tenant"   # Should be filtered out
+            })
+
+            call_args = chain.update.call_args[0][0]
+            assert "name" in call_args
+            assert "role" in call_args
+            assert "email" not in call_args
+            assert "tenant_id" not in call_args
+
+    def test_update_organization_user_empty_updates(self, mock_config):
+        """Should return None when no allowed fields are provided."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_organization_user("u1", {
+                "email": "not-allowed@test.com"
+            })
+
+            assert result is None
+
+    def test_get_user_by_email_returns_first_match(self, mock_config):
+        """Should return first match from result data."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = [
+                {"id": "u1", "email": "test@test.com"},
+                {"id": "u2", "email": "test@test.com"}
+            ]
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_user_by_email("test@test.com")
+
+            assert result["id"] == "u1"
+
+    def test_get_user_by_email_empty_result(self, mock_config):
+        """Should return None when no users found."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = []
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_user_by_email("noone@test.com")
+
+            assert result is None
+
+
+# ==================== NEW TESTS: Helpdesk Extended ====================
+
+class TestHelpdeskExtended:
+    """Extended helpdesk session tests."""
+
+    def test_create_helpdesk_session_no_client(self, mock_config):
+        """Should return None when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.create_helpdesk_session("e@e.com", "Employee")
+
+            assert result is None
+
+    def test_create_helpdesk_session_exception(self, mock_config):
+        """Should return None on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Insert error")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.create_helpdesk_session("e@e.com", "Employee")
+
+            assert result is None
+
+    def test_add_helpdesk_message_no_client(self, mock_config):
+        """Should return False when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.add_helpdesk_message("s1", "user", "hello")
+
+            assert result is False
+
+    def test_add_helpdesk_message_session_not_found(self, mock_config):
+        """Should return False when session does not exist."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = None
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.add_helpdesk_message("nonexistent", "user", "hello")
+
+            assert result is False
+
+
+# ==================== NEW TESTS: Invitation Extended ====================
+
+class TestInvitationExtended:
+    """Extended invitation operation tests."""
+
+    def test_get_invitation_by_token(self, mock_config):
+        """Should retrieve invitation by token."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_result = MagicMock()
+            mock_result.data = {
+                "id": "inv-1",
+                "token": "abc123",
+                "email": "invite@test.com"
+            }
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = mock_result
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_invitation_by_token("abc123")
+
+            assert result is not None
+            assert result["token"] == "abc123"
+
+    def test_get_invitation_by_token_not_found(self, mock_config):
+        """Should return None when token not found."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("No rows")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_invitation_by_token("invalid-token")
+
+            assert result is None
+
+    def test_accept_invitation_success(self, mock_config):
+        """Should mark invitation as accepted."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.return_value = MagicMock()
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.accept_invitation("token-123", "auth-user-456")
+
+            assert result is True
+
+    def test_accept_invitation_exception(self, mock_config):
+        """Should return False on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Update error")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.accept_invitation("token-bad", "auth-user-456")
+
+            assert result is False
+
+    def test_cancel_invitation_exception(self, mock_config):
+        """Should return False on exception."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("Delete failed")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.cancel_invitation("inv-bad")
+
+            assert result is False
+
+
+# ==================== NEW TESTS: Client Caching ====================
+
+class TestSupabaseClientCaching:
+    """Tests for the Supabase client caching mechanism."""
+
+    def test_get_cached_client_returns_same_instance(self):
+        """Should return cached instance for same parameters."""
+        from src.tools.supabase_tool import get_cached_supabase_client, _supabase_client_cache
+        _supabase_client_cache.clear()
+
+        with patch('src.tools.supabase_tool.create_client') as mock_create:
+            mock_client = MagicMock()
+            mock_create.return_value = mock_client
+
+            c1 = get_cached_supabase_client("https://url.co", "key", "tenant-a")
+            c2 = get_cached_supabase_client("https://url.co", "key", "tenant-a")
+
+            assert c1 is c2
+            mock_create.assert_called_once()
+
+        _supabase_client_cache.clear()
+
+    def test_get_cached_client_different_tenants(self):
+        """Should create separate clients for different tenants."""
+        from src.tools.supabase_tool import get_cached_supabase_client, _supabase_client_cache
+        _supabase_client_cache.clear()
+
+        with patch('src.tools.supabase_tool.create_client') as mock_create:
+            mock_create.side_effect = [MagicMock(), MagicMock()]
+
+            c1 = get_cached_supabase_client("https://url.co", "key", "tenant-a")
+            c2 = get_cached_supabase_client("https://url.co", "key", "tenant-b")
+
+            assert c1 is not c2
+            assert mock_create.call_count == 2
+
+        _supabase_client_cache.clear()
+
+    def test_get_cached_client_creation_failure(self):
+        """Should return None when create_client fails."""
+        from src.tools.supabase_tool import get_cached_supabase_client, _supabase_client_cache
+        _supabase_client_cache.clear()
+
+        with patch('src.tools.supabase_tool.create_client') as mock_create:
+            mock_create.side_effect = Exception("Connection refused")
+
+            result = get_cached_supabase_client("https://url.co", "key", "tenant-fail")
+
+            assert result is None
+
+        _supabase_client_cache.clear()
+
+
+# ==================== NEW TESTS: Storage/Logo Upload ====================
+
+class TestLogoUpload:
+    """Tests for logo upload to Supabase Storage."""
+
+    def test_upload_logo_no_client(self, mock_config):
+        """Should raise Exception when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            with pytest.raises(Exception, match="not initialized"):
+                tool.upload_logo_to_storage(b"image-data", "logo.png")
+
+    def test_upload_logo_success(self, mock_config):
+        """Should upload logo and return public URL."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_bucket = MagicMock()
+            mock_bucket.upload.return_value = MagicMock()
+            mock_bucket.get_public_url.return_value = "https://storage.supabase.co/branding/test_tenant/primary.png"
+            mock_client.storage.from_.return_value = mock_bucket
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.upload_logo_to_storage(b"png-data", "logo.png", "primary")
+
+            assert result == "https://storage.supabase.co/branding/test_tenant/primary.png"
+
+    def test_upload_logo_bucket_not_found(self, mock_config):
+        """Should raise descriptive error when bucket not found."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_bucket = MagicMock()
+            mock_bucket.remove.side_effect = Exception("pass")
+            mock_bucket.upload.side_effect = Exception("Bucket not found")
+            mock_client.storage.from_.return_value = mock_bucket
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            with pytest.raises(Exception, match="tenant-assets"):
+                tool.upload_logo_to_storage(b"data", "logo.png")
+
+    def test_upload_logo_permission_denied(self, mock_config):
+        """Should raise descriptive error on 403/permission error."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            mock_bucket = MagicMock()
+            mock_bucket.remove.return_value = None
+            mock_bucket.upload.side_effect = Exception("403 permission denied by policy")
+            mock_client.storage.from_.return_value = mock_bucket
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            with pytest.raises(Exception, match="permission denied"):
+                tool.upload_logo_to_storage(b"data", "logo.png")
+
+
+# ==================== NEW TESTS: Template Settings Extended ====================
+
+class TestTemplateSettingsExtended:
+    """Extended template settings tests."""
+
+    def test_get_template_settings_no_client(self, mock_config):
+        """Should return None when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.get_template_settings()
+
+            assert result is None
+
+    def test_update_template_settings_no_client(self, mock_config):
+        """Should return None when client is None."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_get_client.return_value = None
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            result = tool.update_template_settings({"quote": {}, "invoice": {}})
+
+            assert result is None
+
+    def test_update_template_settings_returns_input_on_error(self, mock_config):
+        """Should return input settings for graceful degradation on error."""
+        with patch('src.tools.supabase_tool.get_cached_supabase_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            chain = create_chainable_mock()
+            chain.execute.side_effect = Exception("DB error")
+            mock_client.table.return_value = chain
+
+            from src.tools.supabase_tool import SupabaseTool
+            tool = SupabaseTool(mock_config)
+
+            input_settings = {"quote": {"header": "My Quote"}, "invoice": {"footer": "Thanks"}}
+            result = tool.update_template_settings(input_settings)
+
+            # Should return input even on error
+            assert result == input_settings
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -298,20 +298,18 @@ class TestGetSupabaseAdminClient:
 class TestGetAllQuotesStats:
     """Tests for get_all_quotes_stats helper."""
 
-    @pytest.mark.asyncio
-    async def test_returns_zeros_without_client(self):
+    def test_returns_zeros_without_client(self):
         """Should return zeros when no Supabase client."""
         from src.api.admin_analytics_routes import get_all_quotes_stats
 
         with patch('src.api.admin_analytics_routes.get_supabase_admin_client') as mock:
             mock.return_value = None
 
-            result = await get_all_quotes_stats()
+            result = get_all_quotes_stats()
 
             assert result == {"total": 0, "this_month": 0, "last_month": 0}
 
-    @pytest.mark.asyncio
-    async def test_handles_exception(self):
+    def test_handles_exception(self):
         """Should handle exceptions gracefully."""
         from src.api.admin_analytics_routes import get_all_quotes_stats
 
@@ -320,7 +318,7 @@ class TestGetAllQuotesStats:
             mock_client.table.side_effect = Exception("DB Error")
             mock.return_value = mock_client
 
-            result = await get_all_quotes_stats()
+            result = get_all_quotes_stats()
 
             assert result == {"total": 0, "this_month": 0, "last_month": 0}
 
