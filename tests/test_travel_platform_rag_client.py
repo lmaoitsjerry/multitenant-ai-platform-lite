@@ -399,3 +399,358 @@ class TestReset:
 
         # Should be different instances
         assert client1_id != client2_id
+
+
+# ==================== NEW TESTS: Client Init Edge Cases ====================
+
+class TestClientInitEdgeCases:
+    """Additional initialization tests for edge cases."""
+
+    def test_client_default_url_without_env(self):
+        """Client should use default localhost URL when env not set."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        with patch.dict('os.environ', {}, clear=True):
+            client = TravelPlatformRAGClient()
+            assert 'localhost' in client.base_url or '127.0.0.1' in client.base_url
+
+    def test_client_default_tenant_is_itc(self):
+        """Default tenant slug should be 'itc'."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        with patch.dict('os.environ', {}, clear=True):
+            client = TravelPlatformRAGClient()
+            assert client.tenant_slug == 'itc'
+
+    def test_client_default_timeout_is_30(self):
+        """Default timeout should be 30 seconds."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        with patch.dict('os.environ', {}, clear=True):
+            client = TravelPlatformRAGClient()
+            assert client.timeout == 30
+
+    def test_client_empty_api_key_sets_empty_auth_header(self):
+        """Empty API key should result in empty Authorization header."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        with patch.dict('os.environ', {'TRAVEL_PLATFORM_API_KEY': ''}, clear=True):
+            client = TravelPlatformRAGClient()
+            assert client.session.headers.get('Authorization') == ''
+
+    def test_client_sets_content_type_json(self, mock_env):
+        """Client session should have Content-Type: application/json."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        client = TravelPlatformRAGClient()
+        assert client.session.headers.get('Content-Type') == 'application/json'
+
+    def test_client_last_error_initially_none(self, mock_env):
+        """Client _last_error should be None after init."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        client = TravelPlatformRAGClient()
+        assert client._last_error is None
+
+
+# ==================== NEW TESTS: Search Method Details ====================
+
+class TestSearchMethodDetails:
+    """Detailed tests for the search method behavior."""
+
+    def test_search_default_top_k_is_5(self, mock_env):
+        """Default top_k should be 5."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {'answer': ''}
+
+            client.search('test query')
+
+            payload = mock_post.call_args[1]['json']
+            assert payload['top_k'] == 5
+
+    def test_search_default_include_shared_is_true(self, mock_env):
+        """Default include_shared should be True."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {'answer': ''}
+
+            client.search('test query')
+
+            payload = mock_post.call_args[1]['json']
+            assert payload['include_shared'] is True
+
+    def test_search_custom_top_k(self, mock_env):
+        """Custom top_k should be sent in payload."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {'answer': ''}
+
+            client.search('test query', top_k=15)
+
+            payload = mock_post.call_args[1]['json']
+            assert payload['top_k'] == 15
+
+    def test_search_records_last_error_on_timeout(self, mock_env):
+        """Timeout should set _last_error on client."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = requests.exceptions.Timeout()
+            client.search('test')
+
+        assert client._last_error is not None
+        assert 'timed out' in client._last_error.lower()
+
+    def test_search_records_last_error_on_connection_error(self, mock_env):
+        """Connection error should set _last_error on client."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = requests.exceptions.ConnectionError("refused")
+            client.search('test')
+
+        assert client._last_error is not None
+        assert 'Connection' in client._last_error
+
+    def test_search_records_last_error_on_generic_exception(self, mock_env):
+        """Generic exception should set _last_error on client."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = Exception("Something unexpected")
+            client.search('test')
+
+        assert client._last_error == "Something unexpected"
+
+
+# ==================== NEW TESTS: Response Parsing ====================
+
+class TestResponseParsing:
+    """Tests for parsing various response shapes from the API."""
+
+    def test_search_handles_missing_fields_gracefully(self, mock_env):
+        """Search should handle missing fields in API response with defaults."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            # Minimal response -- missing most fields
+            mock_post.return_value.json.return_value = {}
+
+            result = client.search('test query')
+
+            assert result['success'] is True
+            assert result['answer'] == ''
+            assert result['citations'] == []
+            assert result['confidence'] == 0.0
+            assert result['latency_ms'] == 0
+            assert result['query_id'] == ''
+
+    def test_search_preserves_full_answer(self, mock_env):
+        """Search should preserve the full answer text from API."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        long_answer = "This is a detailed answer. " * 20
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {
+                'answer': long_answer,
+                'citations': [],
+                'confidence': 0.75
+            }
+
+            result = client.search('detailed query')
+
+            assert result['answer'] == long_answer
+
+    def test_search_preserves_multiple_citations(self, mock_env):
+        """Search should preserve all citations from API response."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        citations = [
+            {'source': 'doc1.pdf', 'text': 'chunk 1'},
+            {'source': 'doc2.pdf', 'text': 'chunk 2'},
+            {'source': 'doc3.pdf', 'text': 'chunk 3'}
+        ]
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {
+                'answer': 'answer',
+                'citations': citations,
+                'confidence': 0.9
+            }
+
+            result = client.search('query')
+
+            assert len(result['citations']) == 3
+            assert result['citations'][0]['source'] == 'doc1.pdf'
+
+
+# ==================== NEW TESTS: Auth Headers ====================
+
+class TestAuthHeaders:
+    """Tests for authentication header configuration."""
+
+    def test_bearer_token_format(self, mock_env):
+        """Authorization header should use Bearer token format."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        client = TravelPlatformRAGClient()
+        auth = client.session.headers.get('Authorization')
+
+        assert auth.startswith('Bearer ')
+        assert auth == 'Bearer test-api-key'
+
+    def test_no_api_key_results_in_empty_auth(self):
+        """When no API key is set, Authorization header should be empty."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        with patch.dict('os.environ', {
+            'TRAVEL_PLATFORM_URL': 'http://test.local',
+            'TRAVEL_PLATFORM_TENANT': 'test'
+        }, clear=True):
+            client = TravelPlatformRAGClient()
+            assert client.session.headers.get('Authorization') == ''
+
+
+# ==================== NEW TESTS: Circuit Breaker Integration ====================
+
+class TestCircuitBreakerBehavior:
+    """Tests for circuit breaker integration with search."""
+
+    def test_search_records_success_on_circuit_breaker(self, mock_env):
+        """Successful search should record success on circuit breaker."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status = MagicMock()
+            mock_post.return_value.json.return_value = {'answer': 'ok'}
+
+            client.search('test')
+
+        assert rag_circuit.failures == 0
+        assert rag_circuit.state == 'closed'
+
+    def test_search_records_failure_on_circuit_breaker(self, mock_env):
+        """Failed search should record failure on circuit breaker."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = requests.exceptions.Timeout()
+            client.search('test')
+
+        assert rag_circuit.failures == 1
+
+    def test_multiple_failures_open_circuit(self, mock_env):
+        """Enough failures should open the circuit breaker."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = requests.exceptions.ConnectionError("down")
+
+            for _ in range(rag_circuit.failure_threshold):
+                client.search('test')
+
+        assert rag_circuit.state == 'open'
+
+
+# ==================== NEW TESTS: Get Status Details ====================
+
+class TestGetStatusDetails:
+    """Additional tests for get_status method details."""
+
+    def test_status_includes_last_error_after_failure(self, mock_env):
+        """get_status should show last error after a search failure."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+        from src.utils.circuit_breaker import rag_circuit
+        _reset_circuit_breaker(rag_circuit)
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.side_effect = requests.exceptions.Timeout()
+            client.search('test')
+
+        with patch.object(client, 'is_available', return_value=False):
+            status = client.get_status()
+
+        assert status['last_error'] is not None
+        assert 'timed out' in status['last_error'].lower()
+        assert status['available'] is False
+
+    def test_status_shows_correct_config(self, mock_env):
+        """get_status should reflect configured values."""
+        from src.services.travel_platform_rag_client import TravelPlatformRAGClient
+
+        client = TravelPlatformRAGClient()
+
+        with patch.object(client, 'is_available', return_value=True):
+            status = client.get_status()
+
+        assert status['base_url'] == 'http://test-platform.local'
+        assert status['tenant'] == 'test-tenant'
+        assert status['timeout'] == 15

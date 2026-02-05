@@ -518,3 +518,644 @@ class TestErrorResponse:
         assert response["hotels"] == []
         assert response["total_hotels"] == 0
         assert response["error"] == "Test error"
+
+
+# ==================== NEW TESTS: Date Handling ====================
+
+class TestDateHandling:
+    """Tests for date serialization and night calculation."""
+
+    @pytest.mark.asyncio
+    async def test_dates_serialized_as_iso_format(self, mock_circuit_breaker, sample_search_response):
+        """Check-in and check-out dates should be serialized in ISO format."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="mauritius",
+                check_in=date(2025, 6, 15),
+                check_out=date(2025, 6, 20)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["check_in"] == "2025-06-15"
+            assert payload["check_out"] == "2025-06-20"
+
+    @pytest.mark.asyncio
+    async def test_nights_calculated_from_response(self, mock_circuit_breaker):
+        """Nights should come from response or be calculated from dates."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        response_data = {
+            "destination": "zanzibar",
+            "check_in": "2025-03-01",
+            "check_out": "2025-03-08",
+            "nights": 7,
+            "total_hotels": 1,
+            "hotels": [{"name": "Test Hotel"}],
+            "search_time_seconds": 2.0
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = response_data
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 8)
+            )
+
+            assert result["nights"] == 7
+
+    @pytest.mark.asyncio
+    async def test_nights_fallback_calculates_from_dates(self, mock_circuit_breaker):
+        """When response omits 'nights', should calculate from check_in/check_out."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        # Response without 'nights' field
+        response_data = {
+            "destination": "zanzibar",
+            "total_hotels": 0,
+            "hotels": [],
+            "search_time_seconds": 1.0
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = response_data
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 4)
+            )
+
+            assert result["nights"] == 3
+
+
+# ==================== NEW TESTS: Destination Handling ====================
+
+class TestDestinationHandling:
+    """Tests for destination name normalization."""
+
+    @pytest.mark.asyncio
+    async def test_destination_lowercased_in_payload(self, mock_circuit_breaker, sample_search_response):
+        """Destination should be lowercased in the API payload."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="MAURITIUS",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["destination"] == "mauritius"
+
+    @pytest.mark.asyncio
+    async def test_destination_mixed_case_lowercased(self, mock_circuit_breaker, sample_search_response):
+        """Mixed case destination should be lowercased."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="Zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["destination"] == "zanzibar"
+
+
+# ==================== NEW TESTS: Hotel Search Response Structure ====================
+
+class TestSearchResponseStructure:
+    """Tests for the structure of successful search responses."""
+
+    @pytest.mark.asyncio
+    async def test_success_response_has_all_required_fields(self, mock_circuit_breaker, sample_search_response):
+        """Successful response should have all required fields."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            assert "success" in result
+            assert "destination" in result
+            assert "check_in" in result
+            assert "check_out" in result
+            assert "nights" in result
+            assert "total_hotels" in result
+            assert "hotels" in result
+            assert "search_time_seconds" in result
+
+    @pytest.mark.asyncio
+    async def test_search_time_preserved(self, mock_circuit_breaker, sample_search_response):
+        """search_time_seconds should be preserved from response."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            assert result["search_time_seconds"] == 3.5
+
+    @pytest.mark.asyncio
+    async def test_hotel_count_from_total_hotels_field(self, mock_circuit_breaker):
+        """total_hotels should come from response's total_hotels field."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        response_data = {
+            "destination": "mauritius",
+            "total_hotels": 25,
+            "hotels": [{"name": f"Hotel {i}"} for i in range(10)],  # Only 10 returned
+            "search_time_seconds": 5.0
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = response_data
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels(
+                destination="mauritius",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            # total_hotels from response, not len(hotels)
+            assert result["total_hotels"] == 25
+
+
+# ==================== NEW TESTS: Payload Construction ====================
+
+class TestPayloadConstruction:
+    """Tests for correct payload construction."""
+
+    @pytest.mark.asyncio
+    async def test_rooms_array_structure(self, mock_circuit_breaker, sample_search_response):
+        """Payload should have rooms array with adults and children_ages."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5),
+                adults=3
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+
+            assert "rooms" in payload
+            assert len(payload["rooms"]) == 1
+            assert payload["rooms"][0]["adults"] == 3
+            assert payload["rooms"][0]["children_ages"] == []
+
+    @pytest.mark.asyncio
+    async def test_max_hotels_sent_in_payload(self, mock_circuit_breaker, sample_search_response):
+        """max_hotels should be included in the payload."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5),
+                max_hotels=10
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["max_hotels"] == 10
+
+    @pytest.mark.asyncio
+    async def test_default_max_hotels_is_50(self, mock_circuit_breaker, sample_search_response):
+        """Default max_hotels should be 50."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["max_hotels"] == 50
+
+    @pytest.mark.asyncio
+    async def test_correct_api_endpoint_used(self, mock_circuit_breaker, sample_search_response):
+        """Should call /api/v1/availability/search endpoint."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_url = mock_client.post.call_args[0][0]
+            assert '/api/v1/availability/search' in call_url
+
+
+# ==================== NEW TESTS: Circuit Breaker Integration ====================
+
+class TestCircuitBreakerIntegration:
+    """Tests for circuit breaker behavior with the rates client."""
+
+    @pytest.mark.asyncio
+    async def test_success_records_on_circuit_breaker(self, mock_circuit_breaker, sample_search_response):
+        """Successful search should record success on circuit breaker."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_search_response
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+        mock_circuit_breaker.record_success.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_timeout_records_failure_on_circuit_breaker(self, mock_circuit_breaker):
+        """Timeout should record failure on circuit breaker."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+        mock_circuit_breaker.record_failure.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_last_error_set_on_timeout(self, mock_circuit_breaker):
+        """_last_error should be set after a timeout."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels(
+                destination="zanzibar",
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+        assert client._last_error is not None
+        assert "timed out" in client._last_error.lower()
+
+
+# ==================== NEW TESTS: Search by Names Details ====================
+
+class TestSearchByNamesDetails:
+    """Detailed tests for search_hotels_by_names method."""
+
+    @pytest.mark.asyncio
+    async def test_search_by_names_sends_hotel_names(self):
+        """Should include hotel_names in the request payload."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"matched_hotels": [], "unmatched": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels_by_names(
+                destination="mauritius",
+                hotel_names=["Solana Beach", "Constance Belle Mare"],
+                check_in=date(2025, 6, 1),
+                check_out=date(2025, 6, 5)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["hotel_names"] == ["Solana Beach", "Constance Belle Mare"]
+            assert payload["destination"] == "mauritius"
+
+    @pytest.mark.asyncio
+    async def test_search_by_names_uses_correct_endpoint(self):
+        """Should call /api/v1/availability/search-by-names."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"matched_hotels": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels_by_names(
+                destination="zanzibar",
+                hotel_names=["Resort A"],
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_url = mock_client.post.call_args[0][0]
+            assert '/api/v1/availability/search-by-names' in call_url
+
+    @pytest.mark.asyncio
+    async def test_search_by_names_children_ages_default_empty(self):
+        """children_ages should default to empty list."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"matched_hotels": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.search_hotels_by_names(
+                destination="zanzibar",
+                hotel_names=["Resort A"],
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+            call_args = mock_client.post.call_args
+            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            assert payload["children_ages"] == []
+
+    @pytest.mark.asyncio
+    async def test_search_by_names_sets_last_error_on_failure(self):
+        """_last_error should be set after search_by_names failure."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = Exception("Something broke")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await client.search_hotels_by_names(
+                destination="zanzibar",
+                hotel_names=["Resort A"],
+                check_in=date(2025, 3, 1),
+                check_out=date(2025, 3, 5)
+            )
+
+        assert result["success"] is False
+        assert client._last_error == "Something broke"
+
+
+# ==================== NEW TESTS: Health Check Endpoint ====================
+
+class TestHealthCheckEndpoint:
+    """Additional tests for health check endpoint details."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_uses_correct_url(self):
+        """Health check should call /api/v1/travel-services/health."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        with patch.dict('os.environ', {'RATES_ENGINE_URL': 'https://my-api.com'}):
+            TravelPlatformRatesClient._instance = None
+            client = TravelPlatformRatesClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "healthy"}
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.is_available()
+
+            call_url = mock_client.get.call_args[0][0]
+            assert call_url == 'https://my-api.com/api/v1/travel-services/health'
+
+    @pytest.mark.asyncio
+    async def test_health_check_uses_10s_timeout(self):
+        """Health check should use 10 second timeout regardless of client timeout."""
+        from src.services.travel_platform_rates_client import TravelPlatformRatesClient
+
+        client = TravelPlatformRatesClient()
+        assert client.timeout == 120.0  # client timeout is much larger
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "healthy"}
+
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await client.is_available()
+
+            call_kwargs = mock_client.get.call_args
+            assert call_kwargs.kwargs.get('timeout') == 10.0 or call_kwargs[1].get('timeout') == 10.0

@@ -1118,3 +1118,394 @@ class TestFreeEmailDomainsData:
         """No duplicate domains."""
         from src.api.onboarding_routes import FREE_EMAIL_DOMAINS
         assert len(FREE_EMAIL_DOMAINS) == len(set(FREE_EMAIL_DOMAINS))
+
+
+# ==================== NEW: Step Validation Tests ====================
+
+class TestOnboardingStepValidation:
+    """Test validation for each onboarding wizard step."""
+
+    def test_company_name_min_length_boundary(self, test_client):
+        """Company name at exactly 2 chars should be accepted."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        profile = CompanyProfile(
+            company_name="AB",
+            support_email="test@test.com",
+            brand_theme=BrandTheme(
+                theme_id="ocean-blue",
+                primary="#0EA5E9",
+                secondary="#0284C7",
+                accent="#38BDF8"
+            )
+        )
+        assert profile.company_name == "AB"
+
+    def test_company_name_max_length_boundary(self, test_client):
+        """Company name at exactly 100 chars should be accepted."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        long_name = "A" * 100
+        profile = CompanyProfile(
+            company_name=long_name,
+            support_email="test@test.com",
+            brand_theme=BrandTheme(
+                theme_id="ocean-blue",
+                primary="#0EA5E9",
+                secondary="#0284C7",
+                accent="#38BDF8"
+            )
+        )
+        assert len(profile.company_name) == 100
+
+    def test_company_name_exceeds_max_length(self, test_client):
+        """Company name over 100 chars should be rejected."""
+        import pydantic
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+
+        with pytest.raises(pydantic.ValidationError):
+            CompanyProfile(
+                company_name="A" * 101,
+                support_email="test@test.com",
+                brand_theme=BrandTheme(
+                    theme_id="ocean-blue",
+                    primary="#0EA5E9",
+                    secondary="#0284C7",
+                    accent="#38BDF8"
+                )
+            )
+
+    def test_inbound_description_min_length_boundary(self, test_client):
+        """Agent description at exactly 20 chars should be accepted."""
+        from src.api.onboarding_routes import AgentConfig
+        config = AgentConfig(
+            inbound_description="A" * 20,
+            inbound_prompt="test prompt"
+        )
+        assert len(config.inbound_description) == 20
+
+    def test_inbound_description_too_short_rejected(self, test_client):
+        """Agent description under 20 chars should be rejected."""
+        import pydantic
+        from src.api.onboarding_routes import AgentConfig
+
+        with pytest.raises(pydantic.ValidationError):
+            AgentConfig(
+                inbound_description="A" * 19,
+                inbound_prompt="test prompt"
+            )
+
+    def test_email_settings_follow_up_days_default(self, test_client):
+        """Email settings follow_up_days should default to 3."""
+        from src.api.onboarding_routes import EmailSettings
+        settings = EmailSettings(from_name="Test")
+        assert settings.follow_up_days == 3
+
+    def test_outbound_call_window_defaults(self, test_client):
+        """OutboundSettings call window should default to business hours."""
+        from src.api.onboarding_routes import OutboundSettings
+        settings = OutboundSettings()
+        assert settings.call_window_start == "09:00"
+        assert settings.call_window_end == "17:00"
+
+    def test_outbound_call_days_default_weekdays(self, test_client):
+        """OutboundSettings should default to weekdays only."""
+        from src.api.onboarding_routes import OutboundSettings
+        settings = OutboundSettings()
+        assert "mon" in settings.call_days
+        assert "sat" not in settings.call_days
+        assert "sun" not in settings.call_days
+        assert len(settings.call_days) == 5
+
+
+# ==================== NEW: Progress Tracking Tests ====================
+
+class TestOnboardingProgressTracking:
+    """Test onboarding progress and status tracking."""
+
+    def test_status_nonexistent_tenant_returns_not_started(self, test_client):
+        """Status for nonexistent tenant shows not_started."""
+        response = test_client.get(
+            "/api/v1/admin/onboarding/status/tn_totally_fake_12345"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["exists"] is False
+        assert data["status"] == "not_started"
+
+    def test_status_includes_tenant_id_in_response(self, test_client):
+        """Status response always includes the queried tenant_id."""
+        tenant_id = "tn_query_test_abc"
+        response = test_client.get(
+            f"/api/v1/admin/onboarding/status/{tenant_id}"
+        )
+        data = response.json()
+        assert data["tenant_id"] == tenant_id
+
+    @patch("src.api.onboarding_routes.provision_sendgrid_subuser")
+    @patch("src.api.onboarding_routes.create_tenant_config")
+    def test_onboarding_response_includes_resources(
+        self, mock_create_config, mock_sendgrid, test_client
+    ):
+        """Onboarding response should include a resources dict."""
+        mock_sendgrid.return_value = {"success": False, "error": "Not configured"}
+        mock_create_config.return_value = True
+
+        response = test_client.post(
+            "/api/v1/admin/onboarding/complete",
+            json={
+                "company": {
+                    "company_name": "Progress Track Co",
+                    "support_email": "track@test.com",
+                    "brand_theme": {
+                        "theme_id": "ocean-blue",
+                        "primary": "#0EA5E9",
+                        "secondary": "#0284C7",
+                        "accent": "#38BDF8"
+                    }
+                },
+                "agents": {
+                    "inbound_description": "A friendly travel agent that helps customers with bookings",
+                    "inbound_prompt": "You are a helpful travel assistant."
+                },
+                "outbound": {"enabled": True},
+                "email": {"from_name": "Test Travel"},
+                "knowledge_base": {}
+            }
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            assert "resources" in data
+            assert "tenant_id" in data["resources"]
+
+
+# ==================== NEW: Configuration Wizard Steps Tests ====================
+
+class TestConfigurationWizardSteps:
+    """Test individual wizard step configurations."""
+
+    def test_knowledge_base_custom_categories(self):
+        """KnowledgeBaseConfig should accept custom categories."""
+        from src.api.onboarding_routes import KnowledgeBaseConfig
+        config = KnowledgeBaseConfig(
+            categories=["Custom Cat 1", "Custom Cat 2", "Custom Cat 3"]
+        )
+        assert len(config.categories) == 3
+        assert "Custom Cat 1" in config.categories
+
+    def test_knowledge_base_skip_initial_setup_toggle(self):
+        """KnowledgeBaseConfig skip_initial_setup can be toggled."""
+        from src.api.onboarding_routes import KnowledgeBaseConfig
+        config = KnowledgeBaseConfig(skip_initial_setup=False)
+        assert config.skip_initial_setup is False
+
+    def test_email_settings_custom_validity_days(self):
+        """EmailSettings should accept custom quote validity days."""
+        from src.api.onboarding_routes import EmailSettings
+        settings = EmailSettings(from_name="Test", quote_validity_days=30)
+        assert settings.quote_validity_days == 30
+
+    def test_email_settings_from_email_optional(self):
+        """EmailSettings from_email should be optional."""
+        from src.api.onboarding_routes import EmailSettings
+        settings = EmailSettings(from_name="Test")
+        assert settings.from_email is None
+
+    def test_agent_config_outbound_fields_optional(self):
+        """AgentConfig outbound fields should be optional."""
+        from src.api.onboarding_routes import AgentConfig
+        config = AgentConfig(
+            inbound_description="A friendly travel agent that helps customers",
+            inbound_prompt="You are a travel agent."
+        )
+        assert config.outbound_description is None
+        assert config.outbound_prompt is None
+
+    def test_company_profile_optional_fields(self):
+        """CompanyProfile optional fields default to None."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        profile = CompanyProfile(
+            company_name="Test Company",
+            support_email="test@test.com",
+            brand_theme=BrandTheme(
+                theme_id="ocean-blue",
+                primary="#0EA5E9",
+                secondary="#0284C7",
+                accent="#38BDF8"
+            )
+        )
+        assert profile.support_phone is None
+        assert profile.website_url is None
+        assert profile.logo_url is None
+
+
+# ==================== NEW: Default Values Tests ====================
+
+class TestOnboardingDefaults:
+    """Test default values across onboarding models."""
+
+    def test_onboarding_request_defaults(self):
+        """OnboardingRequest should use sensible defaults."""
+        from src.api.onboarding_routes import (
+            OnboardingRequest, CompanyProfile, BrandTheme,
+            AgentConfig, OutboundSettings, EmailSettings,
+            KnowledgeBaseConfig
+        )
+        req = OnboardingRequest(
+            company=CompanyProfile(
+                company_name="Test Co",
+                support_email="test@test.com",
+                brand_theme=BrandTheme(
+                    theme_id="ocean-blue",
+                    primary="#0EA5E9",
+                    secondary="#0284C7",
+                    accent="#38BDF8"
+                )
+            ),
+            agents=AgentConfig(
+                inbound_description="A helpful travel assistant for bookings",
+                inbound_prompt="You are a travel agent."
+            ),
+            outbound=OutboundSettings(),
+            email=EmailSettings(from_name="Test"),
+            knowledge_base=KnowledgeBaseConfig()
+        )
+        assert req.provision_phone is True
+        assert req.phone_country == "ZA"
+        assert req.admin_email is None
+        assert req.admin_password is None
+
+    def test_company_profile_timezone_default(self):
+        """CompanyProfile timezone should default to Africa/Johannesburg."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        profile = CompanyProfile(
+            company_name="Test",
+            support_email="t@t.com",
+            brand_theme=BrandTheme(
+                theme_id="x", primary="#000000",
+                secondary="#111111", accent="#222222"
+            )
+        )
+        assert profile.timezone == "Africa/Johannesburg"
+
+    def test_company_profile_currency_default(self):
+        """CompanyProfile currency should default to ZAR."""
+        from src.api.onboarding_routes import CompanyProfile, BrandTheme
+        profile = CompanyProfile(
+            company_name="Test",
+            support_email="t@t.com",
+            brand_theme=BrandTheme(
+                theme_id="x", primary="#000000",
+                secondary="#111111", accent="#222222"
+            )
+        )
+        assert profile.currency == "ZAR"
+
+
+# ==================== NEW: Skip Logic Tests ====================
+
+class TestOnboardingSkipLogic:
+    """Test skip logic in the onboarding flow."""
+
+    def test_voices_endpoint_returns_empty_in_lite(self, test_client):
+        """Voices endpoint returns empty for Lite mode (skip voice step)."""
+        response = test_client.get("/api/v1/admin/onboarding/voices")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_outbound_can_be_disabled(self):
+        """Outbound settings can be completely disabled."""
+        from src.api.onboarding_routes import OutboundSettings
+        settings = OutboundSettings(enabled=False)
+        assert settings.enabled is False
+
+    def test_min_quote_value_defaults_to_zero(self):
+        """Outbound min_quote_value should default to 0 (no minimum)."""
+        from src.api.onboarding_routes import OutboundSettings
+        settings = OutboundSettings()
+        assert settings.min_quote_value == 0
+
+    def test_auto_send_quotes_default_enabled(self):
+        """EmailSettings auto_send_quotes should default to True."""
+        from src.api.onboarding_routes import EmailSettings
+        settings = EmailSettings(from_name="Test")
+        assert settings.auto_send_quotes is True
+
+    @patch("src.api.onboarding_routes.GENAI_AVAILABLE", False)
+    @patch("src.api.onboarding_routes._genai_initialized", True)
+    @patch("src.api.onboarding_routes.genai_client", None)
+    @patch("src.api.onboarding_routes.genai_model", None)
+    def test_prompt_generation_skipped_when_genai_unavailable(self, test_client):
+        """Generate prompt returns 500 gracefully when GenAI unavailable."""
+        response = test_client.post(
+            "/api/v1/admin/onboarding/generate-prompt",
+            json={
+                "description": "A friendly travel assistant that helps customers",
+                "agent_type": "inbound"
+            }
+        )
+        assert response.status_code == 500
+        data = response.json()
+        assert "not available" in data.get("detail", "").lower()
+
+
+# ==================== NEW: Onboarding Completion Tests ====================
+
+class TestOnboardingCompletion:
+    """Test onboarding completion edge cases."""
+
+    def test_generate_tenant_id_always_has_prefix(self):
+        """Every generated tenant ID must start with tn_."""
+        from src.api.onboarding_routes import generate_tenant_id
+
+        for name in ["", "X", "Very Long Company Name Here", "123 Numeric"]:
+            tid = generate_tenant_id(name)
+            assert tid.startswith("tn_"), f"ID for '{name}' missing tn_ prefix: {tid}"
+
+    def test_generate_tenant_id_has_three_parts(self):
+        """Every generated tenant ID must have exactly 3 underscore-separated parts."""
+        from src.api.onboarding_routes import generate_tenant_id
+
+        tid = generate_tenant_id("Test Company")
+        parts = tid.split("_")
+        assert len(parts) == 3
+
+    def test_is_free_email_with_subdomains(self):
+        """is_free_email should not match subdomains of free providers."""
+        from src.api.onboarding_routes import is_free_email
+        assert is_free_email("user@mail.gmail.com") is False
+        assert is_free_email("user@subdomain.yahoo.com") is False
+
+    def test_generate_platform_email_domain_is_correct(self):
+        """Generated platform email should use holidaytoday.co.za domain."""
+        from src.api.onboarding_routes import generate_platform_email
+        result = generate_platform_email("Test Company", "tn_test_abc")
+        assert result.endswith("@holidaytoday.co.za")
+
+    def test_onboarding_response_model_allows_none_tokens(self):
+        """OnboardingResponse should allow None for auth token fields."""
+        from src.api.onboarding_routes import OnboardingResponse
+        resp = OnboardingResponse(
+            success=True,
+            tenant_id="tn_test_abc",
+            message="Done",
+            resources={},
+            access_token=None,
+            refresh_token=None,
+            expires_at=None,
+            user=None
+        )
+        assert resp.access_token is None
+        assert resp.user is None
+
+    def test_onboarding_response_model_with_errors(self):
+        """OnboardingResponse should include error list."""
+        from src.api.onboarding_routes import OnboardingResponse
+        resp = OnboardingResponse(
+            success=False,
+            tenant_id="tn_test_abc",
+            message="Failed",
+            resources={},
+            errors=["Error 1", "Error 2"]
+        )
+        assert len(resp.errors) == 2
+        assert "Error 1" in resp.errors

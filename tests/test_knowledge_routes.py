@@ -1177,5 +1177,437 @@ class TestDocumentUploadHandler:
         mock_faiss_manager.index_document.assert_called_once()
 
 
+# ==================== NEW: Search Relevance Scoring Tests ====================
+
+class TestSearchRelevanceScoring:
+    """Test Jaccard-similarity-based search scoring."""
+
+    def _make_manager(self, tmp_path, chunks_data=None):
+        """Helper to create a KnowledgeIndexManager with injected chunk data."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.config = MagicMock()
+            mgr.client_id = "test_tenant"
+            mgr.base_path = tmp_path / "knowledge"
+            mgr.documents_path = mgr.base_path / "documents"
+            mgr.index_path = mgr.base_path / "index"
+            mgr.metadata_file = mgr.base_path / "metadata.json"
+            mgr.documents_path.mkdir(parents=True, exist_ok=True)
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {
+                "documents": {
+                    "DOC-001": {"filename": "hotels.txt", "status": "indexed", "visibility": "public", "category": "hotels"},
+                    "DOC-002": {"filename": "policies.txt", "status": "indexed", "visibility": "private", "category": "policies"},
+                },
+                "chunks": chunks_data or [],
+                "last_updated": None
+            }
+
+            if chunks_data:
+                chunks_file = mgr.index_path / "chunks.json"
+                with open(chunks_file, 'w') as f:
+                    json.dump(chunks_data, f)
+
+            return mgr
+
+    def test_exact_match_scores_highest(self, tmp_path):
+        """An exact query match should score higher than a partial match."""
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "hotel booking cancellation policy details",
+             "content_normalized": "hotel booking cancellation policy details", "category": "hotels", "visibility": "public"},
+            {"document_id": "DOC-001", "chunk_index": 1, "content": "weather forecast for the maldives region",
+             "content_normalized": "weather forecast for the maldives region", "category": "hotels", "visibility": "public"},
+        ]
+        mgr = self._make_manager(tmp_path, chunks)
+        results = mgr.search("hotel booking cancellation policy details", top_k=5, min_score=0.0)
+
+        assert len(results) >= 1
+        assert results[0]["chunk_index"] == 0
+        assert results[0]["score"] >= 0.5
+
+    def test_partial_word_overlap_scores_lower(self, tmp_path):
+        """Partial word overlap should produce a lower score."""
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "hotel booking policy",
+             "content_normalized": "hotel booking policy", "category": "hotels", "visibility": "public"},
+            {"document_id": "DOC-001", "chunk_index": 1, "content": "hotel booking cancellation refund policy details",
+             "content_normalized": "hotel booking cancellation refund policy details", "category": "hotels", "visibility": "public"},
+        ]
+        mgr = self._make_manager(tmp_path, chunks)
+        results = mgr.search("hotel booking policy", top_k=5, min_score=0.0)
+
+        # The exact 3-word match chunk should score higher than the 6-word chunk
+        assert results[0]["chunk_index"] == 0
+
+    def test_zero_overlap_scores_zero(self, tmp_path):
+        """No word overlap should produce zero results above min_score."""
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "apple banana cherry",
+             "content_normalized": "apple banana cherry", "category": "hotels", "visibility": "public"},
+        ]
+        mgr = self._make_manager(tmp_path, chunks)
+        results = mgr.search("hotel booking", top_k=5, min_score=0.1)
+        assert len(results) == 0
+
+    def test_substring_boost_applied(self, tmp_path):
+        """Query appearing as a substring should receive a +0.3 score boost."""
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "our hotel booking system is fast",
+             "content_normalized": "our hotel booking system is fast", "category": "hotels", "visibility": "public"},
+        ]
+        mgr = self._make_manager(tmp_path, chunks)
+        results = mgr.search("hotel booking", top_k=5, min_score=0.0)
+
+        assert len(results) == 1
+        # Score should be boosted by 0.3 due to substring match
+        # Base jaccard would be ~2/7 = 0.286, with boost = 0.586
+        assert results[0]["score"] >= 0.5
+
+    def test_score_never_exceeds_one(self, tmp_path):
+        """Score should be capped at 1.0 even with substring boost."""
+        # If all words match AND substring matches, score should still be <= 1.0
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "hotel",
+             "content_normalized": "hotel", "category": "hotels", "visibility": "public"},
+        ]
+        mgr = self._make_manager(tmp_path, chunks)
+        results = mgr.search("hotel", top_k=5, min_score=0.0)
+        for r in results:
+            assert r["score"] <= 1.0
+
+
+# ==================== NEW: Document Retrieval Tests ====================
+
+class TestDocumentRetrieval:
+    """Test document retrieval and get_documents functionality."""
+
+    def test_get_documents_returns_all(self, mock_config, mock_faiss_manager):
+        """get_documents with no filter returns all documents."""
+        from src.api.knowledge_routes import DocumentMetadata
+
+        docs = [
+            DocumentMetadata(document_id=f"DOC-{i}", filename=f"doc{i}.txt", category="general",
+                             file_type="txt", file_size=100, status="indexed",
+                             uploaded_at="2025-01-01T00:00:00", visibility="public")
+            for i in range(5)
+        ] + [
+            DocumentMetadata(document_id="DOC-PRIVATE", filename="private.txt", category="internal",
+                             file_type="txt", file_size=200, status="indexed",
+                             uploaded_at="2025-01-01T00:00:00", visibility="private")
+        ]
+        mock_faiss_manager.get_documents.return_value = docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            from src.api.knowledge_routes import list_documents
+            import asyncio
+            result = list_documents(category=None, status=None, visibility=None, config=mock_config)
+
+        assert result['count'] == 6
+
+    def test_get_documents_filter_visibility_public(self, mock_config, mock_faiss_manager):
+        """get_documents with visibility=public excludes private docs."""
+        from src.api.knowledge_routes import DocumentMetadata
+
+        public_docs = [
+            DocumentMetadata(document_id="DOC-PUB", filename="pub.txt", category="general",
+                             file_type="txt", file_size=100, status="indexed",
+                             uploaded_at="2025-01-01T00:00:00", visibility="public")
+        ]
+        mock_faiss_manager.get_documents.return_value = public_docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            from src.api.knowledge_routes import list_documents
+            result = list_documents(category=None, status=None, visibility="public", config=mock_config)
+
+        assert result['count'] == 1
+        mock_faiss_manager.get_documents.assert_called_with(visibility="public")
+
+    def test_get_document_by_id_nonexistent(self, mock_config, tmp_path):
+        """get_document should return None for nonexistent ID."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.metadata = {"documents": {}}
+            result = mgr.get_document("DOC-NOPE")
+            assert result is None
+
+
+# ==================== NEW: Category Filtering Tests ====================
+
+class TestCategoryFiltering:
+    """Test category-based document and search filtering."""
+
+    def test_search_filters_by_category(self, tmp_path):
+        """Search should only return results from specified category."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "hotel booking details information",
+             "content_normalized": "hotel booking details information", "category": "hotels", "visibility": "public"},
+            {"document_id": "DOC-002", "chunk_index": 0, "content": "hotel policy overview information",
+             "content_normalized": "hotel policy overview information", "category": "policies", "visibility": "public"},
+        ]
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.index_path = tmp_path / "index"
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {
+                "documents": {
+                    "DOC-001": {"filename": "hotels.txt"},
+                    "DOC-002": {"filename": "policies.txt"},
+                },
+            }
+            chunks_file = mgr.index_path / "chunks.json"
+            with open(chunks_file, 'w') as f:
+                json.dump(chunks, f)
+
+            results = mgr.search("hotel", top_k=10, category="hotels", min_score=0.0)
+
+        # Should only return results from "hotels" category
+        for r in results:
+            assert r["source"] == "hotels.txt"
+
+    def test_categories_count_accuracy(self, mock_config, mock_faiss_manager):
+        """list_categories should accurately count documents per category."""
+        from src.api.knowledge_routes import list_categories, DocumentMetadata
+
+        docs = [
+            DocumentMetadata(document_id="DOC-1", filename="a.txt", category="general",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+            DocumentMetadata(document_id="DOC-2", filename="b.txt", category="general",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+            DocumentMetadata(document_id="DOC-3", filename="c.txt", category="policies",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+            DocumentMetadata(document_id="DOC-4", filename="d.txt", category="faqs",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+            DocumentMetadata(document_id="DOC-5", filename="e.txt", category="faqs",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+            DocumentMetadata(document_id="DOC-6", filename="f.txt", category="faqs",
+                             file_type="txt", file_size=100, status="indexed", uploaded_at="2025-01-01T00:00:00"),
+        ]
+        mock_faiss_manager.get_documents.return_value = docs
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            result = list_categories(config=mock_config)
+
+        assert result['success'] is True
+        assert len(result['data']) == 3
+        faqs_cat = next(c for c in result['data'] if c['name'] == 'faqs')
+        assert faqs_cat['count'] == 3
+
+    def test_empty_category_listing(self, mock_config, mock_faiss_manager):
+        """list_categories should return empty list when no documents exist."""
+        mock_faiss_manager.get_documents.return_value = []
+
+        with patch('src.api.knowledge_routes.get_index_manager', return_value=mock_faiss_manager):
+            from src.api.knowledge_routes import list_categories
+            result = list_categories(config=mock_config)
+
+        assert result['success'] is True
+        assert result['data'] == []
+
+
+# ==================== NEW: Access Control Tests ====================
+
+class TestAccessControl:
+    """Test document access control and visibility filtering."""
+
+    def test_search_visibility_private_excludes_public(self, tmp_path):
+        """Search with visibility=private should exclude public documents."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "hotel booking information",
+             "content_normalized": "hotel booking information", "category": "hotels", "visibility": "public"},
+            {"document_id": "DOC-002", "chunk_index": 0, "content": "hotel internal pricing information",
+             "content_normalized": "hotel internal pricing information", "category": "hotels", "visibility": "private"},
+        ]
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.index_path = tmp_path / "index"
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {
+                "documents": {
+                    "DOC-001": {"filename": "public.txt"},
+                    "DOC-002": {"filename": "private.txt"},
+                },
+            }
+            chunks_file = mgr.index_path / "chunks.json"
+            with open(chunks_file, 'w') as f:
+                json.dump(chunks, f)
+
+            results = mgr.search("hotel", top_k=10, visibility="private", min_score=0.0)
+
+        # Should only return private results
+        for r in results:
+            assert r["visibility"] == "private"
+
+    def test_search_visibility_public_excludes_private(self, tmp_path):
+        """Search with visibility=public should exclude private documents."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": 0, "content": "travel hotel guide helpful",
+             "content_normalized": "travel hotel guide helpful", "category": "general", "visibility": "public"},
+            {"document_id": "DOC-002", "chunk_index": 0, "content": "travel hotel internal costs margin helpful",
+             "content_normalized": "travel hotel internal costs margin helpful", "category": "general", "visibility": "private"},
+        ]
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.index_path = tmp_path / "index"
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {
+                "documents": {
+                    "DOC-001": {"filename": "pub.txt"},
+                    "DOC-002": {"filename": "priv.txt"},
+                },
+            }
+            chunks_file = mgr.index_path / "chunks.json"
+            with open(chunks_file, 'w') as f:
+                json.dump(chunks, f)
+
+            results = mgr.search("travel hotel", top_k=10, visibility="public", min_score=0.0)
+
+        for r in results:
+            assert r["visibility"] == "public"
+
+    def test_all_endpoints_require_auth(self, test_client):
+        """Every knowledge endpoint should return 401 without auth."""
+        endpoints = [
+            ("GET", "/api/v1/knowledge/documents"),
+            ("GET", "/api/v1/knowledge/status"),
+            ("GET", "/api/v1/knowledge/categories"),
+            ("POST", "/api/v1/knowledge/rebuild"),
+        ]
+        for method, url in endpoints:
+            if method == "GET":
+                resp = test_client.get(url)
+            else:
+                resp = test_client.post(url)
+            assert resp.status_code == 401, f"{method} {url} did not require auth"
+
+
+# ==================== NEW: Cache Behavior Tests ====================
+
+class TestCacheBehavior:
+    """Test knowledge index manager caching."""
+
+    def test_index_manager_cache_returns_same_instance(self, mock_config):
+        """get_index_manager should return the same instance for the same tenant."""
+        import src.api.knowledge_routes as km
+        km._index_managers = {}
+
+        with patch('src.api.knowledge_routes.KnowledgeIndexManager') as MockMgr:
+            instance = MagicMock()
+            MockMgr.return_value = instance
+
+            m1 = km.get_index_manager(mock_config)
+            m2 = km.get_index_manager(mock_config)
+
+            assert m1 is m2
+            assert MockMgr.call_count == 1
+
+    def test_index_manager_cache_different_tenants(self):
+        """get_index_manager should create separate instances per tenant."""
+        import src.api.knowledge_routes as km
+        km._index_managers = {}
+
+        config_a = MagicMock()
+        config_a.client_id = "tenant_a"
+        config_b = MagicMock()
+        config_b.client_id = "tenant_b"
+
+        with patch('src.api.knowledge_routes.KnowledgeIndexManager') as MockMgr:
+            instance_a = MagicMock()
+            instance_b = MagicMock()
+            MockMgr.side_effect = [instance_a, instance_b]
+
+            m_a = km.get_index_manager(config_a)
+            m_b = km.get_index_manager(config_b)
+
+            assert m_a is not m_b
+            assert MockMgr.call_count == 2
+
+    def test_search_returns_empty_when_no_chunks_file(self, tmp_path):
+        """Search should return empty list when chunks.json does not exist."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.index_path = tmp_path / "empty_index"
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {"documents": {}}
+
+            results = mgr.search("anything")
+            assert results == []
+
+    def test_normalize_text_strips_and_lowercases(self):
+        """_normalize_text should strip whitespace and lowercase."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            assert mgr._normalize_text("  Hello WORLD  ") == "hello world"
+            assert mgr._normalize_text("NoChange") == "nochange"
+            assert mgr._normalize_text("") == ""
+
+    def test_chunk_text_overlap_less_than_size(self):
+        """Chunk overlap must be less than chunk size for progress."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            text = " ".join([f"word{i}" for i in range(200)])
+
+            chunks = mgr._chunk_text(text, chunk_size=50, overlap=10)
+            assert len(chunks) >= 2
+
+            # Each chunk should have content
+            for c in chunks:
+                words = c.split()
+                assert len(words) <= 50
+
+    def test_chunk_text_empty_string(self):
+        """Chunking empty string should produce no chunks."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            chunks = mgr._chunk_text("")
+            assert chunks == []
+
+    def test_search_top_k_limits_results(self, tmp_path):
+        """Search should return at most top_k results."""
+        from src.api.knowledge_routes import KnowledgeIndexManager
+
+        # Create 10 chunks all containing "hotel"
+        chunks = [
+            {"document_id": "DOC-001", "chunk_index": i,
+             "content": f"hotel information chunk {i} details",
+             "content_normalized": f"hotel information chunk {i} details",
+             "category": "general", "visibility": "public"}
+            for i in range(10)
+        ]
+
+        with patch.object(KnowledgeIndexManager, '__init__', return_value=None):
+            mgr = KnowledgeIndexManager.__new__(KnowledgeIndexManager)
+            mgr.index_path = tmp_path / "index_topk"
+            mgr.index_path.mkdir(parents=True, exist_ok=True)
+            mgr.metadata = {"documents": {"DOC-001": {"filename": "test.txt"}}}
+            chunks_file = mgr.index_path / "chunks.json"
+            with open(chunks_file, 'w') as f:
+                json.dump(chunks, f)
+
+            results = mgr.search("hotel", top_k=3, min_score=0.0)
+
+        assert len(results) <= 3
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

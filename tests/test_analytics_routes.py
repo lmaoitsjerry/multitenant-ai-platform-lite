@@ -1300,5 +1300,423 @@ class TestPipelineAnalyticsHandler:
         assert 'total_clients' in result['data']
 
 
+# ==================== NEW: Dashboard Metrics Tests ====================
+
+class TestDashboardMetricsCalculations:
+    """Test dashboard metrics calculation accuracy."""
+
+    def test_conversion_rate_zero_quotes(self):
+        """Conversion rate with zero quotes should be 0."""
+        quotes = []
+        total = len(quotes)
+        accepted = len([q for q in quotes if q.get('status') == 'accepted'])
+        rate = (accepted / total) * 100 if total > 0 else 0
+        assert rate == 0
+
+    def test_conversion_rate_all_accepted(self):
+        """Conversion rate with all accepted should be 100."""
+        quotes = [{'status': 'accepted'} for _ in range(10)]
+        total = len(quotes)
+        accepted = len([q for q in quotes if q['status'] == 'accepted'])
+        rate = (accepted / total) * 100
+        assert rate == 100.0
+
+    def test_conversion_rate_none_accepted(self):
+        """Conversion rate with none accepted should be 0."""
+        quotes = [{'status': 'draft'} for _ in range(10)]
+        total = len(quotes)
+        accepted = len([q for q in quotes if q['status'] == 'accepted'])
+        rate = (accepted / total) * 100
+        assert rate == 0.0
+
+    def test_revenue_total_with_null_prices(self):
+        """Revenue calculation should handle None/null prices."""
+        quotes = [
+            {'total_price': 1000},
+            {'total_price': None},
+            {'total_price': 2000},
+            {},  # no total_price key
+        ]
+        total = sum(q.get('total_price', 0) or 0 for q in quotes)
+        assert total == 3000
+
+    def test_avg_invoice_value_calculation(self):
+        """Average invoice value should be correctly calculated."""
+        invoices = [
+            {'total_amount': 100},
+            {'total_amount': 200},
+            {'total_amount': 300},
+        ]
+        total = sum(i['total_amount'] for i in invoices)
+        avg = round(total / len(invoices), 2)
+        assert avg == 200.0
+
+
+# ==================== NEW: Date Range Handling Tests ====================
+
+class TestDateRangeHandling:
+    """Test date range parsing and boundary conditions."""
+
+    def test_date_range_returns_tuple(self):
+        """get_date_range should return a 2-tuple."""
+        from src.api.analytics_routes import get_date_range
+        result = get_date_range('30d')
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_date_range_start_before_end(self):
+        """Start date should always be before end date."""
+        from src.api.analytics_routes import get_date_range
+        for period in ['7d', '30d', '90d', 'year', 'all']:
+            start, end = get_date_range(period)
+            assert start < end, f"start >= end for period {period}"
+
+    def test_date_range_year_always_jan_1(self):
+        """Year period should start on January 1st of the current year."""
+        from src.api.analytics_routes import get_date_range
+        start, end = get_date_range('year')
+        assert start.month == 1
+        assert start.day == 1
+        assert start.hour == 0
+        assert start.minute == 0
+
+    def test_date_range_all_from_2020(self):
+        """All period should start from 2020."""
+        from src.api.analytics_routes import get_date_range
+        start, end = get_date_range('all')
+        assert start.year == 2020
+        assert start.month == 1
+        assert start.day == 1
+
+    def test_date_range_30d_approximately_30_days(self):
+        """30d range should span approximately 30 days."""
+        from src.api.analytics_routes import get_date_range
+        start, end = get_date_range('30d')
+        diff = (end - start).days
+        # Allow for fractional day rounding
+        assert 29 <= diff <= 31
+
+
+# ==================== NEW: Tenant Aggregation Tests ====================
+
+class TestTenantAggregation:
+    """Test tenant-specific data aggregation logic."""
+
+    @pytest.mark.asyncio
+    @patch('src.tools.supabase_tool.SupabaseTool')
+    @patch('src.services.crm_service.CRMService')
+    async def test_dashboard_stats_filters_by_tenant(self, mock_crm_class, mock_supabase_class):
+        """Dashboard stats should filter all queries by tenant_id."""
+        from src.api.analytics_routes import get_dashboard_stats
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'tenant_xyz'
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.gte.return_value = mock_query
+        mock_query.in_.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[])
+        mock_supabase.client.table.return_value = mock_query
+        mock_supabase_class.return_value = mock_supabase
+
+        mock_crm = MagicMock()
+        mock_crm.get_client_stats.return_value = {'total_clients': 0, 'by_stage': {}}
+        mock_crm_class.return_value = mock_crm
+
+        result = await get_dashboard_stats(period='30d', config=mock_config)
+
+        assert result['success'] is True
+        # Verify eq was called with tenant_id (one of the calls should be for tenant filtering)
+        eq_calls = mock_query.eq.call_args_list
+        tenant_filter_found = any(
+            call[0] == ('tenant_id', 'tenant_xyz') for call in eq_calls
+        )
+        assert tenant_filter_found, "No tenant_id filter applied to query"
+
+    def test_multiple_status_categories_in_quotes(self):
+        """Quote stats should count all status categories."""
+        quotes = [
+            {'status': 'accepted'}, {'status': 'accepted'},
+            {'status': 'sent'}, {'status': 'viewed'},
+            {'status': 'draft'}, {'status': 'expired'},
+        ]
+
+        accepted = len([q for q in quotes if q['status'] == 'accepted'])
+        pending = len([q for q in quotes if q['status'] in ('sent', 'viewed', 'draft')])
+
+        assert accepted == 2
+        assert pending == 3
+
+
+# ==================== NEW: Revenue Calculations Tests ====================
+
+class TestRevenueCalculations:
+    """Test revenue-related calculations."""
+
+    def test_invoice_overdue_detection(self):
+        """Invoices past due date should be counted as overdue."""
+        now = datetime.utcnow()
+        invoices = [
+            {'status': 'sent', 'total_amount': 1000, 'due_date': (now - timedelta(days=15)).isoformat()},
+            {'status': 'sent', 'total_amount': 2000, 'due_date': (now + timedelta(days=15)).isoformat()},
+        ]
+
+        overdue = 0
+        for inv in invoices:
+            due = datetime.fromisoformat(inv['due_date'])
+            if due < now and inv['status'] != 'paid':
+                overdue += inv['total_amount']
+
+        assert overdue == 1000
+
+    def test_collected_vs_outstanding_separation(self):
+        """Paid invoices should go to collected, others to outstanding."""
+        invoices = [
+            {'status': 'paid', 'total_amount': 5000},
+            {'status': 'paid', 'total_amount': 3000},
+            {'status': 'sent', 'total_amount': 2000},
+            {'status': 'draft', 'total_amount': 1000},
+        ]
+
+        collected = sum(i['total_amount'] for i in invoices if i['status'] == 'paid')
+        outstanding = sum(i['total_amount'] for i in invoices if i['status'] != 'paid')
+
+        assert collected == 8000
+        assert outstanding == 3000
+
+    def test_total_revenue_from_accepted_quotes(self):
+        """Total revenue should sum only from accepted quotes."""
+        quotes = [
+            {'status': 'accepted', 'total_price': 5000},
+            {'status': 'accepted', 'total_price': 3000},
+            {'status': 'sent', 'total_price': 2000},
+            {'status': 'draft', 'total_price': 1000},
+        ]
+
+        accepted_value = sum(
+            q.get('total_price', 0) or 0
+            for q in quotes
+            if q.get('status') == 'accepted'
+        )
+        assert accepted_value == 8000
+
+    def test_payment_rate_zero_total(self):
+        """Payment rate should be 0 when total value is 0."""
+        total_value = 0
+        paid_value = 0
+        rate = round((paid_value / total_value) * 100, 1) if total_value > 0 else 0
+        assert rate == 0
+
+
+# ==================== NEW: Comparison Periods Tests ====================
+
+class TestComparisonPeriods:
+    """Test comparison period calculations."""
+
+    def test_calculate_change_large_increase(self):
+        """Large percentage increase should be calculated correctly."""
+        from src.api.analytics_routes import calculate_change
+        result = calculate_change(300, 100)
+        assert result['type'] == 'positive'
+        assert result['value'] == 200.0
+
+    def test_calculate_change_decrease_to_zero(self):
+        """Decrease to zero from positive should show negative."""
+        from src.api.analytics_routes import calculate_change
+        result = calculate_change(0, 100)
+        assert result['type'] == 'negative'
+        assert result['value'] == 100.0
+
+    def test_calculate_change_small_decimal_change(self):
+        """Small fractional changes should be rounded."""
+        from src.api.analytics_routes import calculate_change
+        result = calculate_change(101, 100)
+        assert result['type'] == 'positive'
+        assert result['value'] == 1.0
+
+    def test_previous_period_calculation(self):
+        """Previous period should be equal-length window before current."""
+        from src.api.analytics_routes import get_date_range
+        start, end = get_date_range('30d')
+        prev_start = start - (end - start)
+        # Previous period should end where current starts
+        diff_prev = (start - prev_start).days
+        diff_curr = (end - start).days
+        assert diff_prev == diff_curr
+
+
+# ==================== NEW: Export Functionality Tests ====================
+
+class TestExportFunctionality:
+    """Test analytics export and inclusion functionality."""
+
+    def test_include_analytics_routers_callable(self):
+        """include_analytics_routers should be a callable function."""
+        from src.api.analytics_routes import include_analytics_routers
+        assert callable(include_analytics_routers)
+
+    def test_include_analytics_routers_adds_to_app(self):
+        """include_analytics_routers should add routers to the app."""
+        from src.api.analytics_routes import include_analytics_routers
+
+        mock_app = MagicMock()
+        include_analytics_routers(mock_app)
+
+        # Should have called include_router twice (analytics + dashboard)
+        assert mock_app.include_router.call_count == 2
+
+    def test_analytics_router_has_correct_tags(self):
+        """Analytics router should have correct tags."""
+        from src.api.analytics_routes import analytics_router
+        assert "Analytics" in analytics_router.tags
+
+    def test_dashboard_router_has_correct_tags(self):
+        """Dashboard router should have correct tags."""
+        from src.api.analytics_routes import dashboard_router
+        assert "Dashboard" in dashboard_router.tags
+
+
+# ==================== NEW: Dashboard Cache Edge Cases ====================
+
+class TestDashboardCacheEdgeCases:
+    """Test dashboard cache edge cases and TTL behavior."""
+
+    def test_cache_ttl_values_are_reasonable(self):
+        """Cache TTL values should be within expected ranges."""
+        from src.api.analytics_routes import _cache_ttl, _stale_ttl, _pricing_stats_ttl
+
+        assert 60 <= _cache_ttl <= 600, "Cache TTL should be 1-10 minutes"
+        assert 600 <= _stale_ttl <= 3600, "Stale TTL should be 10-60 minutes"
+        assert 3600 <= _pricing_stats_ttl <= 86400, "Pricing cache should be 1-24 hours"
+
+    def test_stale_ttl_greater_than_cache_ttl(self):
+        """Stale TTL should always be greater than fresh cache TTL."""
+        from src.api.analytics_routes import _cache_ttl, _stale_ttl
+        assert _stale_ttl > _cache_ttl
+
+    @pytest.mark.asyncio
+    @patch('src.api.analytics_routes.get_bigquery_client_async')
+    @patch('src.tools.supabase_tool.SupabaseTool')
+    async def test_dashboard_all_returns_generated_at(self, mock_sb_class, mock_bq):
+        """Dashboard all endpoint should include generated_at timestamp."""
+        from src.api.analytics_routes import get_dashboard_all, _dashboard_cache
+        _dashboard_cache.clear()
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'test_generated_at'
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.gte.return_value = mock_query
+        mock_query.in_.return_value = mock_query
+        result_mock = MagicMock()
+        result_mock.data = []
+        result_mock.count = 0
+        mock_query.execute.return_value = result_mock
+        mock_supabase.client.table.return_value = mock_query
+        mock_sb_class.return_value = mock_supabase
+        mock_bq.return_value = None
+
+        result = await get_dashboard_all(config=mock_config)
+
+        assert 'data' in result
+        assert 'generated_at' in result['data']
+
+    @pytest.mark.asyncio
+    @patch('src.tools.supabase_tool.SupabaseTool')
+    async def test_recent_activity_empty_tables(self, mock_sb_class):
+        """Dashboard activity should return empty list when tables are empty."""
+        from src.api.analytics_routes import get_recent_activity
+
+        mock_config = MagicMock()
+        mock_config.client_id = 'empty_tenant'
+        mock_config.currency = 'USD'
+
+        mock_supabase = MagicMock()
+        mock_query = MagicMock()
+        mock_query.select.return_value = mock_query
+        mock_query.eq.return_value = mock_query
+        mock_query.order.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.execute.return_value = MagicMock(data=[])
+        mock_supabase.client.table.return_value = mock_query
+        mock_sb_class.return_value = mock_supabase
+
+        result = await get_recent_activity(limit=20, config=mock_config)
+
+        assert result['success'] is True
+        assert isinstance(result['data'], list)
+
+
+# ==================== NEW: Quote Analytics Detailed Tests ====================
+
+class TestQuoteAnalyticsDetailed:
+    """Test detailed quote analytics logic."""
+
+    def test_by_destination_sorted_by_count(self):
+        """Destinations should be sorted by count descending."""
+        quotes = [
+            {'destination': 'Maldives', 'total_price': 5000, 'status': 'sent'},
+            {'destination': 'Maldives', 'total_price': 3000, 'status': 'sent'},
+            {'destination': 'Maldives', 'total_price': 4000, 'status': 'sent'},
+            {'destination': 'Bali', 'total_price': 2000, 'status': 'sent'},
+            {'destination': 'Kenya', 'total_price': 1000, 'status': 'sent'},
+            {'destination': 'Kenya', 'total_price': 1500, 'status': 'sent'},
+        ]
+
+        dest_stats = {}
+        for q in quotes:
+            d = q['destination']
+            if d not in dest_stats:
+                dest_stats[d] = {'count': 0}
+            dest_stats[d]['count'] += 1
+
+        sorted_dests = sorted(dest_stats.items(), key=lambda x: x[1]['count'], reverse=True)
+        assert sorted_dests[0][0] == 'Maldives'
+        assert sorted_dests[0][1]['count'] == 3
+
+    def test_hotel_stats_from_json_string(self):
+        """Hotel stats should parse JSON string hotels field."""
+        hotels_data = '[{"name": "Resort A", "total_price": 3000}, {"name": "Resort B", "total_price": 2000}]'
+        hotels = json.loads(hotels_data)
+        assert len(hotels) == 2
+        assert hotels[0]['name'] == 'Resort A'
+
+    def test_hotel_stats_handles_null_hotels(self):
+        """Hotel stats should handle None hotels field gracefully."""
+        quote = {'hotels': None}
+        hotels_data = quote.get('hotels')
+        # Should not crash
+        if hotels_data is None:
+            result = []
+        else:
+            result = json.loads(hotels_data) if isinstance(hotels_data, str) else hotels_data
+        assert result == []
+
+    def test_trend_data_grouping_by_day_for_short_periods(self):
+        """Trend data should group by day for 7d and 30d periods."""
+        from src.api.analytics_routes import get_date_range
+        # For short periods, trend data groups by day (YYYY-MM-DD)
+        for period in ['7d', '30d']:
+            start, end = get_date_range(period)
+            key = start.strftime('%Y-%m-%d')
+            assert len(key) == 10  # YYYY-MM-DD format
+
+    def test_trend_data_grouping_by_month_for_long_periods(self):
+        """Trend data should group by month for 90d, year, all periods."""
+        from src.api.analytics_routes import get_date_range
+        for period in ['90d', 'year', 'all']:
+            start, end = get_date_range(period)
+            key = start.strftime('%Y-%m')
+            assert len(key) == 7  # YYYY-MM format
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

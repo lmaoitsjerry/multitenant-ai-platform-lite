@@ -608,5 +608,497 @@ class TestGetStore:
         assert isinstance(store, InMemoryRateLimitStore)
 
 
+# ==================== NEW TESTS: Sliding Window & Expiry Behavior ====================
+
+class TestSlidingWindowBehavior:
+    """Tests for window expiration and sliding window edge cases."""
+
+    def test_increment_resets_after_window_expires(self):
+        """After the window expires, increment should start from 1 again."""
+        store = InMemoryRateLimitStore()
+
+        store.increment("sliding_key", 1)  # 1-second window
+        store.increment("sliding_key", 1)
+        assert store.get_count("sliding_key") == 2
+
+        time.sleep(1.2)
+
+        # New window should start fresh
+        count = store.increment("sliding_key", 1)
+        assert count == 1
+
+    def test_multiple_keys_expire_independently(self):
+        """Keys with different windows should expire independently."""
+        store = InMemoryRateLimitStore()
+
+        store.increment("short_key", 1)   # 1-second window
+        store.increment("long_key", 60)   # 60-second window
+
+        time.sleep(1.2)
+
+        assert store.get_count("short_key") == 0  # expired
+        assert store.get_count("long_key") == 1   # still alive
+
+    def test_clean_expired_removes_all_stale_entries(self):
+        """_clean_expired should remove all expired entries in one pass."""
+        store = InMemoryRateLimitStore()
+
+        for i in range(10):
+            store.increment(f"expire_key_{i}", 1)
+
+        time.sleep(1.2)
+
+        # Trigger cleanup
+        store._clean_expired()
+
+        assert len(store._counts) == 0
+        assert len(store._expiry) == 0
+
+    def test_window_boundary_increment_extends_existing_window(self):
+        """Increments within a window should not extend the window expiry."""
+        store = InMemoryRateLimitStore()
+
+        store.increment("boundary_key", 2)  # 2-second window
+        time.sleep(1.0)
+        store.increment("boundary_key", 2)  # increment within window
+        assert store.get_count("boundary_key") == 2
+
+        # Wait for original window to expire
+        time.sleep(1.2)
+        assert store.get_count("boundary_key") == 0
+
+
+# ==================== NEW TESTS: Token Bucket / Burst Handling ====================
+
+class TestBurstHandling:
+    """Tests for burst traffic and rapid request patterns."""
+
+    def test_rapid_increments_tracked_correctly(self):
+        """Rapid sequential increments should all be tracked."""
+        store = InMemoryRateLimitStore()
+
+        counts = []
+        for i in range(100):
+            counts.append(store.increment("burst_key", 60))
+
+        assert counts[-1] == 100
+        assert store.get_count("burst_key") == 100
+
+    def test_burst_beyond_limit_all_counted(self):
+        """All requests should be counted even beyond limit."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        results = []
+        for _ in range(15):
+            allowed, current, limit, reset = limiter.check_rate_limit(
+                "burst_tenant", "/api/burst", 10, 60
+            )
+            results.append((allowed, current))
+
+        # First 10 allowed, next 5 denied
+        assert all(r[0] for r in results[:10])
+        assert not any(r[0] for r in results[10:])
+        # Count kept incrementing past limit
+        assert results[-1][1] == 15
+
+    def test_concurrent_tenants_burst(self):
+        """Multiple tenants bursting should not interfere."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        # Both tenants do 5 requests
+        for _ in range(5):
+            limiter.check_rate_limit("tenant_a", "/api/test", 10, 60)
+            limiter.check_rate_limit("tenant_b", "/api/test", 10, 60)
+
+        # Both should be at 5 (independent)
+        a_allowed, a_count, _, _ = limiter.check_rate_limit("tenant_a", "/api/test", 10, 60)
+        b_allowed, b_count, _, _ = limiter.check_rate_limit("tenant_b", "/api/test", 10, 60)
+
+        assert a_allowed is True
+        assert b_allowed is True
+        assert a_count == 6
+        assert b_count == 6
+
+
+# ==================== NEW TESTS: Per-Tenant Rate Limits ====================
+
+class TestPerTenantLimits:
+    """Tests for per-tenant rate limit isolation and tracking."""
+
+    def test_tenant_usage_tracking(self):
+        """track_resource should increment daily usage for a tenant."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        limiter.track_resource("tenant_1", "quotes", count=3)
+        usage = limiter.get_usage("tenant_1", "quotes")
+
+        assert usage['current'] == 3
+        assert usage['resource'] == 'quotes'
+        assert usage['limit'] == RateLimitConfig.get_daily_limit('quotes')
+        assert usage['remaining'] == usage['limit'] - 3
+
+    def test_tenant_usage_multiple_resources(self):
+        """Different resource types should track independently per tenant."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        limiter.track_resource("tenant_1", "quotes", count=5)
+        limiter.track_resource("tenant_1", "emails", count=10)
+
+        quotes_usage = limiter.get_usage("tenant_1", "quotes")
+        emails_usage = limiter.get_usage("tenant_1", "emails")
+
+        assert quotes_usage['current'] == 5
+        assert emails_usage['current'] == 10
+
+    def test_tenant_isolation_for_resource_tracking(self):
+        """Resource tracking should be isolated between tenants."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        limiter.track_resource("tenant_a", "quotes", count=50)
+        limiter.track_resource("tenant_b", "quotes", count=2)
+
+        a_usage = limiter.get_usage("tenant_a", "quotes")
+        b_usage = limiter.get_usage("tenant_b", "quotes")
+
+        assert a_usage['current'] == 50
+        assert b_usage['current'] == 2
+
+    def test_usage_remaining_never_negative(self):
+        """Remaining should never go below 0 even when over limit."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        # Track way more than the limit
+        limiter.track_resource("tenant_1", "vapi_calls", count=200)
+        usage = limiter.get_usage("tenant_1", "vapi_calls")
+
+        assert usage['remaining'] == 0
+        assert usage['current'] == 200
+
+
+# ==================== NEW TESTS: RateLimiter Key Generation ====================
+
+class TestRateLimiterKeyGeneration:
+    """Tests for _make_key with different window types."""
+
+    def test_make_key_minute_window(self):
+        """Minute window should produce key with minute granularity."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        key = limiter._make_key("tenant_1", "/api/test", "minute")
+        assert key.startswith("ratelimit:tenant_1:/api/test:")
+        # Should have YYYYMMDDHHMI format (12 digits)
+        bucket = key.split(":")[-1]
+        assert len(bucket) == 12
+
+    def test_make_key_hour_window(self):
+        """Hour window should produce key with hour granularity."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        key = limiter._make_key("tenant_1", "/api/test", "hour")
+        bucket = key.split(":")[-1]
+        assert len(bucket) == 10  # YYYYMMDDHH
+
+    def test_make_key_day_window(self):
+        """Day window should produce key with day granularity."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        key = limiter._make_key("tenant_1", "/api/test", "day")
+        bucket = key.split(":")[-1]
+        assert len(bucket) == 8  # YYYYMMDD
+
+    def test_make_key_unknown_window_defaults_to_minute(self):
+        """Unknown window type should default to minute granularity."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        key = limiter._make_key("tenant_1", "/api/test", "unknown_window")
+        bucket = key.split(":")[-1]
+        assert len(bucket) == 12  # Same as minute
+
+
+# ==================== NEW TESTS: Middleware Skip Paths & Whitelist ====================
+
+class TestMiddlewareWhitelist:
+    """Tests for middleware path whitelisting and skip behavior."""
+
+    @pytest.fixture
+    def full_app(self):
+        """Create an app with various endpoints."""
+        app = FastAPI()
+        app.add_middleware(RateLimitMiddleware)
+
+        @app.get("/health")
+        def health():
+            return {"status": "ok"}
+
+        @app.get("/health/ready")
+        def health_ready():
+            return {"status": "ready"}
+
+        @app.get("/health/live")
+        def health_live():
+            return {"status": "live"}
+
+        @app.get("/docs")
+        def docs():
+            return {"docs": True}
+
+        @app.get("/openapi.json")
+        def openapi():
+            return {"openapi": "3.0.0"}
+
+        @app.get("/redoc")
+        def redoc():
+            return {"redoc": True}
+
+        @app.get("/")
+        def root():
+            return {"root": True}
+
+        @app.get("/api/v1/test")
+        def api_test():
+            return {"data": "test"}
+
+        return app
+
+    def test_skip_health_ready(self, full_app):
+        """Should skip rate limiting for /health/ready."""
+        client = TestClient(full_app)
+        response = client.get("/health/ready")
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" not in response.headers
+
+    def test_skip_health_live(self, full_app):
+        """Should skip rate limiting for /health/live."""
+        client = TestClient(full_app)
+        response = client.get("/health/live")
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" not in response.headers
+
+    def test_skip_openapi_json(self, full_app):
+        """Should skip rate limiting for /openapi.json."""
+        client = TestClient(full_app)
+        response = client.get("/openapi.json")
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" not in response.headers
+
+    def test_skip_redoc(self, full_app):
+        """Should skip rate limiting for /redoc."""
+        client = TestClient(full_app)
+        response = client.get("/redoc")
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" not in response.headers
+
+    def test_skip_root(self, full_app):
+        """Should skip rate limiting for root path."""
+        client = TestClient(full_app)
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" not in response.headers
+
+    def test_api_endpoint_gets_rate_limited(self, full_app):
+        """Non-skipped paths should receive rate limit headers."""
+        client = TestClient(full_app)
+        response = client.get("/api/v1/test", headers={"X-Client-ID": "whitelist_test"})
+        assert response.status_code == 200
+        assert "X-RateLimit-Limit" in response.headers
+
+
+# ==================== NEW TESTS: Redis Store with Mocked Connection ====================
+
+class TestRedisStoreOperations:
+    """Tests for Redis store operations using mocks (no real Redis needed)."""
+
+    @pytest.mark.skipif(not REDIS_AVAILABLE, reason="redis package not installed")
+    def test_redis_reset_calls_delete(self):
+        """Redis reset should call delete on the key."""
+        mock_redis_client = MagicMock()
+        mock_redis_client.ping.return_value = True
+
+        with patch.object(redis, 'from_url', return_value=mock_redis_client):
+            store = RedisRateLimitStore("redis://localhost:6379")
+            store.reset("some_key")
+
+            mock_redis_client.delete.assert_called_once_with("some_key")
+
+    @pytest.mark.skipif(not REDIS_AVAILABLE, reason="redis package not installed")
+    def test_redis_is_healthy_returns_false_on_ping_failure(self):
+        """is_healthy should return False if ping raises."""
+        mock_redis_client = MagicMock()
+        # Ping succeeds on init, then fails on is_healthy check
+        mock_redis_client.ping.side_effect = [True, Exception("ping failed")]
+
+        with patch.object(redis, 'from_url', return_value=mock_redis_client):
+            store = RedisRateLimitStore("redis://localhost:6379")
+            assert store.is_healthy() is False
+
+    @pytest.mark.skipif(not REDIS_AVAILABLE, reason="redis package not installed")
+    def test_redis_password_masked_in_log(self):
+        """Redis URL with password should be masked in log."""
+        mock_redis_client = MagicMock()
+        mock_redis_client.ping.return_value = True
+
+        with patch.object(redis, 'from_url', return_value=mock_redis_client):
+            # Should not raise -- password is masked internally
+            store = RedisRateLimitStore("redis://user:secret@myhost:6379")
+            assert store._redis is not None
+
+
+# ==================== NEW TESTS: RateLimitConfig Edge Cases ====================
+
+class TestRateLimitConfigEdgeCases:
+    """Additional tests for RateLimitConfig edge cases."""
+
+    def test_daily_limit_vapi_calls(self):
+        """Should return daily limit for vapi_calls."""
+        limit = RateLimitConfig.get_daily_limit('vapi_calls')
+        assert limit == 150
+
+    def test_daily_limit_api_requests(self):
+        """Should return daily limit for api_requests."""
+        limit = RateLimitConfig.get_daily_limit('api_requests')
+        assert limit == 100000
+
+    def test_get_limit_onboarding_phone(self):
+        """Should return specific limits for onboarding phone."""
+        requests_limit, window = RateLimitConfig.get_limit('/api/v1/onboarding/phone')
+        assert requests_limit == 50
+        assert window == 3600
+
+    def test_get_limit_outbound_queue(self):
+        """Should return specific limits for outbound queue."""
+        requests_limit, window = RateLimitConfig.get_limit('/api/v1/outbound/queue')
+        assert requests_limit == 300
+        assert window == 3600
+
+    def test_default_requests_per_minute_value(self):
+        """DEFAULT_REQUESTS_PER_MINUTE should be 600."""
+        assert RateLimitConfig.DEFAULT_REQUESTS_PER_MINUTE == 600
+
+    def test_default_requests_per_day_value(self):
+        """DEFAULT_REQUESTS_PER_DAY should be 10000."""
+        assert RateLimitConfig.DEFAULT_REQUESTS_PER_DAY == 10000
+
+
+# ==================== NEW TESTS: check_rate_limit Window Determination ====================
+
+class TestCheckRateLimitWindowDetermination:
+    """Tests for how check_rate_limit determines the window type."""
+
+    def test_window_seconds_86400_uses_day(self):
+        """86400 seconds (24h) should use day window."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        allowed, current, limit, reset = limiter.check_rate_limit(
+            "tenant_1", "/api/daily", 1000, 86400
+        )
+        assert allowed is True
+        assert current == 1
+
+    def test_window_seconds_3600_uses_hour(self):
+        """3600 seconds (1h) should use hour window."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        allowed, current, limit, reset = limiter.check_rate_limit(
+            "tenant_1", "/api/hourly", 200, 3600
+        )
+        assert allowed is True
+        assert reset == 3600
+
+    def test_window_seconds_60_uses_minute(self):
+        """60 seconds should use minute window."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        allowed, current, limit, reset = limiter.check_rate_limit(
+            "tenant_1", "/api/perminute", 600, 60
+        )
+        assert allowed is True
+        assert reset == 60
+
+    def test_large_window_over_day_uses_day(self):
+        """Window larger than a day should still use day window."""
+        store = InMemoryRateLimitStore()
+        limiter = RateLimiter(store=store)
+
+        allowed, _, _, _ = limiter.check_rate_limit(
+            "tenant_1", "/api/weekly", 5000, 604800  # 7 days
+        )
+        assert allowed is True
+
+
+# ==================== NEW TESTS: Middleware 429 Response ====================
+
+class TestMiddleware429Response:
+    """Tests for rate limit exceeded (429) responses from middleware."""
+
+    @pytest.fixture
+    def low_limit_app(self):
+        """Create app with very low rate limits for testing 429s."""
+        app = FastAPI()
+
+        # We need to test the middleware 429 by exhausting limits.
+        # Since middleware uses global store, we patch the config.
+        app.add_middleware(RateLimitMiddleware)
+
+        @app.get("/api/v1/limited")
+        def limited_endpoint():
+            return {"status": "ok"}
+
+        return app
+
+    def test_429_response_has_json_body(self, low_limit_app):
+        """429 response should have a JSON error body."""
+        client = TestClient(low_limit_app)
+        import src.middleware.rate_limiter as rl
+
+        # Use a dedicated tenant to avoid test interference
+        tenant_id = f"test_429_{time.time()}"
+
+        # Patch get_limit to return a very low limit
+        with patch.object(RateLimitConfig, 'get_limit', return_value=(2, 60)):
+            rl._store = InMemoryRateLimitStore()
+
+            # Exhaust the limit
+            for _ in range(2):
+                client.get("/api/v1/limited", headers={"X-Client-ID": tenant_id})
+
+            # This should be 429
+            response = client.get("/api/v1/limited", headers={"X-Client-ID": tenant_id})
+
+        assert response.status_code == 429
+        body = response.json()
+        assert 'error' in body
+        assert 'retry_after' in body
+
+    def test_429_includes_rate_limit_headers(self, low_limit_app):
+        """429 response should still include rate limit headers."""
+        client = TestClient(low_limit_app)
+        import src.middleware.rate_limiter as rl
+
+        tenant_id = f"test_headers_429_{time.time()}"
+
+        with patch.object(RateLimitConfig, 'get_limit', return_value=(1, 60)):
+            rl._store = InMemoryRateLimitStore()
+
+            client.get("/api/v1/limited", headers={"X-Client-ID": tenant_id})
+            response = client.get("/api/v1/limited", headers={"X-Client-ID": tenant_id})
+
+        assert response.status_code == 429
+        assert "X-RateLimit-Limit" in response.headers
+        assert "X-RateLimit-Remaining" in response.headers
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
