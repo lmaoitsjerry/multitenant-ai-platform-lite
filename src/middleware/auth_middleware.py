@@ -63,6 +63,7 @@ PUBLIC_PREFIXES = [
     "/api/v1/rates/",  # Rates engine endpoints (use X-Client-ID for tenant context)
     "/api/v1/travel/",  # Travel services endpoints (flights, transfers, activities)
     "/api/v1/knowledge/global",  # Global KB proxy (uses Travel Platform auth, not user auth)
+    "/api/v1/agent/",  # Unified RAG for AI agents (uses X-Client-ID for tenant context)
 ]
 
 
@@ -123,9 +124,9 @@ class UserContext:
 
 # ==================== Auth Middleware ====================
 
-class AuthMiddleware(BaseHTTPMiddleware):
+class AuthMiddleware:
     """
-    Middleware that validates JWT tokens and attaches user context to requests.
+    Pure ASGI middleware that validates JWT tokens and attaches user context to requests.
 
     For authenticated requests:
     - Validates the JWT token from Authorization header
@@ -138,42 +139,54 @@ class AuthMiddleware(BaseHTTPMiddleware):
     - request.state.user will be None
     """
 
-    async def dispatch(self, request: Request, call_next):
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Ensure state dict exists on scope
+        if "state" not in scope:
+            scope["state"] = {}
+
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+
         # Skip auth for CORS preflight OPTIONS requests
-        if request.method == "OPTIONS":
-            request.state.user = None
-            return await call_next(request)
+        if method == "OPTIONS":
+            scope["state"]["user"] = None
+            await self.app(scope, receive, send)
+            return
 
         # Skip auth for public paths
-        if is_public_path(request.url.path):
-            request.state.user = None
-            return await call_next(request)
+        if is_public_path(path):
+            scope["state"]["user"] = None
+            await self.app(scope, receive, send)
+            return
 
-        # Get authorization header
-        auth_header = request.headers.get("Authorization")
+        # Parse headers
+        headers_dict = {}
+        for key, value in scope.get("headers", []):
+            headers_dict[key.decode("latin-1").lower()] = value.decode("latin-1")
+
+        auth_header = headers_dict.get("authorization")
 
         if not auth_header:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authorization header required"}
-            )
+            await self._send_json(send, 401, {"detail": "Authorization header required"})
+            return
 
         # Parse Bearer token
         parts = auth_header.split()
         if len(parts) != 2 or parts[0].lower() != "bearer":
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid authorization header format"}
-            )
+            await self._send_json(send, 401, {"detail": "Invalid authorization header format"})
+            return
 
         token = parts[1]
 
         # Get tenant ID
-        tenant_id = request.headers.get("X-Client-ID") or os.getenv("CLIENT_ID", "africastay")
-        # SECURITY NOTE: The X-Client-ID header is initially trusted to load tenant config.
-        # After JWT verification and user lookup, we validate that the header matches
-        # the user's actual tenant_id. This prevents tenant spoofing attacks where an
-        # attacker sends a valid JWT but targets a different tenant via the header.
+        tenant_id = headers_dict.get("x-client-id") or os.getenv("CLIENT_ID", "africastay")
 
         try:
             # Get tenant config for Supabase credentials
@@ -183,53 +196,43 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 supabase_key=config.supabase_service_key
             )
 
-            # Verify JWT
+            # Verify JWT (sync - fast operation, just decodes token)
             valid, payload = auth_service.verify_jwt(token)
             if not valid:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": payload.get("error", "Invalid token")}
-                )
+                await self._send_json(send, 401, {"detail": payload.get("error", "Invalid token")})
+                return
 
             # Get auth user ID from token
             auth_user_id = payload.get("sub")
             if not auth_user_id:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid token payload"}
-                )
+                await self._send_json(send, 401, {"detail": "Invalid token payload"})
+                return
 
-            # Fetch user from database
+            # Fetch user from database (uses asyncio.to_thread internally)
             user = await auth_service.get_user_by_auth_id(auth_user_id, tenant_id)
             if not user:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "User not found in this organization"}
-                )
+                await self._send_json(send, 401, {"detail": "User not found in this organization"})
+                return
 
             if not user.get("is_active", False):
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "User account is deactivated"}
-                )
+                await self._send_json(send, 401, {"detail": "User account is deactivated"})
+                return
 
             # Validate X-Client-ID matches user's actual tenant
-            header_tenant_id = request.headers.get("X-Client-ID")
+            header_tenant_id = headers_dict.get("x-client-id")
             if header_tenant_id and header_tenant_id != user["tenant_id"]:
                 logger.warning(
                     f"Tenant spoofing attempt: header X-Client-ID={header_tenant_id}, "
                     f"user tenant_id={user['tenant_id']}, auth_user_id={auth_user_id}"
                 )
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Access denied: tenant mismatch"}
-                )
+                await self._send_json(send, 403, {"detail": "Access denied: tenant mismatch"})
+                return
 
             # Set tenant_id in contextvars for structured logging
             set_tenant_id(user["tenant_id"])
 
-            # Attach user context to request
-            request.state.user = UserContext(
+            # Attach user context to scope state (accessible via request.state)
+            scope["state"]["user"] = UserContext(
                 user_id=user["id"],
                 auth_user_id=auth_user_id,
                 email=user["email"],
@@ -240,18 +243,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         except FileNotFoundError:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": f"Unknown client: {tenant_id}"}
-            )
+            await self._send_json(send, 400, {"detail": f"Unknown client: {tenant_id}"})
+            return
         except Exception as e:
             logger.error(f"Auth middleware error: {e}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Authentication error"}
-            )
+            await self._send_json(send, 500, {"detail": "Authentication error"})
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
+
+    async def _send_json(self, send, status_code: int, content: dict):
+        """Send a JSON response directly."""
+        import json
+        body = json.dumps(content).encode()
+        await send({
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 # ==================== Dependency Functions ====================
