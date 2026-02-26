@@ -25,6 +25,8 @@ Usage:
 import logging
 import asyncio
 import time
+import threading
+import atexit
 from typing import Dict, Any, List, Optional, Callable, TypeVar
 from datetime import datetime, timedelta
 import uuid
@@ -38,6 +40,13 @@ T = TypeVar('T')
 
 # Default query timeout in seconds
 DEFAULT_QUERY_TIMEOUT = 10
+
+# ==================== Shared Thread Pool ====================
+# Single executor shared across all SupabaseTool instances to prevent thread leaks.
+# Previous design created a new ThreadPoolExecutor(max_workers=4) per instance,
+# which with ~70 instantiation sites could spawn hundreds of orphaned threads.
+_shared_executor = ThreadPoolExecutor(max_workers=8)
+_cache_lock = threading.Lock()
 
 
 def run_sync(func: Callable[..., T]) -> Callable[..., T]:
@@ -73,10 +82,19 @@ _supabase_client_cache: Dict[str, Client] = {}
 
 
 def get_cached_supabase_client(supabase_url: str, supabase_key: str, client_id: str) -> Optional[Client]:
-    """Get or create a cached Supabase client"""
+    """Get or create a cached Supabase client (thread-safe)"""
     cache_key = f"{client_id}:{supabase_url[:20]}"
 
-    if cache_key not in _supabase_client_cache:
+    # Fast path: check without lock
+    if cache_key in _supabase_client_cache:
+        return _supabase_client_cache[cache_key]
+
+    # Slow path: acquire lock to create
+    with _cache_lock:
+        # Double-check after acquiring lock
+        if cache_key in _supabase_client_cache:
+            return _supabase_client_cache[cache_key]
+
         if create_client:
             try:
                 _supabase_client_cache[cache_key] = create_client(supabase_url, supabase_key)
@@ -88,6 +106,23 @@ def get_cached_supabase_client(supabase_url: str, supabase_key: str, client_id: 
             return None
 
     return _supabase_client_cache.get(cache_key)
+
+
+def evict_cached_supabase_client(supabase_url: str, client_id: str) -> None:
+    """Evict a cached Supabase client (e.g. after HTTP/2 connection drop)"""
+    cache_key = f"{client_id}:{supabase_url[:20]}"
+    with _cache_lock:
+        if cache_key in _supabase_client_cache:
+            _supabase_client_cache.pop(cache_key, None)
+            logger.warning(f"Supabase client evicted for {client_id} due to connection error")
+
+
+def _shutdown_executor():
+    """Gracefully shut down the shared thread pool on process exit."""
+    _shared_executor.shutdown(wait=False)
+
+
+atexit.register(_shutdown_executor)
 
 
 class SupabaseTool:
@@ -121,8 +156,8 @@ class SupabaseTool:
             config.client_id
         )
 
-        # Thread pool executor for timeout-protected queries
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        # Use shared module-level executor (not per-instance) to prevent thread leaks
+        self._executor = _shared_executor
         self._default_timeout = DEFAULT_QUERY_TIMEOUT
 
         if not self.client and create_client is None:
@@ -172,6 +207,26 @@ class SupabaseTool:
             logger.error(f"Query timeout ({operation}): exceeded {timeout}s after {elapsed:.2f}s")
             raise TimeoutError(f"Query '{operation}' timed out after {timeout}s")
         except Exception as e:
+            # Retry once on HTTP/2 connection drops by evicting and recreating client
+            err_str = str(e)
+            err_type = type(e).__name__
+            if "RemoteProtocolError" in err_type or "Server disconnected" in err_str:
+                logger.warning(f"HTTP/2 connection drop during {operation}, evicting client and retrying")
+                evict_cached_supabase_client(self.config.supabase_url, self.config.client_id)
+                self.client = get_cached_supabase_client(
+                    self.config.supabase_url,
+                    self.config.supabase_service_key or self.config.supabase_anon_key,
+                    self.config.client_id
+                )
+                try:
+                    future = self._executor.submit(query_func)
+                    result = future.result(timeout=timeout)
+                    supabase_circuit.record_success()
+                    return result
+                except Exception as retry_err:
+                    supabase_circuit.record_failure()
+                    logger.error(f"Retry also failed ({operation}): {retry_err}")
+                    raise retry_err
             supabase_circuit.record_failure()
             logger.error(f"Query failed ({operation}): {e}")
             raise
@@ -483,7 +538,11 @@ class SupabaseTool:
         due_date: Optional[datetime] = None,
         notes: Optional[str] = None,
         quote_id: Optional[str] = None,
-        customer_phone: Optional[str] = None
+        customer_phone: Optional[str] = None,
+        destination: Optional[str] = None,
+        check_in: Optional[str] = None,
+        check_out: Optional[str] = None,
+        nights: Optional[int] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Create invoice (optionally from quote)
@@ -498,34 +557,52 @@ class SupabaseTool:
             notes: Additional notes
             quote_id: Related quote ID (optional for manual invoices)
             customer_phone: Customer phone (optional)
+            destination: Trip destination
+            check_in: Check-in date (YYYY-MM-DD)
+            check_out: Check-out date (YYYY-MM-DD)
+            nights: Number of nights
 
         Returns:
             Created invoice or None
         """
         if not self.client:
             return None
-        
+
         try:
             invoice_id = f"INV-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-            
+
             if not due_date:
                 due_date = datetime.utcnow() + timedelta(days=7)
-            
+
+            # Build record with only non-None values to handle missing columns gracefully
             record = {
                 'tenant_id': self.tenant_id,
                 'invoice_id': invoice_id,
-                'quote_id': quote_id,  # Can be None for manual invoices
                 'customer_name': customer_name,
                 'customer_email': customer_email,
-                'customer_phone': customer_phone,
                 'items': items,
                 'total_amount': total_amount,
                 'currency': currency,
                 'status': 'draft',
                 'due_date': due_date.isoformat(),
-                'notes': notes,
                 'created_at': datetime.utcnow().isoformat()
             }
+
+            # Add optional fields only if they have values
+            if quote_id:
+                record['quote_id'] = quote_id
+            if customer_phone:
+                record['customer_phone'] = customer_phone
+            if notes:
+                record['notes'] = notes
+            if destination:
+                record['destination'] = destination
+            if check_in:
+                record['check_in'] = check_in
+            if check_out:
+                record['check_out'] = check_out
+            if nights:
+                record['nights'] = nights
             
             logger.info(f"Creating invoice with record: {record}")
             result = self.client.table(self.TABLE_INVOICES).insert(record).execute()

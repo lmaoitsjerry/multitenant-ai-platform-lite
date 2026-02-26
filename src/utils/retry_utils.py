@@ -47,6 +47,7 @@ def retry_on_async_network_error(max_attempts: int = 3, min_wait: int = 2, max_w
         retry=retry_if_exception_type((
             httpx.ConnectError,
             httpx.TimeoutException,
+            httpx.RemoteProtocolError,
         )),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,

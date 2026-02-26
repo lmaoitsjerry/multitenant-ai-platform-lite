@@ -242,6 +242,8 @@ export default function Pipeline() {
       }
     } catch (error) {
       console.error('[Pipeline] Failed to load pipeline data:', error);
+      // Don't clear existing data on refresh errors — show toast instead
+      setToast({ type: 'error', message: 'Failed to load pipeline data. Please try refreshing.' });
     } finally {
       setLoading(false);
     }
@@ -279,12 +281,13 @@ export default function Pipeline() {
 
       if (response.data?.success) {
         setShowAddModal(false);
-        // Show different message if client already existed
-        const message = response.data.created === false
-          ? 'Client already exists - showing existing record'
-          : 'Client created successfully!';
-        setToast({ type: 'success', message });
-        loadData(true); // Force refresh the list (bypass cache)
+        if (response.data.created === false) {
+          // Duplicate client — don't force refresh, data hasn't changed
+          setToast({ type: 'info', message: 'Client already exists - showing existing record' });
+        } else {
+          setToast({ type: 'success', message: 'Client created successfully!' });
+          loadData(true); // Force refresh the list (bypass cache)
+        }
       } else {
         setToast({ type: 'error', message: response.data?.error || 'Failed to create client' });
       }
@@ -308,7 +311,8 @@ export default function Pipeline() {
       await crmApi.updateStage(clientId, newStage);
     } catch (error) {
       console.error('Failed to update client stage:', error);
-      // Revert on error
+      // Revert on error by reloading (preserves data on failure via toast)
+      setToast({ type: 'error', message: 'Failed to update stage. Reverting...' });
       loadData();
     }
   }, [loadData]);
@@ -599,10 +603,12 @@ export default function Pipeline() {
             className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${
               toast.type === 'success'
                 ? 'bg-green-600 text-white'
+                : toast.type === 'info'
+                ? 'bg-blue-600 text-white'
                 : 'bg-red-600 text-white'
             }`}
           >
-            {toast.type === 'success' ? (
+            {toast.type === 'success' || toast.type === 'info' ? (
               <CheckCircleIcon className="w-5 h-5" />
             ) : (
               <ExclamationCircleIcon className="w-5 h-5" />

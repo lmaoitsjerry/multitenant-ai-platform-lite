@@ -43,6 +43,7 @@ PUBLIC_PATHS = {
     "/api/v1/branding",
     "/api/v1/branding/presets",
     "/api/v1/branding/fonts",
+    "/api/v1/branding/theme-pack",
     # Helpdesk endpoints (search uses X-Client-ID for tenant context)
     "/api/v1/helpdesk/faiss-status",
     "/api/v1/helpdesk/test-search",
@@ -190,11 +191,21 @@ class AuthMiddleware:
 
         try:
             # Get tenant config for Supabase credentials
-            config = get_config(tenant_id)
-            auth_service = AuthService(
-                supabase_url=config.supabase_url,
-                supabase_key=config.supabase_service_key
-            )
+            try:
+                config = get_config(tenant_id)
+                auth_service = AuthService(
+                    supabase_url=config.supabase_url,
+                    supabase_key=config.supabase_service_key
+                )
+            except FileNotFoundError:
+                # Fallback to env vars - all tenants share the same Supabase instance
+                supabase_url = os.getenv("SUPABASE_URL")
+                supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+                if not supabase_url or not supabase_key:
+                    await self._send_json(send, 400, {"detail": f"Unknown client: {tenant_id}"})
+                    return
+                logger.info(f"Tenant '{tenant_id}' not in DB config cache, using env vars for auth")
+                auth_service = AuthService(supabase_url=supabase_url, supabase_key=supabase_key)
 
             # Verify JWT (sync - fast operation, just decodes token)
             valid, payload = auth_service.verify_jwt(token)
@@ -242,9 +253,6 @@ class AuthMiddleware:
                 is_active=user["is_active"]
             )
 
-        except FileNotFoundError:
-            await self._send_json(send, 400, {"detail": f"Unknown client: {tenant_id}"})
-            return
         except Exception as e:
             logger.error(f"Auth middleware error: {e}")
             await self._send_json(send, 500, {"detail": "Authentication error"})

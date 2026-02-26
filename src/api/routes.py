@@ -19,6 +19,8 @@ from datetime import datetime, date
 from enum import Enum
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
+from src.middleware.auth_middleware import get_current_user, get_current_user_optional, UserContext
 
 from src.utils.error_handler import log_and_raise
 from src.webhooks.email_webhook import router as email_webhook_router
@@ -59,6 +61,30 @@ class QuoteGenerateRequest(BaseModel):
     send_email: bool = True
     assign_consultant: bool = True
     selected_hotels: Optional[List[str]] = None  # Manually selected hotel names
+    ticket_id: Optional[str] = None  # Link to enquiry ticket from triage
+
+
+class QuoteLineItem(BaseModel):
+    """Line item for quote from shopping cart"""
+    type: str = Field(..., pattern="^(hotel|activity|flight|transfer|package)$")
+    name: str
+    description: Optional[str] = None
+    price: float
+    currency: str = "ZAR"
+    quantity: int = 1
+    nights: Optional[int] = None
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    raw_data: Optional[Dict[str, Any]] = None
+
+
+class QuoteWithItemsRequest(BaseModel):
+    """Request to create quote from shopping cart items"""
+    inquiry: TravelInquiry
+    line_items: List[QuoteLineItem]
+    send_email: bool = True
+    assign_consultant: bool = True
+    save_as_draft: bool = False
 
 
 class PipelineStageEnum(str, Enum):
@@ -133,30 +159,10 @@ class InvoiceSendRequest(BaseModel):
 
 
 @lru_cache(maxsize=100)
-def _get_cached_config(client_id: str) -> ClientConfig:
-    """Get cached client configuration - thread-safe via lru_cache"""
-    return ClientConfig(client_id)
-
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    import os
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    try:
-        config = _get_cached_config(client_id)
-        logger.info(f"Loaded configuration for client: {client_id}")
-        return config
-    except Exception as e:
-        logger.error(f"Failed to load config for {client_id}: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-
-@lru_cache(maxsize=100)
 def _get_cached_quote_agent(client_id: str):
     """Get cached QuoteAgent - thread-safe via lru_cache"""
     from src.agents.quote_agent import QuoteAgent
-    config = _get_cached_config(client_id)
+    config = get_client_config(client_id)
     return QuoteAgent(config)
 
 
@@ -168,7 +174,7 @@ def get_quote_agent(config: ClientConfig):
 @lru_cache(maxsize=100)
 def _get_cached_crm_service(client_id: str):
     """Get cached CRMService - thread-safe via lru_cache"""
-    config = _get_cached_config(client_id)
+    config = get_client_config(client_id)
     return CRMService(config)
 
 
@@ -199,9 +205,10 @@ async def sendgrid_inbound_legacy(
 # ==================== Quote Endpoints ====================
 
 @quotes_router.post("/generate")
-async def generate_quote(
+def generate_quote(
     request: QuoteGenerateRequest,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Generate a travel quote
@@ -224,19 +231,228 @@ async def generate_quote(
             selected_hotels=request.selected_hotels
         )
 
+        # If quote was generated from an enquiry ticket, resolve the ticket
+        if request.ticket_id and result.get('success'):
+            try:
+                from src.tools.supabase_tool import SupabaseTool
+                supabase = SupabaseTool(config)
+                supabase.update_ticket(
+                    ticket_id=request.ticket_id,
+                    status='resolved',
+                    notes=f"Quote {result.get('quote_id')} generated and sent to customer"
+                )
+                result['ticket_resolved'] = True
+                logger.info(f"Resolved ticket {request.ticket_id} after generating quote {result.get('quote_id')}")
+            except Exception as e:
+                logger.warning(f"Failed to resolve ticket {request.ticket_id}: {e}")
+                result['ticket_resolved'] = False
+
         return result
 
     except Exception as e:
         log_and_raise(500, "generating quote", e, logger)
 
 
+@quotes_router.post("/create-with-items")
+def create_quote_with_items(
+    request: QuoteWithItemsRequest,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Create a quote from shopping cart items (hotels, activities, transfers, flights).
+
+    Unlike /generate which searches for hotels, this endpoint uses pre-selected items
+    from the shopping cart to create a quote directly.
+    """
+    from src.tools.supabase_tool import SupabaseTool
+    from src.services.email_sender import EmailSender
+    import secrets
+    from datetime import datetime
+
+    try:
+        # Initialize Supabase with retry for transient connection errors
+        supabase = None
+        for attempt in range(2):
+            try:
+                supabase = SupabaseTool(config)
+                break
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(f"Supabase init failed, retrying: {e}")
+                    continue
+                logger.error(f"Supabase init failed after retry: {e}")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Database temporarily unavailable. Please try again."
+                )
+
+        inquiry = request.inquiry
+
+        # Generate quote ID
+        quote_id = f"QUO-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+
+        # Calculate totals by currency
+        totals_by_currency = {}
+        for item in request.line_items:
+            currency = item.currency or 'ZAR'
+            if currency not in totals_by_currency:
+                totals_by_currency[currency] = 0
+            totals_by_currency[currency] += item.price * item.quantity
+
+        # Format line items for storage
+        formatted_items = []
+        for item in request.line_items:
+            formatted_items.append({
+                "type": item.type,
+                "name": item.name,
+                "description": item.description,
+                "price": item.price,
+                "currency": item.currency,
+                "quantity": item.quantity,
+                "nights": item.nights,
+                "check_in": item.check_in,
+                "check_out": item.check_out,
+                "raw_data": item.raw_data,
+            })
+
+        # Build quote record
+        quote_data = {
+            "tenant_id": config.client_id,
+            "quote_id": quote_id,
+            "customer_name": inquiry.name,
+            "customer_email": inquiry.email,
+            "customer_phone": inquiry.phone,
+            "destination": inquiry.destination,
+            "check_in": inquiry.check_in,
+            "check_out": inquiry.check_out,
+            "adults": inquiry.adults,
+            "children": inquiry.children,
+            "children_ages": inquiry.children_ages,
+            "budget": inquiry.budget,
+            "message": inquiry.message,
+            "status": "Draft" if request.save_as_draft else "Quoted",
+            "line_items": formatted_items,
+            "totals_by_currency": totals_by_currency,
+            "total_amount": sum(totals_by_currency.values()),  # For backwards compatibility
+            "currency": list(totals_by_currency.keys())[0] if totals_by_currency else 'ZAR',
+            "source": "shopping_cart",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        # Save to database with retry for transient errors
+        if supabase and supabase.client:
+            for attempt in range(2):
+                try:
+                    result = supabase.client.table("quotes").insert(quote_data).execute()
+                    if not result.data:
+                        logger.warning(f"Quote insert returned no data for {quote_id}")
+                    break
+                except Exception as db_err:
+                    if attempt == 0:
+                        logger.warning(f"Quote DB insert failed, retrying: {db_err}")
+                        continue
+                    logger.error(f"Failed to save quote to database after retry: {db_err}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to save quote to database. Please try again."
+                    )
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="Database unavailable. Please try again."
+            )
+
+        # Send email if requested and not a draft
+        email_sent = False
+        if request.send_email and not request.save_as_draft:
+            try:
+                email_sender = EmailSender(config)
+                # Build email content with line items
+                items_html = "".join([
+                    f"<tr><td>{item.name}</td><td>{item.type.title()}</td>"
+                    f"<td>{item.currency} {item.price:,.0f}</td></tr>"
+                    for item in request.line_items
+                ])
+
+                totals_html = "<br>".join([
+                    f"<strong>{curr}:</strong> {amt:,.0f}"
+                    for curr, amt in totals_by_currency.items()
+                ])
+
+                email_content = f"""
+                <h2>Your Travel Quote</h2>
+                <p>Dear {inquiry.name},</p>
+                <p>Thank you for your interest! Here's your personalized quote:</p>
+
+                <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+                    <tr style="background: #f3f4f6;">
+                        <th>Item</th><th>Type</th><th>Price</th>
+                    </tr>
+                    {items_html}
+                </table>
+
+                <p style="margin-top: 20px;"><strong>Totals:</strong><br>{totals_html}</p>
+
+                <p>Quote Reference: {quote_id}</p>
+                <p>Please reply to this email if you have any questions or would like to proceed with booking.</p>
+                """
+
+                email_sent = email_sender.send_email(
+                    to=inquiry.email,
+                    subject=f"Your Travel Quote - {inquiry.destination}",
+                    body_html=email_content,
+                )
+            except Exception as email_err:
+                logger.error(f"Failed to send quote email: {email_err}")
+
+        # Create CRM client if needed
+        if request.assign_consultant and supabase and supabase.client:
+            try:
+                # Check if client exists
+                existing = supabase.client.table("clients")\
+                    .select("id")\
+                    .eq("tenant_id", config.client_id)\
+                    .eq("email", inquiry.email)\
+                    .execute()
+
+                if not existing.data:
+                    # Create new client
+                    supabase.client.table("clients").insert({
+                        "tenant_id": config.client_id,
+                        "name": inquiry.name,
+                        "email": inquiry.email,
+                        "phone": inquiry.phone,
+                        "source": "shopping_cart",
+                        "created_at": datetime.utcnow().isoformat(),
+                    }).execute()
+            except Exception as client_err:
+                logger.warning(f"Failed to create/update client: {client_err}")
+
+        return {
+            "success": True,
+            "quote_id": quote_id,
+            "email_sent": email_sent,
+            "items_count": len(request.line_items),
+            "totals": totals_by_currency,
+            "is_draft": request.save_as_draft,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "creating quote with items", e, logger)
+
+
 @quotes_router.get("")
-async def list_quotes(
+def list_quotes(
     status: Optional[str] = None,
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     config: ClientConfig = Depends(get_client_config),
-    x_client_id: str = Header(None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(None, alias="X-Client-ID"),
+    user: UserContext = Depends(get_current_user),
 ):
     """List quotes with optional filtering"""
     from src.agents.quote_agent import QuoteAgent
@@ -260,9 +476,10 @@ async def list_quotes(
 
 
 @quotes_router.get("/{quote_id}")
-async def get_quote(
+def get_quote(
     quote_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get quote by ID"""
     from src.agents.quote_agent import QuoteAgent
@@ -286,9 +503,10 @@ async def get_quote(
 
 
 @quotes_router.get("/{quote_id}/pdf")
-async def download_quote_pdf(
+def download_quote_pdf(
     quote_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Generate and download quote PDF"""
     from src.utils.pdf_generator import PDFGenerator
@@ -335,9 +553,10 @@ async def download_quote_pdf(
 
 
 @quotes_router.post("/{quote_id}/resend")
-async def resend_quote(
+def resend_quote(
     quote_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Resend an existing quote email to the customer.
@@ -371,10 +590,11 @@ async def resend_quote(
 
 
 @quotes_router.post("/{quote_id}/send")
-async def send_quote(
+def send_quote(
     quote_id: str,
     request: Request,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Send a draft quote to the customer.
@@ -427,13 +647,14 @@ async def send_quote(
 # ==================== CRM Endpoints ====================
 
 @crm_router.get("/clients")
-async def list_clients(
+def list_clients(
     query: Optional[str] = None,
     stage: Optional[PipelineStageEnum] = None,
     consultant_id: Optional[str] = None,
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Search and list CRM clients"""
     try:
@@ -460,9 +681,10 @@ async def list_clients(
 
 
 @crm_router.post("/clients")
-async def create_client(
+def create_client(
     client: ClientCreate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Create new CRM client"""
     try:
@@ -492,9 +714,10 @@ async def create_client(
 
 
 @crm_router.get("/clients/{client_id}")
-async def get_client(
+def get_client(
     client_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get client by ID"""
     try:
@@ -516,10 +739,11 @@ async def get_client(
 
 
 @crm_router.patch("/clients/{client_id}")
-async def update_client(
+def update_client(
     client_id: str,
     update: ClientUpdate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Update client details"""
     try:
@@ -559,10 +783,11 @@ class StageUpdate(BaseModel):
 
 
 @crm_router.patch("/clients/{client_id}/stage")
-async def update_client_stage(
+def update_client_stage(
     client_id: str,
-    update: StageUpdate,
-    config: ClientConfig = Depends(get_client_config)
+    stage_update: StageUpdate,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Update client pipeline stage"""
     try:
@@ -576,7 +801,7 @@ async def update_client_stage(
         # Update stage
         crm.update_stage(
             client_id=client_id,
-            stage=PipelineStage(update.stage.value)
+            stage=PipelineStage(stage_update.stage.value)
         )
 
         # Get updated client
@@ -594,10 +819,11 @@ async def update_client_stage(
 
 
 @crm_router.get("/clients/{client_id}/activities")
-async def get_client_activities(
+def get_client_activities(
     client_id: str,
     limit: int = Query(default=20, le=100),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get activities for a client"""
     try:
@@ -615,10 +841,11 @@ async def get_client_activities(
 
 
 @crm_router.post("/clients/{client_id}/activities")
-async def log_activity(
+def log_activity(
     client_id: str,
     activity: ActivityLog,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Log activity for a client"""
     from src.tools.supabase_tool import SupabaseTool
@@ -648,8 +875,9 @@ async def log_activity(
 
 
 @crm_router.get("/pipeline")
-async def get_pipeline(
-    config: ClientConfig = Depends(get_client_config)
+def get_pipeline(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get pipeline data - alias for /pipeline/summary for frontend compatibility"""
     try:
@@ -666,8 +894,9 @@ async def get_pipeline(
 
 
 @crm_router.get("/pipeline/summary")
-async def get_pipeline_summary(
-    config: ClientConfig = Depends(get_client_config)
+def get_pipeline_summary(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get pipeline stage summary"""
     try:
@@ -684,8 +913,9 @@ async def get_pipeline_summary(
 
 
 @crm_router.get("/stats")
-async def get_crm_stats(
-    config: ClientConfig = Depends(get_client_config)
+def get_crm_stats(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get CRM statistics"""
     try:
@@ -704,9 +934,10 @@ async def get_crm_stats(
 # ==================== Invoice Endpoints ====================
 
 @invoices_router.post("/convert-quote")
-async def convert_quote_to_invoice(
+def convert_quote_to_invoice(
     request: InvoiceCreate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Create invoice from quote"""
     from src.agents.quote_agent import QuoteAgent
@@ -726,6 +957,12 @@ async def convert_quote_to_invoice(
         total = 0
         items = request.items or []
 
+        # Extract trip details from quote
+        destination = quote.get('destination', '')
+        check_in = quote.get('check_in_date', '')
+        check_out = quote.get('check_out_date', '')
+        nights = quote.get('nights', 7)
+
         if not items:
             # Extract from quote options
             for opt_key in ['option_1_json', 'option_2_json', 'option_3_json']:
@@ -734,8 +971,15 @@ async def convert_quote_to_invoice(
                         opt = json.loads(quote[opt_key]) if isinstance(quote[opt_key], str) else quote[opt_key]
                         if opt:
                             items.append({
-                                'description': f"{opt.get('name', 'Hotel')} - {quote.get('nights', 7)} nights",
-                                'amount': opt.get('total_price', 0)
+                                'description': f"{opt.get('name', 'Hotel')} - {nights} nights",
+                                'hotel_name': opt.get('name', 'Hotel'),
+                                'room_type': opt.get('room_type', ''),
+                                'meal_plan': opt.get('meal_plan', ''),
+                                'amount': opt.get('total_price', 0),
+                                'destination': destination,
+                                'check_in': check_in,
+                                'check_out': check_out,
+                                'nights': nights
                             })
                             total += opt.get('total_price', 0)
                             break  # Just use first option
@@ -743,6 +987,16 @@ async def convert_quote_to_invoice(
                         logger.debug(f"Failed to parse hotels JSON: {e}")
         else:
             total = sum(item.get('amount', 0) for item in items)
+            # Add trip details to each item if not present
+            for item in items:
+                if 'destination' not in item:
+                    item['destination'] = destination
+                if 'check_in' not in item:
+                    item['check_in'] = check_in
+                if 'check_out' not in item:
+                    item['check_out'] = check_out
+                if 'nights' not in item:
+                    item['nights'] = nights
 
         # Create invoice
         supabase = SupabaseTool(config)
@@ -757,11 +1011,29 @@ async def convert_quote_to_invoice(
             due_date=due_date,
             notes=request.notes,
             quote_id=request.quote_id,
-            customer_phone=quote.get('customer_phone')
+            customer_phone=quote.get('customer_phone'),
+            destination=destination,
+            check_in=check_in,
+            check_out=check_out,
+            nights=nights
         )
 
         if not invoice:
             raise HTTPException(status_code=500, detail="Failed to create invoice")
+
+        # Mark quote as 'accepted' when invoice is created from it
+        try:
+            if supabase.client:
+                supabase.client.table('quotes')\
+                    .update({'status': 'accepted'})\
+                    .eq('quote_id', request.quote_id)\
+                    .eq('tenant_id', config.client_id)\
+                    .execute()
+                logger.info(f"Quote {request.quote_id} marked as accepted (invoice created)")
+            else:
+                logger.warning("Supabase client not available — could not update quote status")
+        except Exception as quote_update_err:
+            logger.warning(f"Failed to update quote status to accepted: {quote_update_err}")
 
         return {
             "success": True,
@@ -775,9 +1047,10 @@ async def convert_quote_to_invoice(
 
 
 @invoices_router.post("/create")
-async def create_manual_invoice(
+def create_manual_invoice(
     request: ManualInvoiceCreate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Create invoice manually (without a quote)"""
     from src.tools.supabase_tool import SupabaseTool
@@ -840,11 +1113,12 @@ async def create_manual_invoice(
 
 
 @invoices_router.get("")
-async def list_invoices(
+def list_invoices(
     status: Optional[str] = None,
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """List invoices"""
     from src.tools.supabase_tool import SupabaseTool
@@ -866,9 +1140,10 @@ async def list_invoices(
 
 
 @invoices_router.get("/{invoice_id}")
-async def get_invoice(
+def get_invoice(
     invoice_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Get invoice by ID"""
     from src.tools.supabase_tool import SupabaseTool
@@ -892,10 +1167,11 @@ async def get_invoice(
 
 
 @invoices_router.patch("/{invoice_id}/status")
-async def update_invoice_status(
+def update_invoice_status(
     invoice_id: str,
     update: InvoiceStatusUpdate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Update invoice status"""
     from src.tools.supabase_tool import SupabaseTool
@@ -916,6 +1192,17 @@ async def update_invoice_status(
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update invoice")
+
+        # If marking as paid, also set paid_amount to total_amount
+        if update.status == 'paid':
+            invoice_before = supabase.get_invoice(invoice_id)
+            if invoice_before:
+                total_amount = invoice_before.get('total_amount', 0)
+                result = supabase.client.table('invoices').update({
+                    'paid_amount': total_amount
+                }).eq('invoice_id', invoice_id).eq('tenant_id', config.client_id).execute()
+                if not result.data:
+                    raise HTTPException(status_code=500, detail="Failed to update paid amount")
 
         # Get updated invoice
         invoice = supabase.get_invoice(invoice_id)
@@ -945,11 +1232,121 @@ async def update_invoice_status(
         log_and_raise(500, "updating invoice status", e, logger)
 
 
+class PaymentRecordRequest(BaseModel):
+    """Request model for recording a payment"""
+    amount: float
+    payment_date: str  # ISO date string
+    payment_method: str = "bank_transfer"  # bank_transfer, credit_card, cash, other
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@invoices_router.post("/{invoice_id}/payments")
+def record_payment(
+    invoice_id: str,
+    payment: PaymentRecordRequest,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    Record a payment against an invoice.
+
+    Updates the invoice status based on payment amount:
+    - Full payment: marks as 'paid'
+    - Partial payment: marks as 'partial'
+    """
+    from src.tools.supabase_tool import SupabaseTool
+
+    try:
+        supabase = SupabaseTool(config)
+
+        # Get current invoice
+        invoice = supabase.get_invoice(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        total_amount = invoice.get('total_amount', 0)
+        current_paid = invoice.get('paid_amount', 0) or 0
+        new_total_paid = current_paid + payment.amount
+
+        # Determine new status
+        if new_total_paid >= total_amount:
+            new_status = 'paid'
+        else:
+            new_status = 'partial'
+
+        # Parse payment date
+        payment_date = None
+        if payment.payment_date:
+            payment_date = datetime.fromisoformat(payment.payment_date.replace('Z', '+00:00'))
+
+        # Build reference string
+        reference = payment.reference or f"{payment.payment_method.upper()}-{datetime.now().strftime('%Y%m%d')}"
+        if payment.notes:
+            reference = f"{reference} | {payment.notes}"
+
+        # Update invoice
+        success = supabase.update_invoice_status(
+            invoice_id=invoice_id,
+            status=new_status,
+            payment_date=payment_date,
+            payment_reference=reference
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to record payment")
+
+        # Update paid_amount in invoice
+        result = supabase.client.table('invoices').update({
+            'paid_amount': new_total_paid
+        }).eq('invoice_id', invoice_id).eq('tenant_id', config.client_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to update paid amount")
+
+        # Get updated invoice
+        updated_invoice = supabase.get_invoice(invoice_id)
+
+        # Trigger notification if fully paid
+        if new_status == 'paid':
+            try:
+                from src.api.notifications_routes import NotificationService
+                notification_service = NotificationService(config)
+                notification_service.notify_invoice_paid(
+                    customer_name=invoice.get('customer_name', 'Customer'),
+                    invoice_id=invoice_id,
+                    amount=total_amount,
+                    currency=config.currency or 'ZAR'
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send payment notification: {e}")
+
+        return {
+            "success": True,
+            "message": f"Payment of {payment.amount} recorded successfully",
+            "data": {
+                "invoice_id": invoice_id,
+                "amount_recorded": payment.amount,
+                "total_paid": new_total_paid,
+                "total_amount": total_amount,
+                "outstanding": max(0, total_amount - new_total_paid),
+                "status": new_status,
+                "payment_reference": reference
+            },
+            "invoice": updated_invoice
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "recording payment", e, logger)
+
+
 @invoices_router.post("/{invoice_id}/send")
-async def send_invoice_email(
+def send_invoice_email(
     invoice_id: str,
     request: InvoiceSendRequest = Body(default=InvoiceSendRequest()),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Generate and send invoice PDF via email"""
     from src.tools.supabase_tool import SupabaseTool
@@ -1034,9 +1431,10 @@ async def send_invoice_email(
 
 
 @invoices_router.get("/{invoice_id}/pdf")
-async def download_invoice_pdf(
+def download_invoice_pdf(
     invoice_id: str,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """Generate and download invoice PDF"""
     from src.tools.supabase_tool import SupabaseTool
@@ -1108,10 +1506,11 @@ async def download_invoice_pdf(
 
 
 @invoices_router.patch("/{invoice_id}/travelers")
-async def update_invoice_travelers(
+def update_invoice_travelers(
     invoice_id: str,
     travelers: List[Dict[str, Any]] = Body(...),
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update traveler details on invoice
@@ -1154,8 +1553,13 @@ def get_invoice_public(invoice_id: str):
     import httpx
     import re
 
-    # Validate UUID format to prevent injection
-    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', invoice_id, re.I):
+    # Validate invoice_id format to prevent injection
+    # Supports: INV-YYYYMMDD-XXXXXX format (e.g., INV-20260211-298BA0)
+    # Also supports UUID format for backwards compatibility
+    invoice_pattern = r'^INV-\d{8}-[A-F0-9]{6}$'
+    uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+    if not (re.match(invoice_pattern, invoice_id, re.I) or re.match(uuid_pattern, invoice_id, re.I)):
         logger.warning(f"Invalid invoice_id format in public access: {invoice_id[:50]}")
         return None
 
@@ -1190,9 +1594,9 @@ def get_invoice_public(invoice_id: str):
         return None
 
 @public_router.get("/invoices/{invoice_id}/pdf")
-async def public_invoice_pdf(
+def public_invoice_pdf(
     invoice_id: str,
-    x_client_id: str = Header(None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(None, alias="X-Client-ID")
 ):
     """
     Public endpoint to download invoice PDF.
@@ -1275,8 +1679,13 @@ def get_quote_public(quote_id: str):
     import httpx
     import re
 
-    # Validate UUID format to prevent injection
-    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', quote_id, re.I):
+    # Validate quote_id format to prevent injection
+    # Supports: QT-YYYYMMDD-XXXXXX format (e.g., QT-20260210-A80413)
+    # Also supports UUID format for backwards compatibility
+    quote_pattern = r'^QT-\d{8}-[A-F0-9]{6}$'
+    uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+    if not (re.match(quote_pattern, quote_id, re.I) or re.match(uuid_pattern, quote_id, re.I)):
         logger.warning(f"Invalid quote_id format in public access: {quote_id[:50]}")
         return None
 
@@ -1312,7 +1721,7 @@ def get_quote_public(quote_id: str):
 
 
 @public_router.get("/quotes/{quote_id}/pdf")
-async def public_quote_pdf(quote_id: str):
+def public_quote_pdf(quote_id: str):
     """
     Public endpoint to view quote PDF.
     Used for shareable quote links that don't require authentication.
@@ -1464,6 +1873,15 @@ def include_routers(app):
     from src.api.travel_services_routes import travel_router
     app.include_router(travel_router)
 
-    # Prometheus Metrics
-    from src.api.metrics_routes import metrics_router
-    app.include_router(metrics_router)
+    # HotelBeds API (Live Hotels, Activities, Transfers)
+    from src.api.hotelbeds_routes import hotelbeds_router
+    app.include_router(hotelbeds_router)
+
+    # Unified RAG for AI Agents (Local + Global Knowledge)
+    from src.api.unified_rag_routes import unified_rag_router
+    app.include_router(unified_rag_router)
+
+    # Prometheus Metrics - DISABLED (prometheus_client import hangs on some systems)
+    # TODO: Investigate prometheus_client hanging issue and re-enable
+    # from src.api.metrics_routes import metrics_router
+    # app.include_router(metrics_router)

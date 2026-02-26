@@ -5,11 +5,12 @@ import {
   MapPinIcon,
   CalendarIcon,
   UserGroupIcon,
-  ArrowRightIcon,
   ArrowsRightLeftIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 import { flightsApi, travelApi } from '../../services/api';
 import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
+import { getDestinationIata } from '../../utils/destinations';
 
 // Cabin class options
 const CABIN_CLASSES = [
@@ -23,23 +24,24 @@ export default function FlightsList() {
   // State
   const [destinations, setDestinations] = useState([]);
   const [selectedDestination, setSelectedDestination] = useState('');
-  const [originCity, setOriginCity] = useState('JNB'); // Default to Johannesburg
+  const [originCity, setOriginCity] = useState('JNB');
   const [departureDate, setDepartureDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
-  const [tripType, setTripType] = useState('roundtrip'); // 'oneway' or 'roundtrip'
+  const [tripType, setTripType] = useState('roundtrip');
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [cabinClass, setCabinClass] = useState('economy');
   const [flights, setFlights] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [outboundFlights, setOutboundFlights] = useState([]);
+  const [returnFlights, setReturnFlights] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [dataSource, setDataSource] = useState(null); // "platform" or "bigquery"
+  const [dataSource, setDataSource] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // Load destinations on mount
   useEffect(() => {
     loadDestinations();
-    loadAllFlights();
   }, []);
 
   // Set default date
@@ -51,7 +53,6 @@ export default function FlightsList() {
 
   const loadDestinations = async () => {
     try {
-      // Try platform flight destinations first (has real date ranges and avg prices)
       const platformResponse = await flightsApi.destinations();
       if (platformResponse.data?.success && platformResponse.data?.destinations?.length > 0) {
         const platformDests = platformResponse.data.destinations.map(d => ({
@@ -69,7 +70,6 @@ export default function FlightsList() {
       console.debug('Platform flight destinations not available:', err.message);
     }
 
-    // Fall back to general travel destinations
     try {
       const response = await travelApi.destinations();
       if (response.data?.success) {
@@ -80,58 +80,70 @@ export default function FlightsList() {
     }
   };
 
-  const loadAllFlights = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await flightsApi.list({ limit: 100 });
-      if (response.data?.success) {
-        setFlights(response.data.flights || []);
-        setDataSource(response.data.source || (response.data.flights?.[0]?.source) || null);
-      } else {
-        console.debug('Flights API returned:', response.data?.error || 'No flights');
-        setFlights([]);
-        setDataSource(null);
-      }
-    } catch (err) {
-      console.debug('Failed to fetch flights:', err.message);
-      setFlights([]);
-      setDataSource(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSearch = async (e) => {
     e.preventDefault();
 
     if (!selectedDestination) {
-      loadAllFlights();
+      setError('Please select a destination');
+      return;
+    }
+    if (!departureDate) {
+      setError('Please select a departure date');
       return;
     }
 
     setHasSearched(true);
     setLoading(true);
     setError(null);
+    setFlights([]);
+    setOutboundFlights([]);
+    setReturnFlights([]);
 
+    const destIata = getDestinationIata(selectedDestination);
+
+    try {
+      // Try RTTC direct endpoint first (supports round-trip)
+      const rttcResponse = await flightsApi.searchRttc(
+        originCity,
+        destIata,
+        departureDate,
+        tripType === 'roundtrip' ? returnDate || null : null,
+        adults,
+        cabinClass !== 'economy' ? cabinClass : null,
+      );
+
+      if (rttcResponse.data?.success && (rttcResponse.data?.flights?.length > 0 || rttcResponse.data?.outbound_flights?.length > 0)) {
+        const data = rttcResponse.data;
+        setFlights(data.flights || []);
+        setOutboundFlights(data.outbound_flights || []);
+        setReturnFlights(data.return_flights || []);
+        setDataSource(data.source || 'rttc');
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.debug('RTTC flight search failed, trying fallback:', err.message);
+    }
+
+    // Fallback to legacy search
     try {
       const response = await flightsApi.search(
         selectedDestination,
-        departureDate || null,
-        returnDate || null
+        departureDate,
+        tripType === 'roundtrip' ? returnDate || null : null,
       );
 
       if (response.data?.success) {
         setFlights(response.data.flights || []);
-        setDataSource(response.data.source || (response.data.flights?.[0]?.source) || null);
+        setOutboundFlights([]);
+        setReturnFlights([]);
+        setDataSource(response.data.source || null);
       } else {
-        console.debug('Flight search returned:', response.data?.error || 'No results');
         setFlights([]);
         setDataSource(null);
       }
     } catch (err) {
-      console.debug('Failed to search flights:', err.message);
+      console.debug('Legacy flight search also failed:', err.message);
       setFlights([]);
       setDataSource(null);
     } finally {
@@ -140,6 +152,7 @@ export default function FlightsList() {
   };
 
   const formatCurrency = (amount, currency = 'ZAR') => {
+    if (!amount || amount === 0) return 'Price on request';
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
       currency: currency,
@@ -148,26 +161,186 @@ export default function FlightsList() {
     }).format(amount);
   };
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-ZA', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '-';
+    // Handle "HH:MM" or "HH:MM:SS" format
+    return timeStr.substring(0, 5);
   };
 
-  // Group flights by destination
-  const groupedFlights = flights.reduce((acc, flight) => {
-    const dest = flight.destination || 'Unknown';
-    if (!acc[dest]) {
-      acc[dest] = [];
-    }
-    acc[dest].push(flight);
-    return acc;
-  }, {});
+  // Determine if we have round-trip sections
+  const hasRoundTrip = outboundFlights.length > 0 || returnFlights.length > 0;
+  // For RTTC data, flights have rich fields; for legacy, they have basic fields
+  const isRichData = dataSource === 'rttc' || dataSource === 'rttc_direct';
+
+  const FlightCard = ({ flight, idx, section = 'outbound' }) => {
+    const airlineName = flight.airline_name || flight.airline || 'Airline';
+    const flightNumber = flight.flight_number || '';
+    const departTime = flight.departure_time;
+    const arriveTime = flight.arrival_time;
+    const duration = flight.duration;
+    const stops = flight.stops ?? (flight.is_direct === false ? 1 : 0);
+    const cabin = flight.cabin_class || cabinClass;
+    const baggage = flight.baggage;
+    const price = flight.price_adult || flight.price_per_person || 0;
+    const priceTotal = flight.price_total || price;
+    const logo = flight.airline_logo;
+
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Airline + Flight Info */}
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            {/* Airline Logo */}
+            <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center">
+              {logo ? (
+                <img
+                  src={logo}
+                  alt={airlineName}
+                  className="w-10 h-10 object-contain rounded"
+                  onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                />
+              ) : null}
+              <div className={`w-10 h-10 bg-blue-100 rounded flex items-center justify-center ${logo ? 'hidden' : ''}`}>
+                <PaperAirplaneIcon className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+
+            {/* Airline + Flight Number */}
+            <div className="min-w-0">
+              <div className="font-semibold text-gray-900 truncate">{airlineName}</div>
+              {flightNumber && (
+                <div className="text-xs text-gray-500">{flightNumber}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Center: Times + Duration */}
+          {departTime && arriveTime ? (
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-900">{formatTime(departTime)}</div>
+                <div className="text-xs text-gray-500">{flight.origin || originCity}</div>
+              </div>
+              <div className="flex flex-col items-center px-2">
+                {duration && (
+                  <div className="text-xs text-gray-500 mb-1">{duration}</div>
+                )}
+                <div className="w-20 h-px bg-gray-300 relative">
+                  <PaperAirplaneIcon className="h-3 w-3 text-gray-400 absolute -top-1.5 right-0" />
+                </div>
+                <div className="text-xs mt-1">
+                  {stops === 0 ? (
+                    <span className="text-green-600 font-medium">Direct</span>
+                  ) : (
+                    <span className="text-orange-600">{stops} stop{stops > 1 ? 's' : ''}</span>
+                  )}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-900">{formatTime(arriveTime)}</div>
+                <div className="text-xs text-gray-500">{flight.destination_code || getDestinationIata(selectedDestination)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-gray-500">
+              <ClockIcon className="h-4 w-4" />
+              <span className="text-sm">Schedule TBC</span>
+            </div>
+          )}
+
+          {/* Right: Cabin, Baggage, Price + Add to Quote */}
+          <div className="flex items-center gap-4 flex-shrink-0">
+            {/* Badges */}
+            <div className="flex flex-col items-end gap-1">
+              {cabin && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 capitalize">
+                  {cabin.replace('_', ' ')}
+                </span>
+              )}
+              {baggage && (
+                <span className="text-xs text-gray-500">{baggage}</span>
+              )}
+            </div>
+
+            {/* Price */}
+            <div className="text-right min-w-[100px]">
+              <div className="text-lg font-bold text-blue-600">
+                {formatCurrency(price)}
+              </div>
+              <div className="text-xs text-gray-500">per adult</div>
+            </div>
+
+            {/* Add to Quote */}
+            <AddToQuoteButton
+              item={{
+                id: `flight-${section}-${idx}`,
+                type: 'flight',
+                name: `${airlineName}${flightNumber ? ' ' + flightNumber : ''} ${originCity}-${getDestinationIata(selectedDestination)}`,
+                price: price,
+                currency: flight.currency || 'ZAR',
+                details: {
+                  airline: airlineName,
+                  flight_number: flightNumber,
+                  departure_time: departTime,
+                  arrival_time: arriveTime,
+                  duration: duration,
+                  cabin_class: cabin,
+                  stops: stops,
+                  destination: selectedDestination,
+                  departure_date: departureDate,
+                  return_date: returnDate,
+                }
+              }}
+              size="sm"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Legacy flight row (basic table for non-RTTC data)
+  const LegacyFlightRow = ({ flight, idx }) => (
+    <tr className="hover:bg-gray-50">
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="flex items-center">
+          <PaperAirplaneIcon className="h-5 w-5 text-blue-500 mr-2" />
+          <span className="font-medium text-gray-900">
+            {flight.airline || 'Various Airlines'}
+          </span>
+        </div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {flight.departure_date ? new Date(flight.departure_date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : '-'}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {flight.return_date ? new Date(flight.return_date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : '-'}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-right">
+        <span className="text-lg font-semibold text-blue-600">
+          {formatCurrency(flight.price_per_person, flight.currency)}
+        </span>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-right">
+        <AddToQuoteButton
+          item={{
+            id: `flight-legacy-${idx}`,
+            type: 'flight',
+            name: `${flight.airline || 'Flight'} to ${selectedDestination}`,
+            price: flight.price_per_person,
+            currency: flight.currency || 'ZAR',
+            details: {
+              airline: flight.airline,
+              destination: selectedDestination,
+              departure_date: flight.departure_date,
+              return_date: flight.return_date,
+            }
+          }}
+          size="sm"
+        />
+      </td>
+    </tr>
+  );
 
   return (
     <div className="space-y-6">
@@ -175,7 +348,7 @@ export default function FlightsList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Flights</h1>
-          <p className="text-gray-500 mt-1">View flight pricing by destination</p>
+          <p className="text-gray-500 mt-1">Search live flight availability and pricing</p>
         </div>
       </div>
 
@@ -226,13 +399,13 @@ export default function FlightsList() {
               />
             </div>
 
-            {/* Swap Button (visual only) */}
+            {/* Swap Button */}
             <div className="hidden lg:flex items-end justify-center pb-2">
               <button
                 type="button"
                 onClick={() => {
                   const temp = originCity;
-                  setOriginCity(selectedDestination);
+                  setOriginCity(getDestinationIata(selectedDestination));
                   setSelectedDestination(temp);
                 }}
                 className="p-2 rounded-full hover:bg-theme-border-light text-theme-muted"
@@ -349,10 +522,11 @@ export default function FlightsList() {
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              className="btn-primary inline-flex items-center gap-2"
+              disabled={loading}
+              className="btn-primary inline-flex items-center gap-2 disabled:opacity-50"
             >
               <MagnifyingGlassIcon className="h-4 w-4" />
-              Search Flights
+              {loading ? 'Searching...' : 'Search Flights'}
             </button>
           </div>
         </form>
@@ -365,144 +539,149 @@ export default function FlightsList() {
         </div>
       )}
 
-      {/* Results */}
-      {loading ? (
+      {/* Loading State */}
+      {loading && (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 animate-pulse">
-              <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-              <div className="space-y-3">
-                <div className="h-4 bg-gray-200 rounded w-full"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-lg border border-gray-200 p-4 animate-pulse">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-gray-200 rounded" />
+                  <div>
+                    <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
+                    <div className="h-3 bg-gray-200 rounded w-16" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-6 bg-gray-200 rounded w-12" />
+                  <div className="w-20 h-px bg-gray-200" />
+                  <div className="h-6 bg-gray-200 rounded w-12" />
+                </div>
+                <div className="text-right">
+                  <div className="h-5 bg-gray-200 rounded w-20 mb-1" />
+                  <div className="h-3 bg-gray-200 rounded w-14" />
+                </div>
               </div>
             </div>
           ))}
         </div>
-      ) : flights.length > 0 ? (
+      )}
+
+      {/* Results */}
+      {!loading && hasSearched && (flights.length > 0 || outboundFlights.length > 0) && (
         <div className="space-y-6">
+          {/* Results Header */}
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
-              {flights.length} Flight Options
+              {hasRoundTrip
+                ? `${outboundFlights.length} Outbound + ${returnFlights.length} Return Flights`
+                : `${flights.length} Flight Options`}
             </h2>
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              dataSource === 'platform'
+              isRichData
                 ? 'bg-green-100 text-green-800'
-                : 'bg-blue-100 text-blue-800'
+                : dataSource === 'platform'
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-blue-100 text-blue-800'
             }`}>
-              {dataSource === 'platform' ? 'Live Data — RTTC' : 'Sample Data'}
+              {isRichData ? 'Live Flights' : dataSource === 'platform' ? 'Live Data' : 'Sample Data'}
             </span>
           </div>
 
-          {Object.entries(groupedFlights).map(([destination, destFlights]) => (
-            <div key={destination} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              {/* Destination Header */}
-              <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-                <div className="flex items-center">
-                  <MapPinIcon className="h-5 w-5 text-gray-400 mr-2" />
-                  <h3 className="text-lg font-semibold text-gray-900 capitalize">
-                    {destination}
+          {/* Round-trip: Separate sections */}
+          {hasRoundTrip ? (
+            <>
+              {/* Outbound Flights */}
+              {outboundFlights.length > 0 && (
+                <div>
+                  <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <PaperAirplaneIcon className="h-5 w-5 text-blue-500" />
+                    Outbound — {originCity} to {getDestinationIata(selectedDestination)}
+                    <span className="text-sm font-normal text-gray-500">
+                      ({departureDate ? new Date(departureDate).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : ''})
+                    </span>
                   </h3>
-                  <span className="ml-2 text-sm text-gray-500">
-                    ({destFlights.length} flights)
-                  </span>
+                  <div className="space-y-3">
+                    {outboundFlights.map((flight, idx) => (
+                      <FlightCard key={idx} flight={flight} idx={idx} section="outbound" />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Flights Table */}
+              {/* Return Flights */}
+              {returnFlights.length > 0 && (
+                <div>
+                  <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <PaperAirplaneIcon className="h-5 w-5 text-orange-500 rotate-180" />
+                    Return — {getDestinationIata(selectedDestination)} to {originCity}
+                    <span className="text-sm font-normal text-gray-500">
+                      ({returnDate ? new Date(returnDate).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : ''})
+                    </span>
+                  </h3>
+                  <div className="space-y-3">
+                    {returnFlights.map((flight, idx) => (
+                      <FlightCard key={idx} flight={flight} idx={idx} section="return" />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : isRichData ? (
+            /* Rich RTTC data — use flight cards */
+            <div className="space-y-3">
+              {flights.map((flight, idx) => (
+                <FlightCard key={idx} flight={flight} idx={idx} section="all" />
+              ))}
+            </div>
+          ) : (
+            /* Legacy data — use table */
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Airline
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Departure
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Return
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Price per Person
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Airline</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Departure</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Return</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price per Person</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {destFlights.map((flight, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <PaperAirplaneIcon className="h-5 w-5 text-blue-500 mr-2" />
-                            <span className="font-medium text-gray-900">
-                              {flight.airline || 'Various Airlines'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <CalendarIcon className="h-4 w-4 text-gray-400 mr-2" />
-                            <span className="text-gray-900">
-                              {formatDate(flight.departure_date)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <CalendarIcon className="h-4 w-4 text-gray-400 mr-2" />
-                            <span className="text-gray-900">
-                              {formatDate(flight.return_date)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end">
-                            <UserGroupIcon className="h-4 w-4 text-gray-400 mr-2" />
-                            <span className="text-lg font-semibold text-blue-600">
-                              {formatCurrency(flight.price_per_person, flight.currency)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <AddToQuoteButton
-                            item={{
-                              id: `flight-${destination}-${idx}`,
-                              type: 'flight',
-                              name: `${flight.airline || 'Flight'} to ${destination}`,
-                              price: flight.price_per_person,
-                              currency: flight.currency || 'ZAR',
-                              details: {
-                                airline: flight.airline,
-                                destination: destination,
-                                departure_date: flight.departure_date,
-                                return_date: flight.return_date,
-                              }
-                            }}
-                            size="sm"
-                          />
-                        </td>
-                      </tr>
+                    {flights.map((flight, idx) => (
+                      <LegacyFlightRow key={idx} flight={flight} idx={idx} />
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
-          ))}
+          )}
         </div>
-      ) : (
+      )}
+
+      {/* Empty State */}
+      {!loading && hasSearched && flights.length === 0 && outboundFlights.length === 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
           <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
             <PaperAirplaneIcon className="h-8 w-8 text-blue-500" />
           </div>
-          <h3 className="text-lg font-medium text-gray-900">
-            {hasSearched ? 'No flights found for this route' : 'Search for Flights'}
-          </h3>
+          <h3 className="text-lg font-medium text-gray-900">No flights found for this route</h3>
           <p className="mt-2 text-gray-500 max-w-md mx-auto">
-            {hasSearched
-              ? 'Try different dates, a different origin, or another destination.'
-              : 'Enter your travel details above and click "Search Flights" to find available options.'}
+            Try different dates, a different origin, or another destination.
+          </p>
+        </div>
+      )}
+
+      {/* Initial State — no search yet */}
+      {!loading && !hasSearched && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+          <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+            <PaperAirplaneIcon className="h-8 w-8 text-blue-500" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900">Search for Flights</h3>
+          <p className="mt-2 text-gray-500 max-w-md mx-auto">
+            Enter your travel details above and click "Search Flights" to find available options with live airline data.
           </p>
         </div>
       )}

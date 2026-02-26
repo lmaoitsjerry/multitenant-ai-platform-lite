@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   GlobeAltIcon,
   MagnifyingGlassIcon,
@@ -17,8 +17,9 @@ import {
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
-import { hotelsApi, flightsApi, activitiesApi, transfersApi, travelApi } from '../../services/api';
+import { hotelsApi, flightsApi, activitiesApi, transfersApi, travelApi, hotelbedsApi } from '../../services/api';
 import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
+import { getDestinationIata } from '../../utils/destinations';
 
 // Departure airports for South African travelers
 const DEPARTURE_AIRPORTS = [
@@ -59,6 +60,11 @@ export default function HolidayPackages() {
   const [expandedHotel, setExpandedHotel] = useState(null);
   const [showAllOptions, setShowAllOptions] = useState({}); // Track which hotels show all options
   const [aggregation, setAggregation] = useState(null); // Multi-provider aggregation metadata
+
+  // Hotel filter state
+  const [starFilter, setStarFilter] = useState([]); // e.g. [3, 4, 5]
+  const [priceRange, setPriceRange] = useState([0, 999999]);
+  const [providerFilter, setProviderFilter] = useState([]); // e.g. ['juniper', 'hotelbeds']
 
   // Load destinations on mount
   useEffect(() => {
@@ -188,9 +194,15 @@ export default function HolidayPackages() {
             max_hotels: 50
           })
         ),
-        flightsApi.search(selectedDestination, checkIn, checkOut).catch(() => ({ data: { success: false, flights: [] } })),
-        activitiesApi.search(selectedDestination).catch(() => ({ data: { success: false, activities: [] } })),
-        transfersApi.search(selectedDestination).catch(() => ({ data: { success: false, transfers: [] } }))
+        flightsApi.searchRttc(selectedDeparture, getDestinationIata(selectedDestination), checkIn, checkOut, totalAdults).catch(() =>
+          flightsApi.search(selectedDestination, checkIn, checkOut).catch(() => ({ data: { success: false, flights: [] } }))
+        ),
+        hotelbedsApi.searchActivities(selectedDestination, totalAdults).catch(() =>
+          activitiesApi.search(selectedDestination).catch(() => ({ data: { success: false, activities: [] } }))
+        ),
+        hotelbedsApi.searchTransfers(`${selectedDestination} Airport to Hotel`, checkIn, totalAdults + totalChildren).catch(() =>
+          transfersApi.search(selectedDestination).catch(() => ({ data: { success: false, transfers: [] } }))
+        )
       ]);
 
       // Process hotel results
@@ -208,8 +220,9 @@ export default function HolidayPackages() {
 
       // Process flight results (graceful handling)
       let flightsOk = false;
-      if (flightResponse.data?.success && flightResponse.data?.flights?.length > 0) {
-        let flightResults = flightResponse.data.flights;
+      const rawFlights = flightResponse.data?.outbound_flights || flightResponse.data?.flights || [];
+      if (flightResponse.data?.success && rawFlights.length > 0) {
+        let flightResults = rawFlights;
 
         // Apply direct flights filter (client-side) if enabled
         if (directFlightsOnly) {
@@ -224,21 +237,45 @@ export default function HolidayPackages() {
         setFlightsAvailable(false);
       }
 
-      // Process activities results
+      // Process activities results — normalize HotelBeds format if needed
       let activitiesOk = false;
       if (activitiesResponse.data?.success && activitiesResponse.data?.activities?.length > 0) {
-        setActivities(activitiesResponse.data.activities);
-        activitiesOk = true;
+        const HOTELBEDS_IMG = 'https://photos.hotelbeds.com/giata/';
+        const rawActivities = activitiesResponse.data.activities;
+        // Normalize: HotelBeds uses price_per_person, sample uses price_adult
+        const normalized = rawActivities.map(a => {
+          let imageUrl = a.image_url || a.image || a.media?.[0]?.url || null;
+          if (imageUrl && !imageUrl.startsWith('http')) imageUrl = HOTELBEDS_IMG + imageUrl;
+          return {
+            ...a,
+            price_adult: a.price_adult || a.price_per_person || 0,
+            price_per_person: a.price_per_person || a.price_adult || 0,
+            image_url: imageUrl,
+            description: (a.description || '').replace(/<[^>]*>/g, ''),
+            source: a.source || (activitiesResponse.data.source === 'hotelbeds' ? 'hotelbeds' : 'sample'),
+          };
+        });
+        setActivities(normalized);
+        activitiesOk = normalized.length > 0;
       } else {
         setActivities([]);
       }
       setActivitiesLoading(false);
 
-      // Process transfers results
+      // Process transfers results — normalize HotelBeds format if needed
       let transfersOk = false;
       if (transfersResponse.data?.success && transfersResponse.data?.transfers?.length > 0) {
-        setTransfers(transfersResponse.data.transfers);
-        transfersOk = true;
+        const rawTransfers = transfersResponse.data.transfers;
+        const normalized = rawTransfers.map(t => ({
+          ...t,
+          name: t.name || t.vehicle_type || t.hotel_name || 'Airport Transfer',
+          type: t.type || t.vehicle_type || 'Transfer',
+          price: t.price || t.price_per_transfer || t.transfers_adult || 0,
+          description: t.description || t.route || `${t.from || 'Airport'} → ${t.to || 'Hotel'}`,
+          source: t.source || (transfersResponse.data.source === 'hotelbeds' ? 'hotelbeds' : 'bigquery'),
+        }));
+        setTransfers(normalized);
+        transfersOk = normalized.length > 0;
       } else {
         setTransfers([]);
       }
@@ -336,8 +373,42 @@ export default function HolidayPackages() {
     return roomType;
   };
 
-  // Filter out zero-price hotels
-  const displayHotels = hotels.filter(h => h.cheapest_price > 0);
+  // Filter out zero-price hotels and apply user filters
+  const displayHotels = useMemo(() => {
+    let filtered = hotels.filter(h => h.cheapest_price > 0);
+    if (starFilter.length > 0) {
+      filtered = filtered.filter(h => h.stars && starFilter.includes(h.stars));
+    }
+    if (priceRange[0] > 0 || priceRange[1] < 999999) {
+      filtered = filtered.filter(h => {
+        const price = h.display_price_zar || h.cheapest_price || 0;
+        return price >= priceRange[0] && price <= priceRange[1];
+      });
+    }
+    if (providerFilter.length > 0) {
+      filtered = filtered.filter(h => {
+        const src = (h.source || h.provider || '').toLowerCase();
+        return providerFilter.includes(src);
+      });
+    }
+    return filtered;
+  }, [hotels, starFilter, priceRange, providerFilter]);
+
+  // Compute available star ratings and providers for filter options
+  const availableStars = useMemo(() => {
+    const stars = new Set(hotels.filter(h => h.stars).map(h => h.stars));
+    return [...stars].sort();
+  }, [hotels]);
+
+  const availableProviders = useMemo(() => {
+    const providers = new Set(hotels.map(h => (h.source || h.provider || '').toLowerCase()).filter(Boolean));
+    return [...providers].sort();
+  }, [hotels]);
+
+  const maxPrice = useMemo(() => {
+    if (hotels.length === 0) return 999999;
+    return Math.max(...hotels.map(h => h.display_price_zar || h.cheapest_price || 0));
+  }, [hotels]);
 
   return (
     <div className="space-y-6">
@@ -670,6 +741,87 @@ export default function HolidayPackages() {
             )}
           </div>
 
+          <div className="flex gap-6">
+            {/* Filters Sidebar */}
+            <div className="w-56 flex-shrink-0 space-y-4">
+              {/* Star Rating Filter */}
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-theme mb-3">Star Rating</h3>
+                <div className="space-y-2">
+                  {availableStars.map(star => (
+                    <label key={star} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={starFilter.includes(star)}
+                        onChange={() => setStarFilter(prev =>
+                          prev.includes(star) ? prev.filter(s => s !== star) : [...prev, star]
+                        )}
+                        className="rounded text-theme-primary focus:ring-theme-primary"
+                      />
+                      <span className="flex items-center gap-1">
+                        {[...Array(star)].map((_, i) => (
+                          <StarIconSolid key={i} className="h-4 w-4 text-yellow-400" />
+                        ))}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {starFilter.length > 0 && (
+                  <button onClick={() => setStarFilter([])} className="text-xs text-theme-primary mt-2">Clear</button>
+                )}
+              </div>
+
+              {/* Price Range Filter */}
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-theme mb-3">Price Range</h3>
+                <div className="space-y-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={maxPrice}
+                    step={Math.max(1, Math.round(maxPrice / 100))}
+                    value={priceRange[1] >= 999999 ? maxPrice : priceRange[1]}
+                    onChange={(e) => setPriceRange([priceRange[0], parseInt(e.target.value)])}
+                    className="w-full accent-blue-600"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>R0</span>
+                    <span>{priceRange[1] >= 999999 ? 'Any' : `R${priceRange[1].toLocaleString()}`}</span>
+                  </div>
+                </div>
+                {priceRange[1] < 999999 && (
+                  <button onClick={() => setPriceRange([0, 999999])} className="text-xs text-theme-primary mt-2">Clear</button>
+                )}
+              </div>
+
+              {/* Provider Filter */}
+              {availableProviders.length > 1 && (
+                <div className="card p-4">
+                  <h3 className="text-sm font-semibold text-theme mb-3">Provider</h3>
+                  <div className="space-y-2">
+                    {availableProviders.map(provider => (
+                      <label key={provider} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={providerFilter.includes(provider)}
+                          onChange={() => setProviderFilter(prev =>
+                            prev.includes(provider) ? prev.filter(p => p !== provider) : [...prev, provider]
+                          )}
+                          className="rounded text-theme-primary focus:ring-theme-primary"
+                        />
+                        <span className="text-sm capitalize">{provider}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {providerFilter.length > 0 && (
+                    <button onClick={() => setProviderFilter([])} className="text-xs text-theme-primary mt-2">Clear</button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Hotel Results */}
+            <div className="flex-1">
           <div className="grid gap-4">
             {displayHotels.map((hotel) => (
               <div
@@ -721,8 +873,15 @@ export default function HolidayPackages() {
                       </div>
                       <div className="text-right">
                         <div className="text-2xl font-bold text-theme-primary">
-                          {formatCurrency(hotel.cheapest_price, hotel.options?.[0]?.currency || 'ZAR')}
+                          {hotel.display_price_zar
+                            ? formatCurrency(hotel.display_price_zar, 'ZAR')
+                            : formatCurrency(hotel.cheapest_price, hotel.options?.[0]?.currency || 'ZAR')}
                         </div>
+                        {hotel.display_price_zar && hotel.original_currency && (
+                          <div className="text-xs text-gray-400">
+                            {formatCurrency(hotel.cheapest_price, hotel.original_currency)}
+                          </div>
+                        )}
                         <div className="text-sm text-gray-500">
                           hotel only • {hotel.cheapest_meal_plan}
                         </div>
@@ -812,10 +971,14 @@ export default function HolidayPackages() {
                           <div className="flex items-center gap-3 ml-4">
                             <div className="text-right">
                               <span className="font-semibold text-gray-900">
-                                {formatCurrency(option.price_total, option.currency)}
+                                {option.price_total_zar
+                                  ? formatCurrency(option.price_total_zar, 'ZAR')
+                                  : formatCurrency(option.price_total, option.currency)}
                               </span>
                               <div className="text-sm text-gray-500">
-                                {formatCurrency(option.price_per_night, option.currency)}/night
+                                {option.price_per_night_zar
+                                  ? `${formatCurrency(option.price_per_night_zar, 'ZAR')}/night`
+                                  : `${formatCurrency(option.price_per_night, option.currency)}/night`}
                               </div>
                             </div>
                             <AddToQuoteButton
@@ -862,6 +1025,8 @@ export default function HolidayPackages() {
               </div>
             ))}
           </div>
+            </div>{/* end flex-1 hotel results */}
+          </div>{/* end flex gap-6 sidebar layout */}
         </div>
       )}
 
@@ -883,31 +1048,81 @@ export default function HolidayPackages() {
         flights.length > 0 ? (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-theme">{flights.length} Flights Found</h2>
-            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Airline</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Departure</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Return</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price/Person</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {flights.map((flight, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{flight.airline || 'Various'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{flight.departure_date ? new Date(flight.departure_date).toLocaleDateString() : '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{flight.return_date ? new Date(flight.return_date).toLocaleDateString() : '-'}</td>
-                      <td className="px-6 py-4 text-sm text-right font-semibold text-blue-600">{formatCurrency(flight.price_per_person, flight.currency)}</td>
-                      <td className="px-6 py-4 text-right">
-                        <AddToQuoteButton item={{ id: `flight-${idx}`, type: 'flight', name: `${flight.airline || 'Flight'} to ${selectedDestination}`, price: flight.price_per_person, currency: flight.currency || 'ZAR', details: { airline: flight.airline, destination: selectedDestination, departure_date: flight.departure_date, return_date: flight.return_date } }} size="sm" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {flights.map((flight, idx) => {
+                const airlineName = flight.airline_name || flight.airline || 'Airline';
+                const flightNumber = flight.flight_number || '';
+                const departTime = flight.departure_time;
+                const arriveTime = flight.arrival_time;
+                const duration = flight.duration;
+                const stops = flight.stops ?? (flight.is_direct === false ? 1 : 0);
+                const price = flight.price_adult || flight.price_per_person || 0;
+                const logo = flight.airline_logo;
+
+                return (
+                  <div key={idx} className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      {/* Airline */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center">
+                          {logo ? (
+                            <img src={logo} alt={airlineName} className="w-8 h-8 object-contain rounded" onError={(e) => { e.target.style.display = 'none'; }} />
+                          ) : (
+                            <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+                              <PaperAirplaneIcon className="h-4 w-4 text-blue-600" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-gray-900 text-sm truncate">{airlineName}</div>
+                          {flightNumber && <div className="text-xs text-gray-500">{flightNumber}</div>}
+                        </div>
+                      </div>
+
+                      {/* Times */}
+                      {departTime && arriveTime ? (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-bold text-gray-900">{departTime.substring(0, 5)}</span>
+                          <div className="flex flex-col items-center px-1">
+                            {duration && <span className="text-xs text-gray-500">{duration}</span>}
+                            <div className="w-16 h-px bg-gray-300 relative">
+                              <PaperAirplaneIcon className="h-2.5 w-2.5 text-gray-400 absolute -top-1 right-0" />
+                            </div>
+                            <span className="text-xs">
+                              {stops === 0 ? <span className="text-green-600">Direct</span> : <span className="text-orange-600">{stops} stop{stops > 1 ? 's' : ''}</span>}
+                            </span>
+                          </div>
+                          <span className="font-bold text-gray-900">{arriveTime.substring(0, 5)}</span>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500">
+                          {flight.departure_date ? new Date(flight.departure_date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Times TBC'}
+                        </div>
+                      )}
+
+                      {/* Cabin badge */}
+                      {flight.cabin_class && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 capitalize">
+                          {flight.cabin_class.replace('_', ' ')}
+                        </span>
+                      )}
+
+                      {/* Price + Action */}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="font-bold text-blue-600">
+                            {price > 0 ? formatCurrency(price, flight.currency) : 'Price on request'}
+                          </div>
+                          {price > 0 && <div className="text-xs text-gray-500">per adult</div>}
+                        </div>
+                        {price > 0 && (
+                          <AddToQuoteButton item={{ id: `flight-${idx}`, type: 'flight', name: `${airlineName}${flightNumber ? ' ' + flightNumber : ''} ${selectedDeparture}-${selectedDestination}`, price, currency: flight.currency || 'ZAR', details: { airline: airlineName, flight_number: flightNumber, departure_time: departTime, arrival_time: arriveTime, destination: selectedDestination, departure_date: checkIn, return_date: checkOut } }} size="sm" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -922,15 +1137,31 @@ export default function HolidayPackages() {
       {activeTab === 'activities' && hasSearched && !searching && (
         activities.length > 0 ? (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-theme">{activities.length} Activities Found</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-theme">{activities.length} Activities Found</h2>
+              {activities[0]?.source === 'hotelbeds' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  <CheckCircleIcon className="h-3.5 w-3.5" /> Live Data
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {activities.map((activity) => (
                 <div key={activity.activity_id} className="card overflow-hidden hover:shadow-md transition-shadow">
-                  {activity.image_url && (
-                    <img src={activity.image_url} alt={activity.name} className="w-full h-40 object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                  {activity.image_url ? (
+                    <img src={activity.image_url} alt={activity.name} className="w-full h-40 object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.querySelector('.placeholder-icon')?.classList.remove('hidden'); }} />
+                  ) : (
+                    <div className="w-full h-40 bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
+                      <SparklesIcon className="h-10 w-10 text-blue-300" />
+                    </div>
                   )}
                   <div className="p-4">
-                    <h3 className="font-semibold text-gray-900">{activity.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-900">{activity.name}</h3>
+                      {activity.category && (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">{activity.category}</span>
+                      )}
+                    </div>
                     {activity.description && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{activity.description}</p>}
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                       <span className="font-semibold text-theme-primary">
