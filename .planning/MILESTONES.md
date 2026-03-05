@@ -2,6 +2,36 @@
 
 Historical record of completed milestones for the Multi-Tenant AI Travel Platform.
 
+## v5.0: Production Readiness Audit (2026-01-23)
+
+**Goal:** Comprehensive audit and optimization to prepare for production deployment.
+
+**Delivered:**
+- PROD-01 to PROD-07: Critical fixes (thread-safe DI caching, timing-safe token, N+1 queries, FAISS locking, DB indexes)
+- PROD-04/08/09/10/13/15/17/18: Error handling & resilience (circuit breaker, retries, timeouts, graceful degradation)
+- PROD-11/12/14/16/19/20/24: Code quality (async/sync fixes, type hints, Redis caching, response models, CORS)
+
+**Key accomplishments:**
+1. Thread-safe caching with `@lru_cache` and double-check locking
+2. Security hardening with `hmac.compare_digest()` for timing-safe comparison
+3. N+1 elimination with batch queries (`.in_()`)
+4. OpenAI circuit breaker (5 failures → 60s recovery) with retry
+5. All bare `except:` replaced, Supabase 10s timeouts
+6. Standardized response models, Redis caching, CORS from env vars
+
+**Metrics:**
+- Requirements: 21/24 completed (3 deferred to v6)
+- Phases: 16-18 (3 phases, 9 plans)
+- LOC: 29,200 Python
+
+**Deferred to v6:**
+- PROD-21: Table name constants (current scale OK)
+- PROD-23: MMR O(n²) optimization (current index size OK)
+
+**Audit:** .planning/milestones/v5.0-MILESTONE-AUDIT.md
+
+---
+
 ## v4.0: Test Coverage Push (2026-01-21 to 2026-01-22)
 
 **Goal:** Achieve comprehensive test coverage with external API mocking.

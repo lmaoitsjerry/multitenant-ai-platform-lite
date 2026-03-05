@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { quotesApi, pricingApi } from '../../services/api';
 import {
   UserIcon,
@@ -16,32 +16,83 @@ import {
   BuildingOfficeIcon,
   XMarkIcon,
   StarIcon,
+  MinusIcon,
+  PlusIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid, CheckIcon } from '@heroicons/react/24/solid';
 
 export default function GenerateQuote() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [destinations, setDestinations] = useState([]);
   const [hotels, setHotels] = useState([]);
+  const [loadingDestinations, setLoadingDestinations] = useState(true);
   const [loadingHotels, setLoadingHotels] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(null);
   const [error, setError] = useState(null);
 
+  // Check for prefilled data from Enquiry Triage
+  const prefill = location.state?.prefill || {};
+
+  // Parse dates from triage (e.g. "2026-07-15 → 2026-07-22" or "15 Jul 2026")
+  const parsePrefillDates = () => {
+    if (!prefill.dates) return { check_in: '', check_out: '' };
+    // Only split on arrow or the word "to" with surrounding spaces, NOT bare hyphens
+    const parts = prefill.dates.split(/\s*(?:→|(?:\s+to\s+))\s*/);
+    const tryParseDate = (str) => {
+      if (!str) return '';
+      // Already ISO format (YYYY-MM-DD)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str.trim())) return str.trim();
+      const d = new Date(str.trim());
+      if (isNaN(d.getTime())) return '';
+      // If parsed date is in the past, assume next occurrence
+      const now = new Date();
+      while (d < now) d.setFullYear(d.getFullYear() + 1);
+      return d.toISOString().split('T')[0];
+    };
+    return { check_in: tryParseDate(parts[0]), check_out: tryParseDate(parts[1]) };
+  };
+
+  // Parse travelers from triage (e.g. "2 adults, 1 children")
+  const parsePrefillTravelers = () => {
+    if (!prefill.travelers) return { adults: 2, children: 0 };
+    const adultMatch = prefill.travelers.match(/(\d+)\s*adult/i);
+    const childMatch = prefill.travelers.match(/(\d+)\s*child/i);
+    return {
+      adults: adultMatch ? parseInt(adultMatch[1]) : 2,
+      children: childMatch ? parseInt(childMatch[1]) : 0,
+    };
+  };
+
+  // Parse budget from triage (e.g. "R 80,000" or "80000")
+  const parsePrefillBudget = () => {
+    if (!prefill.budget) return '';
+    const num = String(prefill.budget).replace(/[^0-9.]/g, '');
+    return num || '';
+  };
+
+  // Prefer direct check_in/check_out from prefill (Issue 1 fix), fall back to date string parsing
+  const prefillDates = prefill.check_in
+    ? { check_in: prefill.check_in, check_out: prefill.check_out || '' }
+    : parsePrefillDates();
+  const prefillTravelers = parsePrefillTravelers();
+
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    destination: '',
-    check_in: '',
-    check_out: '',
-    adults: 2,
-    children: 0,
+    name: prefill.customerName || '',
+    email: prefill.customerEmail || '',
+    phone: prefill.phone || '',
+    destination: prefill.destination || '',
+    check_in: prefillDates.check_in,
+    check_out: prefillDates.check_out,
+    adults: prefillTravelers.adults,
+    children: prefillTravelers.children,
     children_ages: '',
-    budget: '',
-    message: '',
+    budget: parsePrefillBudget(),
+    message: prefill.notes || '',
     send_email: true,
-    selected_hotels: [], // Array of hotel names
+    selected_hotels: [],
+    ticketId: prefill.ticketId || null,
   });
 
   useEffect(() => {
@@ -84,6 +135,7 @@ export default function GenerateQuote() {
   };
 
   const loadDestinations = async () => {
+    setLoadingDestinations(true);
     try {
       const response = await pricingApi.listDestinations();
       const dests = response.data?.data || response.data || [];
@@ -102,6 +154,8 @@ export default function GenerateQuote() {
         { destination: 'Kenya' },
         { destination: 'Victoria Falls' },
       ]);
+    } finally {
+      setLoadingDestinations(false);
     }
   };
 
@@ -111,6 +165,16 @@ export default function GenerateQuote() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+  };
+
+  const updateCount = (field, delta) => {
+    setFormData(prev => {
+      const min = field === 'adults' ? 1 : 0;
+      const max = field === 'adults' ? 20 : 10;
+      const current = parseInt(prev[field]) || 0;
+      const next = Math.max(min, Math.min(max, current + delta));
+      return { ...prev, [field]: next };
+    });
   };
 
   const validateForm = () => {
@@ -168,6 +232,8 @@ export default function GenerateQuote() {
         assign_consultant: true,
         // Include selected hotels if any (otherwise backend will auto-select)
         selected_hotels: formData.selected_hotels.length > 0 ? formData.selected_hotels : null,
+        // Link to enquiry ticket if from triage
+        ticket_id: formData.ticketId || null,
       };
 
       console.log('Sending quote request:', payload);
@@ -262,7 +328,7 @@ export default function GenerateQuote() {
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <button
-          onClick={() => navigate('/quotes')}
+          onClick={() => navigate(formData.ticketId ? '/crm/triage' : '/quotes')}
           className="p-2 hover:bg-theme-border-light rounded-lg transition-colors"
         >
           <ArrowLeftIcon className="w-5 h-5 text-theme-muted" />
@@ -270,6 +336,34 @@ export default function GenerateQuote() {
         <div>
           <h1 className="text-2xl font-bold text-theme">Generate Quote</h1>
           <p className="text-theme-muted">Create a personalized travel quote</p>
+        </div>
+      </div>
+
+      {/* Enquiry Context Banner */}
+      {formData.ticketId && (
+        <div className="bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/30 rounded-lg p-4 mb-6 flex items-start gap-3">
+          <EnvelopeIcon className="w-5 h-5 text-theme-primary flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-theme-primary">From Enquiry Triage</p>
+            <p className="text-theme-secondary text-sm">
+              Creating quote for customer enquiry. Customer details have been pre-filled.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-Service Tip */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-start gap-3">
+        <BuildingOfficeIcon className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-medium text-blue-700">Need flights, activities, or transfers?</p>
+          <p className="text-blue-600 text-sm">
+            Use the <button type="button" onClick={() => navigate('/travel/hotels')} className="underline font-medium hover:text-blue-800">Hotels</button>,{' '}
+            <button type="button" onClick={() => navigate('/travel/flights')} className="underline font-medium hover:text-blue-800">Flights</button>,{' '}
+            <button type="button" onClick={() => navigate('/travel/activities')} className="underline font-medium hover:text-blue-800">Activities</button>, or{' '}
+            <button type="button" onClick={() => navigate('/travel/transfers')} className="underline font-medium hover:text-blue-800">Transfers</button>{' '}
+            pages to add multiple services to the Quote Cart, then generate a combined quote.
+          </p>
         </div>
       </div>
 
@@ -349,20 +443,27 @@ export default function GenerateQuote() {
                 <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Destination <span className="text-[var(--color-error)]">*</span>
                 </label>
-                <select
-                  name="destination"
-                  value={formData.destination}
-                  onChange={handleChange}
-                  className="input"
-                  required
-                >
-                  <option value="">Select destination</option>
-                  {destinations.map((dest, idx) => (
-                    <option key={idx} value={dest.destination || dest}>
-                      {dest.destination || dest}
-                    </option>
-                  ))}
-                </select>
+                {loadingDestinations ? (
+                  <div className="flex items-center gap-2 text-theme-muted py-2">
+                    <div className="w-4 h-4 border-2 border-theme-primary border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm">Loading destinations...</span>
+                  </div>
+                ) : (
+                  <select
+                    name="destination"
+                    value={formData.destination}
+                    onChange={handleChange}
+                    className="input"
+                    required
+                  >
+                    <option value="">Select destination</option>
+                    {destinations.map((dest, idx) => (
+                      <option key={idx} value={dest.destination || dest}>
+                        {dest.destination || dest}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Hotel Selection - Optional */}
@@ -517,30 +618,49 @@ export default function GenerateQuote() {
                 <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Adults <span className="text-[var(--color-error)]">*</span>
                 </label>
-                <input
-                  type="number"
-                  name="adults"
-                  value={formData.adults}
-                  onChange={handleChange}
-                  className="input"
-                  min="1"
-                  max="20"
-                  required
-                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => updateCount('adults', -1)}
+                    disabled={formData.adults <= 1}
+                    className="p-1.5 rounded-full border border-theme hover:bg-theme-border-light disabled:opacity-50 transition-colors"
+                  >
+                    <MinusIcon className="h-4 w-4" />
+                  </button>
+                  <span className="w-8 text-center font-medium text-theme text-lg">{formData.adults}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateCount('adults', 1)}
+                    disabled={formData.adults >= 20}
+                    className="p-1.5 rounded-full border border-theme hover:bg-theme-border-light disabled:opacity-50 transition-colors"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-theme-secondary mb-1">
                   Children
                 </label>
-                <input
-                  type="number"
-                  name="children"
-                  value={formData.children}
-                  onChange={handleChange}
-                  className="input"
-                  min="0"
-                  max="10"
-                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => updateCount('children', -1)}
+                    disabled={formData.children <= 0}
+                    className="p-1.5 rounded-full border border-theme hover:bg-theme-border-light disabled:opacity-50 transition-colors"
+                  >
+                    <MinusIcon className="h-4 w-4" />
+                  </button>
+                  <span className="w-8 text-center font-medium text-theme text-lg">{formData.children}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateCount('children', 1)}
+                    disabled={formData.children >= 10}
+                    className="p-1.5 rounded-full border border-theme hover:bg-theme-border-light disabled:opacity-50 transition-colors"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               {formData.children > 0 && (
                 <div className="md:col-span-2">

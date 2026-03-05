@@ -301,7 +301,7 @@ class TestAPIRoutesFilterByTenantId:
         1. X-Client-ID header is read
         2. Tenant ID is used in database queries
         """
-        from src.api.routes import get_client_config
+        from src.api.dependencies import get_client_config
 
         # Test that get_client_config extracts tenant from header
         # It should use the X-Client-ID header value as the tenant_id

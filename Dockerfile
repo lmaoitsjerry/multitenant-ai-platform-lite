@@ -7,12 +7,15 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies for WeasyPrint and health checks (as root)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libgdk-pixbuf-2.0-0 \
     libffi-dev \
     shared-mime-info \
+    libcairo2 \
+    libpangocairo-1.0-0 \
+    fonts-liberation \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,9 +23,12 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd --gid 1000 appgroup && \
     useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
 
-# Copy requirements first for better caching (install as root)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy production requirements and install (excludes dev tools & heavy ML packages)
+COPY requirements-deploy.txt .
+RUN pip install --no-cache-dir --no-compile -r requirements-deploy.txt && \
+    find /usr/local/lib/python3.11 -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
+    find /usr/local/lib/python3.11 -name "*.pyc" -delete 2>/dev/null; \
+    rm -rf /tmp/* /root/.cache
 
 # Copy application code with proper ownership
 COPY --chown=appuser:appgroup . .

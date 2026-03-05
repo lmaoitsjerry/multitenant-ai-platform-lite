@@ -96,209 +96,33 @@ class TravelPlatformRatesClient:
         check_in: date,
         check_out: date,
         adults: int = 2,
-        children_ages: Optional[List[int]] = None,
+        children: int = 0,
         max_hotels: int = 50
     ) -> Dict[str, Any]:
         """
-        Full hotel availability search using live Juniper data.
+        Multi-provider aggregated hotel search.
+
+        Delegates to the aggregated endpoint which searches Juniper, HotelBeds,
+        Hummingbird, and RTTC in parallel with GPS-based deduplication.
 
         Args:
             destination: Destination name (e.g., "zanzibar", "mauritius")
             check_in: Check-in date
             check_out: Check-out date
             adults: Number of adults (default: 2)
-            children_ages: List of children ages (default: empty)
-            max_hotels: Maximum hotels to return (default: 50, recommended for performance)
+            children: Number of children (default: 0)
+            max_hotels: Maximum hotels to return (default: 50)
 
         Returns:
-            Dict with:
-                - success: bool
-                - destination: str
-                - check_in: str
-                - check_out: str
-                - nights: int
-                - total_hotels: int
-                - hotels: List of hotel options with pricing
-                - search_time_seconds: float
-                - error: str (if failed)
+            Dict with merged hotel profiles including all_rates[], best_rate, sources, etc.
         """
-        if not rates_circuit.can_execute():
-            logger.warning("Rates Engine circuit breaker OPEN — skipping search")
-            return self._error_response("Circuit breaker open")
-
-        url = f"{self.base_url}/api/v1/availability/search"
-
-        payload = {
-            "destination": destination.lower(),
-            "check_in": check_in.isoformat(),
-            "check_out": check_out.isoformat(),
-            "rooms": [{"adults": adults, "children_ages": children_ages or []}],
-            "max_hotels": max_hotels
-        }
-
-        try:
-            data = await self._post_with_retry(url, payload)
-
-            hotel_count = data.get("total_hotels", len(data.get("hotels", [])))
-            search_time = data.get("search_time_seconds", 0)
-
-            rates_circuit.record_success()
-
-            # Log search results with more detail for debugging
-            supplier = data.get("supplier", "unknown")
-            logger.info(
-                f"Rates Engine search complete: destination={destination}, "
-                f"hotels={hotel_count}, supplier={supplier}, "
-                f"max_requested={max_hotels}, time={search_time:.1f}s"
-            )
-
-            # Warn if significantly fewer results than requested
-            if hotel_count < max_hotels // 2 and hotel_count > 0:
-                logger.warning(
-                    f"Low hotel count: got {hotel_count} hotels for {destination}, "
-                    f"requested max {max_hotels}. This may indicate limited supplier availability."
-                )
-
-            # Filter out hotels with zero or missing pricing
-            # Raw upstream data may use total_price or cheapest_price
-            hotels_list = [
-                h for h in data.get("hotels", [])
-                if (h.get("cheapest_price") or h.get("total_price") or 0) > 0
-            ]
-
-            # Unescape HTML entities in hotel names (Juniper returns &eacute; etc.)
-            for h in hotels_list:
-                if h.get("hotel_name"):
-                    h["hotel_name"] = html.unescape(h["hotel_name"])
-                elif h.get("name"):
-                    h["name"] = html.unescape(h["name"])
-
-            # Filter out Juniper placeholder hotels (e.g. "Hotel JP03268C")
-            hotels_list = [h for h in hotels_list if _is_quality_hotel(h)]
-
-            return {
-                "success": True,
-                "destination": data.get("destination", destination),
-                "check_in": data.get("check_in", check_in.isoformat()),
-                "check_out": data.get("check_out", check_out.isoformat()),
-                "nights": data.get("nights", (check_out - check_in).days),
-                "total_hotels": len(hotels_list),
-                "hotels": hotels_list,
-                "search_time_seconds": search_time
-            }
-
-        except httpx.TimeoutException:
-            self._last_error = f"Request timed out after {self.timeout}s"
-            logger.error(f"Rates Engine timeout: {self._last_error}")
-            rates_circuit.record_failure()
-            return self._error_response(self._last_error)
-
-        except httpx.ConnectError as e:
-            self._last_error = f"Connection failed: {e}"
-            logger.error(f"Rates Engine connection error: {self._last_error}")
-            rates_circuit.record_failure()
-            return self._error_response(self._last_error)
-
-        except httpx.HTTPStatusError as e:
-            self._last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
-            logger.error(f"Rates Engine HTTP error: {self._last_error}")
-
-            # If Juniper fails with IP whitelist error, fall back to HotelBeds
-            if e.response.status_code == 500 and "whitelisted IP" in e.response.text:
-                logger.info("Juniper requires whitelisted IP, falling back to HotelBeds")
-                return await self._search_hotels_hotelbeds(
-                    destination, check_in, check_out, adults, children_ages, max_hotels
-                )
-
-            rates_circuit.record_failure()
-            return self._error_response(self._last_error)
-
-        except Exception as e:
-            self._last_error = str(e)
-            logger.error(f"Rates Engine error: {self._last_error}")
-            rates_circuit.record_failure()
-            return self._error_response(self._last_error)
-
-    async def _search_hotels_hotelbeds(
-        self,
-        destination: str,
-        check_in: date,
-        check_out: date,
-        adults: int = 2,
-        children_ages: Optional[List[int]] = None,
-        max_hotels: int = 50
-    ) -> Dict[str, Any]:
-        """
-        Fallback search using HotelBeds API directly.
-        Used when Juniper is unavailable (e.g., IP not whitelisted).
-        """
-        url = f"{self.base_url}/api/v1/hotelbeds/hotels/search"
-
-        params = {
-            "destination": destination.lower(),
-            "check_in": check_in.isoformat(),
-            "check_out": check_out.isoformat(),
-            "adults": adults,
-        }
-
-        if children_ages:
-            params["children_ages"] = ",".join(str(age) for age in children_ages)
-
-        try:
-            async with httpx.AsyncClient() as client:
-                logger.info(
-                    f"HotelBeds fallback search: destination={destination}, "
-                    f"dates={check_in} to {check_out}"
-                )
-
-                r = await client.get(url, params=params, timeout=self.timeout)
-                r.raise_for_status()
-                data = r.json()
-
-                # Transform HotelBeds response to match expected format
-                hotels = data.get("hotels", [])
-                nights = (check_out - check_in).days
-
-                # Normalize hotel data to match Juniper format
-                normalized_hotels = []
-                for hotel in hotels[:max_hotels]:
-                    normalized_hotels.append({
-                        "hotel_id": hotel.get("hotel_id"),
-                        "hotel_name": html.unescape(hotel.get("name", "")),
-                        "destination": destination,
-                        "stars": int(hotel.get("star_rating", "4").replace("*", "") or 4),
-                        "image_url": hotel.get("image_url"),
-                        "cheapest_price": hotel.get("total_price") or None,
-                        "cheapest_meal_plan": hotel.get("meal_plan", "Bed & Breakfast"),
-                        "currency": hotel.get("currency", "EUR"),
-                        "options": [{
-                            "room_type": hotel.get("room_type", "Standard Room"),
-                            "meal_plan": hotel.get("meal_plan", "Bed & Breakfast"),
-                            "price_total": hotel.get("total_price", 0),
-                            "price_per_night": hotel.get("rate_per_night", 0),
-                            "currency": hotel.get("currency", "EUR")
-                        }],
-                        "source": "hotelbeds"
-                    })
-
-                logger.info(f"HotelBeds search complete: {len(normalized_hotels)} hotels found")
-
-                return {
-                    "success": True,
-                    "destination": destination,
-                    "check_in": check_in.isoformat(),
-                    "check_out": check_out.isoformat(),
-                    "nights": nights,
-                    "total_hotels": len(normalized_hotels),
-                    "hotels": normalized_hotels,
-                    "search_time_seconds": 0,
-                    "source": "hotelbeds"
-                }
-
-        except Exception as e:
-            self._last_error = f"HotelBeds fallback failed: {e}"
-            logger.error(self._last_error)
-            return self._error_response(self._last_error)
+        return await self.search_hotels_aggregated(
+            destination=destination,
+            check_in=check_in,
+            check_out=check_out,
+            adults=adults,
+            children=children,
+        )
 
     async def search_flights_rttc(
         self,
@@ -551,10 +375,10 @@ class TravelPlatformRatesClient:
         children: int = 0,
     ) -> Dict[str, Any]:
         """
-        Multi-provider aggregated hotel search.
+        Multi-provider aggregated hotel search with merged profiles.
 
         Returns hotels from multiple providers (HotelBeds, Juniper, Hummingbird, RTTC)
-        with normalized data format.
+        as merged profiles with all_rates[], best_rate, sources, merge_method, etc.
         """
         if not rates_circuit.can_execute():
             logger.warning("Rates Engine circuit breaker OPEN — skipping aggregated search")
@@ -580,37 +404,87 @@ class TravelPlatformRatesClient:
                 data = r.json()
                 rates_circuit.record_success()
 
-                # Normalize to match existing hotel format
+                # Pass through merged profiles from upstream
                 hotels = []
                 for h in data.get("hotels", []):
                     # Parse star_rating (may be string like "5" or "4*")
                     raw_stars = h.get("star_rating")
                     try:
-                        stars = int(str(raw_stars).replace("*", "")) if raw_stars else None
+                        star_rating = int(str(raw_stars).replace("*", "")) if raw_stars else None
                     except (ValueError, TypeError):
-                        stars = None
+                        star_rating = None
 
-                    hotels.append({
-                        "hotel_id": h.get("hotel_id"),
-                        "hotel_name": html.unescape(h.get("name", "")),
-                        "stars": stars,
-                        "destination": h.get("destination"),
-                        "zone": h.get("zone_name"),
-                        "image_url": h.get("image_url"),
-                        "latitude": float(h["latitude"]) if h.get("latitude") else None,
-                        "longitude": float(h["longitude"]) if h.get("longitude") else None,
-                        "cheapest_price": h.get("total_price"),
-                        "cheapest_meal_plan": h.get("meal_plan"),
-                        "source": h.get("source"),
-                        "options": [{
+                    # Unescape hotel name
+                    name = h.get("name") or h.get("hotel_name") or ""
+                    hotel_name = html.unescape(name)
+
+                    # Pass through merged profile fields
+                    best_rate = h.get("best_rate") or {}
+                    all_rates = h.get("all_rates") or []
+                    sources = h.get("sources") or ([h.get("source")] if h.get("source") else [])
+
+                    # Determine cheapest price from best_rate or fallback
+                    cheapest_price = (
+                        best_rate.get("rate_per_night_zar")
+                        or best_rate.get("rate_per_night")
+                        or h.get("total_price")
+                        or h.get("cheapest_price")
+                        or 0
+                    )
+
+                    # Build backward-compatible options[] from all_rates[]
+                    options = []
+                    for rate in all_rates:
+                        options.append({
+                            "room_type": rate.get("room_type", "Standard Room"),
+                            "meal_plan": rate.get("meal_plan", ""),
+                            "price_total": rate.get("total_price") or rate.get("rate_per_night", 0),
+                            "price_per_night": rate.get("rate_per_night", 0),
+                            "price_per_night_zar": rate.get("rate_per_night_zar"),
+                            "currency": rate.get("currency", "EUR"),
+                            "source": rate.get("source"),
+                            "provider": rate.get("source"),
+                        })
+
+                    # If no all_rates, build a single option from flat fields
+                    if not options:
+                        options.append({
                             "room_type": h.get("room_type", "Standard Room"),
                             "meal_plan": h.get("meal_plan", ""),
                             "price_total": h.get("total_price", 0),
                             "price_per_night": h.get("rate_per_night", 0),
+                            "price_per_night_zar": h.get("rate_per_night_zar"),
                             "currency": h.get("currency", "EUR"),
+                            "source": h.get("source"),
                             "provider": h.get("source"),
-                        }],
-                    })
+                        })
+
+                    hotel = {
+                        "hotel_id": h.get("hotel_id"),
+                        "hotel_name": hotel_name,
+                        "star_rating": star_rating,
+                        "stars": star_rating,  # backward compat
+                        "destination": h.get("destination"),
+                        "zone": h.get("zone_name"),
+                        "image_url": (h.get("image_url") or "").replace("http://photos.hotelbeds.com", "https://photos.hotelbeds.com") or None,
+                        "latitude": float(h["latitude"]) if h.get("latitude") else None,
+                        "longitude": float(h["longitude"]) if h.get("longitude") else None,
+                        "cheapest_price": cheapest_price,
+                        "cheapest_meal_plan": best_rate.get("meal_plan") or h.get("meal_plan"),
+                        "best_rate": best_rate,
+                        "all_rates": all_rates,
+                        "sources": sources,
+                        "source": sources[0] if sources else h.get("source"),
+                        "merge_method": h.get("merge_method"),
+                        "provider_codes": h.get("provider_codes"),
+                        "options": options,
+                        # Content enrichment fields (pass through from upstream when available)
+                        "description": h.get("description"),
+                        "amenities": h.get("amenities") or h.get("facilities"),
+                        "address": h.get("address"),
+                        "images": [img.replace("http://", "https://") if isinstance(img, str) else img for img in (h.get("images") or [])],
+                    }
+                    hotels.append(hotel)
 
                 # Filter out hotels with zero or missing pricing
                 hotels = [h for h in hotels if h.get("cheapest_price") and h["cheapest_price"] > 0]
@@ -628,10 +502,14 @@ class TravelPlatformRatesClient:
                     "destination": data.get("destination", destination),
                     "check_in": data.get("check_in", check_in.isoformat()),
                     "check_out": data.get("check_out", check_out.isoformat()),
-                    "nights": data.get("nights"),
+                    "nights": data.get("nights") or (check_out - check_in).days,
                     "total_hotels": len(hotels),
                     "hotels": hotels,
                     "aggregation": data.get("aggregation"),
+                    "response_format": data.get("response_format", "merged_profiles"),
+                    "merge_stats": data.get("merge_stats"),
+                    "provider_status": data.get("provider_status"),
+                    "search_time_seconds": data.get("search_time_seconds", 0),
                 }
 
         except httpx.TimeoutException:
@@ -651,6 +529,251 @@ class TravelPlatformRatesClient:
             logger.error(f"Aggregated search error: {self._last_error}")
             rates_circuit.record_failure()
             return self._error_response(self._last_error)
+
+    async def search_transfers(
+        self,
+        from_code: str,
+        to_code: str,
+        transfer_date: str,
+        passengers: int = 2,
+        from_type: str = "IATA",
+        to_type: str = "IATA",
+    ) -> Dict[str, Any]:
+        """
+        Search transfers via unified Cloud Run endpoint.
+
+        Args:
+            from_code: Origin code (IATA or location)
+            to_code: Destination code (IATA or location)
+            transfer_date: Transfer date (YYYY-MM-DD)
+            passengers: Number of passengers
+            from_type: Origin code type ("IATA", "ATLAS", etc.)
+            to_type: Destination code type ("IATA", "ATLAS", etc.)
+        """
+        if not rates_circuit.can_execute():
+            return {"success": False, "transfers": [], "error": "Circuit breaker open"}
+
+        url = f"{self.base_url}/api/v1/travel-services/transfers/search"
+        params = {
+            "from_code": from_code,
+            "to_code": to_code,
+            "date": transfer_date,
+            "passengers": passengers,
+            "from_type": from_type,
+            "to_type": to_type,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Transfer search: {from_code}->{to_code}, date={transfer_date}")
+                r = await client.get(url, params=params, timeout=60.0)
+                r.raise_for_status()
+                data = r.json()
+                rates_circuit.record_success()
+
+                transfers = data.get("transfers", [])
+                logger.info(f"Transfer search complete: {len(transfers)} results")
+                return {
+                    "success": True,
+                    "transfers": transfers,
+                    "total_transfers": len(transfers),
+                    **{k: v for k, v in data.items() if k not in ("transfers",)},
+                }
+        except httpx.TimeoutException:
+            self._last_error = "Transfer search timed out after 60s"
+            logger.error(self._last_error)
+            rates_circuit.record_failure()
+            return {"success": False, "transfers": [], "error": self._last_error}
+        except Exception as e:
+            self._last_error = str(e)
+            logger.error(f"Transfer search error: {self._last_error}")
+            rates_circuit.record_failure()
+            return {"success": False, "transfers": [], "error": self._last_error}
+
+    async def search_activities(
+        self,
+        destination: str,
+        participants: int = 2,
+        activity_date: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Search activities via unified Cloud Run endpoint.
+
+        Args:
+            destination: Destination name
+            participants: Number of participants
+            activity_date: Optional activity date (YYYY-MM-DD)
+        """
+        if not rates_circuit.can_execute():
+            return {"success": False, "activities": [], "error": "Circuit breaker open"}
+
+        url = f"{self.base_url}/api/v1/travel-services/activities/search"
+        params = {
+            "destination": destination.lower(),
+            "participants": participants,
+        }
+        if activity_date:
+            params["activity_date"] = activity_date
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Activity search: destination={destination}, participants={participants}")
+                r = await client.get(url, params=params, timeout=60.0)
+                r.raise_for_status()
+                data = r.json()
+                rates_circuit.record_success()
+
+                activities = data.get("activities", [])
+                logger.info(f"Activity search complete: {len(activities)} results")
+                return {
+                    "success": True,
+                    "activities": activities,
+                    "total_activities": len(activities),
+                    **{k: v for k, v in data.items() if k not in ("activities",)},
+                }
+        except httpx.TimeoutException:
+            self._last_error = "Activity search timed out after 60s"
+            logger.error(self._last_error)
+            rates_circuit.record_failure()
+            return {"success": False, "activities": [], "error": self._last_error}
+        except Exception as e:
+            self._last_error = str(e)
+            logger.error(f"Activity search error: {self._last_error}")
+            rates_circuit.record_failure()
+            return {"success": False, "activities": [], "error": self._last_error}
+
+    async def search_car_rentals(
+        self,
+        city: str,
+        pickup_date: str,
+        dropoff_date: str,
+        pickup_time: str = "10:00",
+        dropoff_time: str = "10:00",
+    ) -> Dict[str, Any]:
+        """
+        Search car rentals via RTTC GDS endpoint.
+
+        Args:
+            city: City name
+            pickup_date: Pickup date (YYYY-MM-DD)
+            dropoff_date: Dropoff date (YYYY-MM-DD)
+            pickup_time: Pickup time (HH:MM)
+            dropoff_time: Dropoff time (HH:MM)
+        """
+        if not rates_circuit.can_execute():
+            return {"success": False, "car_rentals": [], "error": "Circuit breaker open"}
+
+        url = f"{self.base_url}/api/v1/travel-services/rttc/car-rentals"
+        params = {
+            "city": city,
+            "pickup_date": pickup_date,
+            "dropoff_date": dropoff_date,
+            "pickup_time": pickup_time,
+            "dropoff_time": dropoff_time,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Car rental search: city={city}, {pickup_date} to {dropoff_date}")
+                r = await client.get(url, params=params, timeout=60.0)
+                r.raise_for_status()
+                data = r.json()
+                rates_circuit.record_success()
+
+                rentals = data.get("car_rentals", data.get("rentals", []))
+                logger.info(f"Car rental search complete: {len(rentals)} results")
+                return {
+                    "success": True,
+                    "car_rentals": rentals,
+                    "total_car_rentals": len(rentals),
+                    **{k: v for k, v in data.items() if k not in ("car_rentals", "rentals")},
+                }
+        except httpx.TimeoutException:
+            self._last_error = "Car rental search timed out after 60s"
+            logger.error(self._last_error)
+            rates_circuit.record_failure()
+            return {"success": False, "car_rentals": [], "error": self._last_error}
+        except Exception as e:
+            self._last_error = str(e)
+            logger.error(f"Car rental search error: {self._last_error}")
+            rates_circuit.record_failure()
+            return {"success": False, "car_rentals": [], "error": self._last_error}
+
+    async def search_buses(
+        self,
+        from_city: str,
+        to_city: str,
+        travel_date: str,
+        adults: int = 1,
+        children: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Search bus routes via RTTC GDS endpoint.
+
+        Args:
+            from_city: Departure city
+            to_city: Destination city
+            travel_date: Travel date (YYYY-MM-DD)
+            adults: Number of adults
+            children: Number of children
+        """
+        if not rates_circuit.can_execute():
+            return {"success": False, "buses": [], "error": "Circuit breaker open"}
+
+        url = f"{self.base_url}/api/v1/travel-services/rttc/buses"
+        params = {
+            "from_city": from_city,
+            "to_city": to_city,
+            "travel_date": travel_date,
+            "adults": adults,
+            "children": children,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Bus search: {from_city}->{to_city}, date={travel_date}")
+                r = await client.get(url, params=params, timeout=60.0)
+                r.raise_for_status()
+                data = r.json()
+                rates_circuit.record_success()
+
+                buses = data.get("buses", [])
+                logger.info(f"Bus search complete: {len(buses)} results")
+                return {
+                    "success": True,
+                    "buses": buses,
+                    "total_buses": len(buses),
+                    **{k: v for k, v in data.items() if k not in ("buses",)},
+                }
+        except httpx.TimeoutException:
+            self._last_error = "Bus search timed out after 60s"
+            logger.error(self._last_error)
+            rates_circuit.record_failure()
+            return {"success": False, "buses": [], "error": self._last_error}
+        except Exception as e:
+            self._last_error = str(e)
+            logger.error(f"Bus search error: {self._last_error}")
+            rates_circuit.record_failure()
+            return {"success": False, "buses": [], "error": self._last_error}
+
+    async def get_bus_departure_points(self) -> Dict[str, Any]:
+        """Get available bus departure points from RTTC GDS."""
+        if not rates_circuit.can_execute():
+            return {"success": False, "departure_points": [], "error": "Circuit breaker open"}
+
+        url = f"{self.base_url}/api/v1/travel-services/rttc/buses/departure-points"
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(url, timeout=15.0)
+                r.raise_for_status()
+                data = r.json()
+                rates_circuit.record_success()
+                return {"success": True, **data}
+        except Exception as e:
+            self._last_error = str(e)
+            logger.error(f"Bus departure points failed: {e}")
+            rates_circuit.record_failure()
+            return {"success": False, "departure_points": [], "error": str(e)}
 
     async def search_hotels_by_names(
         self,

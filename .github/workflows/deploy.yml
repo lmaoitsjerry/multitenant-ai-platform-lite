@@ -1,26 +1,54 @@
 name: Deploy to Cloud Run
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
     branches: [main, master]
   workflow_dispatch:  # Allow manual trigger
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # Never cancel an in-progress deploy
+
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE_NAME: multitenant-ai-platform
-  REGION: us-central1
+  SERVICE_NAME: ht-itc-lite
+  REGION: africa-south1
 
 jobs:
-  deploy:
+  test:
+    name: Pre-deploy Tests
     runs-on: ubuntu-latest
-    # Only deploy if CI workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -q --tb=short
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  deploy-backend:
+    name: Deploy Backend
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     permissions:
       contents: read
-      id-token: write  # Required for Workload Identity Federation
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -30,41 +58,154 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
+      - name: Build and push image
         run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
-
-      - name: Build and push Docker image
-        run: |
-          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
-          docker build -t $IMAGE_TAG .
-          docker push $IMAGE_TAG
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          gcloud builds submit \
+            --tag gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --timeout=600
 
       - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_TAG }} \
-            --region ${{ env.REGION }} \
-            --platform managed \
-            --allow-unauthenticated \
-            --memory 2Gi \
-            --cpu 2 \
-            --min-instances 0 \
-            --max-instances 10 \
-            --timeout 300 \
-            --set-env-vars "LOG_LEVEL=INFO"
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          env_vars: |
+            ENVIRONMENT=production
+            LOG_LEVEL=INFO
+            JSON_LOGS=true
+            BASE_URL=https://ht-itc-lite-1031318281967.africa-south1.run.app
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+            SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+            SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET }}
+            SENDGRID_MASTER_API_KEY=${{ secrets.SENDGRID_MASTER_API_KEY }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            VAPI_API_KEY=${{ secrets.VAPI_API_KEY }}
+            TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
+            TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
+            TRAVEL_PLATFORM_URL=${{ secrets.TRAVEL_PLATFORM_URL }}
+            TRAVEL_PLATFORM_API_KEY=${{ secrets.TRAVEL_PLATFORM_API_KEY }}
+            TRAVEL_PLATFORM_TENANT=${{ secrets.TRAVEL_PLATFORM_TENANT }}
+            TRAVEL_PLATFORM_TIMEOUT=30
+            RATES_ENGINE_URL=${{ secrets.RATES_ENGINE_URL }}
+            RATES_ENGINE_TIMEOUT=120
+            HOTELBEDS_API_URL=${{ secrets.HOTELBEDS_API_URL }}
+            INBOUND_EMAIL_DOMAIN=${{ secrets.INBOUND_EMAIL_DOMAIN }}
+          flags: |
+            --memory=2Gi
+            --cpu=2
+            --min-instances=0
+            --max-instances=10
+            --timeout=300
+            --allow-unauthenticated
 
-      - name: Show deployment URL
+      - name: Verify deployment
         run: |
-          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
-          echo "Deployed to: $URL"
-          echo "::notice title=Deployment URL::$URL"
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          echo "Deployment URL: $URL"
+
+          # Wait for new revision to stabilize
+          sleep 10
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health" --max-time 15)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Deployment healthy"
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/tenant-dashboard/package-lock.json
+
+      - name: Install and build
+        working-directory: frontend/tenant-dashboard
+        run: |
+          npm ci
+          npm run build
+        env:
+          VITE_API_URL: ${{ secrets.PRODUCTION_API_URL }}
+          VITE_INBOUND_EMAIL_DOMAIN: ${{ secrets.INBOUND_EMAIL_DOMAIN }}
+          VITE_APP_URL: ${{ secrets.FRONTEND_URL }}
+
+      - name: Upload to GCS
+        run: |
+          BUCKET="gs://${{ secrets.GCS_FRONTEND_BUCKET }}"
+
+          # 1. Hashed assets — immutable cache (Vite adds content hashes to filenames)
+          gcloud storage cp \
+            --recursive \
+            --cache-control="public, max-age=31536000, immutable" \
+            frontend/tenant-dashboard/dist/assets/* \
+            "$BUCKET/assets/"
+
+          # 2. index.html — no-cache so users always get latest version
+          gcloud storage cp \
+            --cache-control="no-cache, no-store, must-revalidate" \
+            frontend/tenant-dashboard/dist/index.html \
+            "$BUCKET/"
+
+          # 3. Other static files (favicon, manifest, etc.) — 1 hour cache
+          #    Use rsync for the rest, excluding what we already uploaded
+          gcloud storage rsync \
+            --recursive \
+            --cache-control="public, max-age=3600" \
+            --exclude="assets/.*" \
+            --exclude="index\.html" \
+            frontend/tenant-dashboard/dist/ \
+            "$BUCKET/"
+
+      - name: Invalidate CDN cache
+        if: ${{ secrets.CDN_URL_MAP != '' }}
+        continue-on-error: true
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache ${{ secrets.CDN_URL_MAP }} \
+            --path="/*" \
+            --async
+
+      - name: Verify frontend
+        run: |
+          BUCKET="${{ secrets.GCS_FRONTEND_BUCKET }}"
+          URL="https://storage.googleapis.com/$BUCKET/index.html"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --max-time 15)
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Frontend verification failed with status $STATUS at $URL"
+            exit 1
+          fi
+          echo "Frontend deployed: $URL"

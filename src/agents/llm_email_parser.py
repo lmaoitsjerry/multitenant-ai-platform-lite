@@ -16,6 +16,14 @@ from config.loader import ClientConfig
 logger = logging.getLogger(__name__)
 
 
+def _safe_int(value, default=0):
+    """Safely convert a value to int, returning default on failure."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 class LLMEmailParser:
     """LLM-powered email parser with rule-based fallback"""
 
@@ -77,7 +85,12 @@ class LLMEmailParser:
         # Build destination list for context
         dest_list = ', '.join(self.destinations[:20])  # Limit for prompt size
 
+        today = datetime.now().strftime('%Y-%m-%d')
+        current_year = datetime.now().year
+
         system_prompt = f"""You are an email parser for a travel agency. Extract travel inquiry details from customer emails.
+
+Today's date is: {today}
 
 Available destinations: {dest_list}
 
@@ -85,7 +98,7 @@ Return a JSON object with these fields (use null for unknown):
 - destination: string (must match one of the available destinations, or closest match)
 - check_in: string (YYYY-MM-DD format) or null
 - check_out: string (YYYY-MM-DD format) or null
-- adults: integer (default 2 if not specified)
+- adults: integer or null (do NOT default — return null if truly unknown)
 - children: integer (default 0 if not specified)
 - children_ages: array of integers (empty if not specified)
 - budget: integer (total budget in local currency, e.g., ZAR) or null
@@ -95,11 +108,12 @@ Return a JSON object with these fields (use null for unknown):
 - phone: string (customer phone) or null
 - is_travel_inquiry: boolean (true if this is about travel/vacation)
 - special_requests: string (any special requirements mentioned) or null
+- requested_hotel: string (specific hotel/resort name mentioned) or null
 
 Rules:
-1. If dates mention a month without year, assume next occurrence of that month
+1. Today is {today}. All dates MUST be today or in the future. If a month is mentioned without a year, use {current_year} if that month is still ahead, otherwise use {current_year + 1}. NEVER output dates in the past.
 2. If nights are mentioned without specific dates, set check_out = check_in + nights
-3. Convert "2 pax" to adults=2, "2 adults 1 child" to adults=2, children=1
+3. Extract exact traveler counts: "5 pax" → adults=5, "group of 3" → adults=3, "2 adults 1 child" → adults=2, children=1, "party of 6" → adults=6
 4. Budget might be in format "R50000" (ZAR) or "50k" - convert to integer
 5. Match destination to closest available option (e.g., "Zanzibar" matches "Zanzibar")
 
@@ -139,8 +153,8 @@ Return ONLY valid JSON, no markdown or explanation."""
             'destination': result.get('destination') or self.destinations[0] if self.destinations else 'Unknown',
             'check_in': result.get('check_in'),
             'check_out': result.get('check_out'),
-            'adults': int(result.get('adults', 2)),
-            'children': int(result.get('children', 0)),
+            'adults': _safe_int(result.get('adults'), default=2),
+            'children': max(0, _safe_int(result.get('children'), default=0)),
             'children_ages': result.get('children_ages', []),
             'budget': None,
             'budget_is_per_person': bool(result.get('budget_is_per_person', False)),
@@ -148,7 +162,8 @@ Return ONLY valid JSON, no markdown or explanation."""
             'email': result.get('email'),
             'phone': result.get('phone'),
             'is_travel_inquiry': bool(result.get('is_travel_inquiry', True)),
-            'special_requests': result.get('special_requests')
+            'special_requests': result.get('special_requests'),
+            'requested_hotel': result.get('requested_hotel'),
         }
 
         # Handle budget conversion
@@ -156,7 +171,7 @@ Return ONLY valid JSON, no markdown or explanation."""
         if budget is not None:
             try:
                 if isinstance(budget, str):
-                    budget = budget.replace('R', '').replace(',', '').replace('k', '000')
+                    budget = budget.replace('R', '').replace('$', '').replace(',', '').replace('k', '000')
                 normalized['budget'] = int(float(budget))
             except (ValueError, TypeError):
                 normalized['budget'] = None

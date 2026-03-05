@@ -43,15 +43,18 @@ class TravelPlatformRAGClient:
         if self._initialized:
             return
 
-        self.base_url = os.getenv("TRAVEL_PLATFORM_URL", "http://localhost:8000")
+        self.base_url = os.getenv("TRAVEL_PLATFORM_URL", "http://localhost:8080")
         self.api_key = os.getenv("TRAVEL_PLATFORM_API_KEY", "")
-        self.tenant_slug = os.getenv("TRAVEL_PLATFORM_TENANT", "itc")
+        self.tenant_slug = os.getenv("TRAVEL_PLATFORM_TENANT", "itc-platform")
         self.timeout = int(os.getenv("TRAVEL_PLATFORM_TIMEOUT", "30"))
 
         self.session = requests.Session()
+        # Use ApiKey format for Travel Platform authentication
+        # Travel Platform expects: "ApiKey {key}" + "X-Tenant-Slug" header
         self.session.headers.update({
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
+            "Authorization": f"ApiKey {self.api_key}" if self.api_key else "",
+            "X-Tenant-Slug": self.tenant_slug,
         })
 
         self._initialized = True
@@ -90,7 +93,9 @@ class TravelPlatformRAGClient:
         self,
         query: str,
         top_k: int = 5,
-        include_shared: bool = True
+        include_shared: bool = True,
+        use_rerank: bool = True,
+        min_relevance_score: float = 0.0,
     ) -> Dict[str, Any]:
         """
         Search the knowledge base via Travel Platform RAG.
@@ -99,6 +104,8 @@ class TravelPlatformRAGClient:
             query: Search query
             top_k: Number of results (default 5)
             include_shared: Include shared knowledge base documents (default True)
+            use_rerank: Enable reranking for better accuracy (default True)
+            min_relevance_score: Minimum relevance score threshold (default 0.0)
 
         Returns:
             {
@@ -119,7 +126,9 @@ class TravelPlatformRAGClient:
         payload = {
             "query": query,
             "top_k": top_k,
-            "include_shared": include_shared
+            "include_shared": include_shared,
+            "use_rerank": use_rerank,
+            "min_relevance_score": min_relevance_score,
         }
 
         try:

@@ -226,10 +226,10 @@ const SAMPLE_DATA = {
     total: 'R 32,775',
   },
   banking: {
-    bank: 'First National Bank',
-    account: '62XXXXXXXXX',
-    branch: '250655',
-    swift: 'FIRNZAJJ',
+    bank: 'Your Bank Name',
+    account: 'XXXX-XXXX-XXX',
+    branch: '000000',
+    swift: 'XXXXXXXX',
   },
 };
 
@@ -741,8 +741,8 @@ export default function TemplateBuilder({ templateType = 'quote', onClose }) {
 
     if (!over) return;
 
-    // Handle palette drop onto canvas
-    if (active.id.startsWith('palette-') && over.id === 'canvas-drop-zone') {
+    // Handle palette drop onto canvas (over.id can be 'canvas-drop-zone' or any section id)
+    if (active.id.startsWith('palette-')) {
       const sectionType = active.data.current.sectionType;
 
       // Add section if not already present
@@ -753,7 +753,20 @@ export default function TemplateBuilder({ templateType = 'quote', onClose }) {
           visible: true,
           config: SECTION_TYPES[sectionType].defaultConfig,
         };
-        setSections(prev => [...prev, newSection]);
+
+        if (over.id === 'canvas-drop-zone') {
+          // Dropped on canvas background — append to end
+          setSections(prev => [...prev, newSection]);
+        } else {
+          // Dropped on an existing section — insert after it
+          setSections(prev => {
+            const index = prev.findIndex(s => s.id === over.id);
+            if (index === -1) return [...prev, newSection];
+            const next = [...prev];
+            next.splice(index + 1, 0, newSection);
+            return next;
+          });
+        }
         setSelectedId(sectionType);
         setHasChanges(true);
       }
@@ -761,7 +774,7 @@ export default function TemplateBuilder({ templateType = 'quote', onClose }) {
     }
 
     // Handle reordering on canvas
-    if (active.id !== over.id && !active.id.startsWith('palette-')) {
+    if (active.id !== over.id) {
       setSections((items) => {
         const oldIndex = items.findIndex(item => item.id === active.id);
         const newIndex = items.findIndex(item => item.id === over.id);
@@ -772,6 +785,11 @@ export default function TemplateBuilder({ templateType = 'quote', onClose }) {
         return items;
       });
     }
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setDragType(null);
   };
 
   // Section handlers
@@ -856,6 +874,7 @@ export default function TemplateBuilder({ templateType = 'quote', onClose }) {
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
         >
           {/* Left Panel - Section Palette */}
           <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0">

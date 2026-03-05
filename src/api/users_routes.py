@@ -70,7 +70,7 @@ class InvitationListResponse(BaseModel):
 
 # ==================== Dependencies ====================
 
-def get_supabase_tool(x_client_id: str = Header(None, alias="X-Client-ID")) -> SupabaseTool:
+def get_supabase_tool(x_client_id: Optional[str] = Header(None, alias="X-Client-ID")) -> SupabaseTool:
     """Get SupabaseTool instance for the tenant"""
     client_id = x_client_id or os.getenv("CLIENT_ID", "africastay")
 
@@ -81,7 +81,7 @@ def get_supabase_tool(x_client_id: str = Header(None, alias="X-Client-ID")) -> S
         raise HTTPException(status_code=400, detail=f"Unknown client: {client_id}")
 
 
-def get_email_sender(x_client_id: str = Header(None, alias="X-Client-ID")) -> EmailSender:
+def get_email_sender(x_client_id: Optional[str] = Header(None, alias="X-Client-ID")) -> EmailSender:
     """Get EmailSender instance for the tenant"""
     client_id = x_client_id or os.getenv("CLIENT_ID", "africastay")
 
@@ -95,7 +95,7 @@ def get_email_sender(x_client_id: str = Header(None, alias="X-Client-ID")) -> Em
 # ==================== User Endpoints ====================
 
 @users_router.get("", response_model=UserListResponse)
-async def list_users(
+def list_users(
     request: Request,
     user: UserContext = Depends(require_admin),
     db: SupabaseTool = Depends(get_supabase_tool)
@@ -134,13 +134,13 @@ async def list_users(
 # NOTE: These routes MUST be defined before /{user_id} routes to avoid path conflicts
 
 @users_router.post("/invite")
-async def invite_user(
+def invite_user(
     invite_request: InviteUserRequest,
     request: Request,
     user: UserContext = Depends(require_admin),
     db: SupabaseTool = Depends(get_supabase_tool),
     email_sender: EmailSender = Depends(get_email_sender),
-    x_client_id: str = Header(None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(None, alias="X-Client-ID")
 ):
     """
     Invite a new user to the organization.
@@ -209,7 +209,7 @@ async def invite_user(
 
 
 @users_router.get("/invitations", response_model=InvitationListResponse)
-async def list_invitations(
+def list_invitations(
     request: Request,
     user: UserContext = Depends(require_admin),
     db: SupabaseTool = Depends(get_supabase_tool)
@@ -243,7 +243,7 @@ async def list_invitations(
 
 
 @users_router.delete("/invitations/{invitation_id}")
-async def cancel_invitation(
+def cancel_invitation(
     invitation_id: str,
     request: Request,
     user: UserContext = Depends(require_admin),
@@ -272,13 +272,13 @@ async def cancel_invitation(
 
 
 @users_router.post("/invitations/{invitation_id}/resend")
-async def resend_invitation(
+def resend_invitation(
     invitation_id: str,
     request: Request,
     user: UserContext = Depends(require_admin),
     db: SupabaseTool = Depends(get_supabase_tool),
     email_sender: EmailSender = Depends(get_email_sender),
-    x_client_id: str = Header(None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(None, alias="X-Client-ID")
 ):
     """
     Resend an invitation email.
@@ -343,7 +343,7 @@ async def resend_invitation(
 # ==================== User Detail Endpoints ====================
 
 @users_router.get("/{user_id}")
-async def get_user(
+def get_user(
     user_id: str,
     request: Request,
     user: UserContext = Depends(require_admin),
@@ -381,7 +381,7 @@ async def get_user(
 
 
 @users_router.patch("/{user_id}")
-async def update_user(
+def update_user(
     user_id: str,
     update_request: UpdateUserRequest,
     request: Request,
@@ -442,7 +442,7 @@ async def update_user(
 
 
 @users_router.delete("/{user_id}")
-async def deactivate_user(
+def deactivate_user(
     user_id: str,
     request: Request,
     user: UserContext = Depends(require_admin),

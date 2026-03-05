@@ -55,7 +55,7 @@ export default function Login() {
 
   // Get branding colors and background
   const primaryColor = branding?.colors?.primary || '#3B82F6';
-  const companyName = branding?.company_name || 'Travel Platform';
+  const companyName = branding?.company_name || 'HT-ITC-Lite';
   const logoUrl = branding?.logos?.primary;
   const loginBgImage = branding?.login_background_url;
   const loginBgGradient = branding?.login_background_gradient;

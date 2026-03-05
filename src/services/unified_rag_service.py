@@ -31,6 +31,7 @@ TRAVEL_PLATFORM_URL = os.getenv(
     "https://zorah-travel-platform-1031318281967.us-central1.run.app"
 )
 TRAVEL_PLATFORM_API_KEY = os.getenv("TRAVEL_PLATFORM_API_KEY", "")
+TRAVEL_PLATFORM_TENANT = os.getenv("TRAVEL_PLATFORM_TENANT", "itc-platform")
 TRAVEL_PLATFORM_TIMEOUT = int(os.getenv("TRAVEL_PLATFORM_TIMEOUT", "30"))
 
 # RAG Configuration (matching Travel Platform)
@@ -82,10 +83,12 @@ class TravelPlatformRAGClient:
         self,
         base_url: str = TRAVEL_PLATFORM_URL,
         api_key: str = TRAVEL_PLATFORM_API_KEY,
+        tenant_slug: str = TRAVEL_PLATFORM_TENANT,
         timeout: int = TRAVEL_PLATFORM_TIMEOUT
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.tenant_slug = tenant_slug
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
 
@@ -95,7 +98,8 @@ class TravelPlatformRAGClient:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout),
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"ApiKey {self.api_key}",
+                    "X-Tenant-Slug": self.tenant_slug,
                     "Content-Type": "application/json",
                     "Accept": "application/json"
                 }

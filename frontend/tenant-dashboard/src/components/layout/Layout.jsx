@@ -1,6 +1,7 @@
 import { useApp } from '../../context/AppContext';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import FloatingQuoteCart from '../travel/FloatingQuoteCart';
 
 export default function Layout({ children }) {
   const { loading, error, sidebarExpanded } = useApp();
@@ -41,10 +42,12 @@ export default function Layout({ children }) {
         }}
       >
         <Header />
-        <main className="p-6">
+        <main className="p-6 pb-24">
           {children}
         </main>
       </div>
+      {/* Floating Quote Cart for Travel Services */}
+      <FloatingQuoteCart />
     </div>
   );
 }

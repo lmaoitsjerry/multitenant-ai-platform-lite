@@ -735,8 +735,38 @@ function Step1CompanyProfile({ formData, updateField, updateTopLevel, errors, th
   );
 }
 
+// Free email providers that can't be used as SendGrid sending addresses
+const FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com',
+  'yahoo.com', 'yahoo.co.uk', 'yahoo.co.za', 'yahoo.ca', 'yahoo.com.au',
+  'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'live.com', 'msn.com',
+  'aol.com',
+  'icloud.com', 'me.com', 'mac.com',
+  'protonmail.com', 'proton.me',
+  'zoho.com', 'yandex.com', 'mail.com',
+]);
+
+const PLATFORM_SENDING_DOMAIN = 'holidaytoday.co.za';
+
+function isFreeEmail(email) {
+  if (!email || !email.includes('@')) return false;
+  const domain = email.toLowerCase().split('@').pop();
+  return FREE_EMAIL_DOMAINS.has(domain);
+}
+
+function generatePlatformEmail(companyName) {
+  if (!companyName) return '';
+  const sanitized = companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return sanitized ? `${sanitized}@${PLATFORM_SENDING_DOMAIN}` : '';
+}
+
 // ==================== Step 2: Email Settings ====================
 function Step2EmailSettings({ formData, updateField, errors }) {
+  // Determine the effective sending email
+  const effectiveEmail = formData.email.from_email || formData.company.support_email;
+  const willUsePlatformDomain = isFreeEmail(effectiveEmail);
+  const platformEmail = generatePlatformEmail(formData.company.company_name);
+
   return (
     <div className="space-y-6">
       <div>
@@ -773,9 +803,35 @@ function Step2EmailSettings({ formData, updateField, errors }) {
             placeholder="quotes@yourcompany.com"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           />
-          <p className="text-xs text-gray-500 mt-1">Leave blank to use support email</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {willUsePlatformDomain
+              ? 'Enter a business domain email to send from your own address'
+              : 'Leave blank to use support email'}
+          </p>
         </div>
       </div>
+
+      {/* Platform domain info banner for free email users */}
+      {willUsePlatformDomain && platformEmail && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-amber-900">Professional Sending Address</p>
+            <p className="text-sm text-amber-800 mt-1">
+              Free email providers (Gmail, Yahoo, etc.) can't be used as sending addresses due to email security policies.
+              We'll create a professional sending address for you:
+            </p>
+            <p className="text-sm font-mono font-semibold text-amber-900 mt-2 bg-amber-100 inline-block px-2 py-1 rounded">
+              {platformEmail}
+            </p>
+            <p className="text-sm text-amber-700 mt-2">
+              Replies will still go to <span className="font-medium">{effectiveEmail}</span>.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Email Signature (Optional)</label>
@@ -819,19 +875,21 @@ function Step2EmailSettings({ formData, updateField, errors }) {
       </div>
 
       {/* Email Info Note */}
-      <div className="border-t border-gray-200 pt-6">
-        <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg">
-          <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <div>
-            <p className="text-sm font-medium text-blue-900">Email Setup</p>
-            <p className="text-sm text-blue-700 mt-1">
-              We'll automatically configure email sending for your platform. Quotes and invoices will be sent from your company name.
-            </p>
+      {!willUsePlatformDomain && (
+        <div className="border-t border-gray-200 pt-6">
+          <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg">
+            <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-blue-900">Email Verification Required</p>
+              <p className="text-sm text-blue-700 mt-1">
+                After setup, you'll receive a verification email at your sending address. Click the link to activate email sending.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

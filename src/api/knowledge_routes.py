@@ -2,12 +2,17 @@
 Knowledge Base API Routes
 
 Manages document uploads, indexing, and knowledge search.
-Per-tenant document storage with text-based search.
+Per-tenant document storage with Supabase backend.
 
 Endpoints:
 - /api/v1/knowledge/documents - Document CRUD
 - /api/v1/knowledge/search - Search knowledge base
 - /api/v1/knowledge/status - Index status
+
+Storage Backend:
+- Supabase Storage: File storage (PDFs, DOCX, etc.)
+- Supabase Database: Metadata and content chunks
+- PostgreSQL Full-Text Search: Content search
 """
 
 import logging
@@ -20,19 +25,32 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import requests as http_requests
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.responses import Response
 from pydantic import BaseModel, Field
+from io import BytesIO
 
 from config.loader import ClientConfig
 from src.api.dependencies import get_client_config
 from src.utils.error_handler import log_and_raise
+from src.utils.field_normalizers import normalize_kb_source
+
+# Import the new Supabase-based knowledge manager
+from src.services.knowledge_storage_service import (
+    SupabaseKnowledgeManager,
+    get_supabase_knowledge_manager,
+    DocumentMetadata as SupabaseDocumentMetadata
+)
 
 logger = logging.getLogger(__name__)
 
 # Shared Travel Platform config for global KB proxy endpoints
-TRAVEL_PLATFORM_URL = os.getenv("TRAVEL_PLATFORM_URL", "https://zorah-travel-platform-1031318281967.us-central1.run.app")
+TRAVEL_PLATFORM_URL = os.getenv("TRAVEL_PLATFORM_URL", "http://localhost:8080")
 TRAVEL_PLATFORM_API_KEY = os.getenv("TRAVEL_PLATFORM_API_KEY", "")
+TRAVEL_PLATFORM_TENANT = os.getenv("TRAVEL_PLATFORM_TENANT", "itc-platform")
+
+# Use Supabase storage by default (set to False to use filesystem)
+USE_SUPABASE_STORAGE = os.getenv("KNOWLEDGE_STORAGE_BACKEND", "supabase").lower() == "supabase"
 
 # ==================== Router ====================
 
@@ -294,22 +312,40 @@ class KnowledgeIndexManager:
         top_k: int = 5,
         category: Optional[str] = None,
         visibility: Optional[str] = None,
-        min_score: float = 0.3
+        min_score: float = 0.05  # Lowered from 0.3 - Jaccard is naturally low for long texts
     ) -> List[Dict]:
-        """Search the knowledge base using text matching"""
+        """
+        Search the knowledge base using improved text matching.
+
+        Uses a multi-signal approach:
+        1. Keyword overlap (weighted by rarity)
+        2. Phrase matching (consecutive word sequences)
+        3. Key term presence (important domain words)
+        """
 
         chunks_file = self.index_path / "chunks.json"
 
         if not chunks_file.exists():
+            logger.debug(f"No chunks file found at {chunks_file}")
             return []
 
         try:
             with open(chunks_file, 'r') as f:
                 all_chunks = json.load(f)
 
+            logger.debug(f"Searching {len(all_chunks)} chunks for query: '{query[:50]}...'")
+
             # Normalize query
             query_normalized = self._normalize_text(query)
-            query_words = set(query_normalized.split())
+            query_words = query_normalized.split()
+            query_word_set = set(query_words)
+
+            # Extract key terms (words 4+ chars, excluding common stop words)
+            stop_words = {'what', 'that', 'this', 'with', 'from', 'have', 'will', 'been', 'were', 'they',
+                          'their', 'when', 'which', 'about', 'would', 'there', 'could', 'should', 'does',
+                          'need', 'want', 'make', 'like', 'just', 'into', 'over', 'also', 'some', 'more',
+                          'only', 'than', 'then', 'most', 'very', 'other', 'these', 'those'}
+            key_terms = {w for w in query_word_set if len(w) >= 4 and w not in stop_words}
 
             results = []
             for chunk in all_chunks:
@@ -321,21 +357,43 @@ class KnowledgeIndexManager:
                 if visibility and chunk.get("visibility", "public") != visibility:
                     continue
 
-                # Calculate text similarity score based on word overlap
+                # Get content
                 content_normalized = chunk.get("content_normalized", self._normalize_text(chunk["content"]))
-                content_words = set(content_normalized.split())
+                content_words = content_normalized.split()
+                content_word_set = set(content_words)
 
-                # Jaccard similarity
-                if not query_words or not content_words:
+                if not query_word_set or not content_word_set:
                     continue
 
-                intersection = query_words & content_words
-                union = query_words | content_words
-                score = len(intersection) / len(union) if union else 0
+                # Signal 1: Keyword overlap (weighted by query size, not union)
+                # This gives higher scores for matching most query words
+                intersection = query_word_set & content_word_set
+                keyword_score = len(intersection) / len(query_word_set) if query_word_set else 0
 
-                # Boost score if query appears as substring
-                if query_normalized in content_normalized:
-                    score = min(score + 0.3, 1.0)
+                # Signal 2: Key term matching (important domain words)
+                key_term_matches = key_terms & content_word_set
+                key_term_score = len(key_term_matches) / len(key_terms) if key_terms else 0
+
+                # Signal 3: Phrase matching (2-gram overlap for consecutive words)
+                query_bigrams = set(zip(query_words[:-1], query_words[1:]))
+                content_bigrams = set(zip(content_words[:-1], content_words[1:]))
+                bigram_matches = query_bigrams & content_bigrams
+                phrase_score = len(bigram_matches) / len(query_bigrams) if query_bigrams else 0
+
+                # Signal 4: Substring match (exact phrase appears)
+                substring_boost = 0.3 if query_normalized in content_normalized else 0
+
+                # Combined score with weights
+                # keyword_score: 40%, key_term_score: 30%, phrase_score: 20%, substring: 10% bonus
+                score = (
+                    keyword_score * 0.4 +
+                    key_term_score * 0.3 +
+                    phrase_score * 0.2 +
+                    substring_boost
+                )
+
+                # Normalize to 0-1 range
+                score = min(score, 1.0)
 
                 if score >= min_score:
                     results.append({
@@ -344,15 +402,27 @@ class KnowledgeIndexManager:
                         "score": round(score, 3),
                         "document_id": chunk["document_id"],
                         "chunk_index": chunk["chunk_index"],
-                        "visibility": chunk.get("visibility", "public")
+                        "visibility": chunk.get("visibility", "public"),
+                        # Debug info
+                        "match_details": {
+                            "keywords": len(intersection),
+                            "key_terms": len(key_term_matches),
+                            "phrases": len(bigram_matches)
+                        }
                     })
 
             # Sort by score descending and take top_k
             results.sort(key=lambda x: x["score"], reverse=True)
+
+            if results:
+                logger.info(f"Private KB search found {len(results)} results (top score: {results[0]['score']:.3f})")
+            else:
+                logger.info(f"Private KB search found 0 results for query: '{query[:50]}...'")
+
             return results[:top_k]
 
         except Exception as e:
-            logger.error(f"Search failed: {e}")
+            logger.error(f"Search failed: {e}", exc_info=True)
             return []
 
     def get_documents(self, visibility: Optional[str] = None) -> List[DocumentMetadata]:
@@ -463,17 +533,26 @@ class KnowledgeIndexManager:
 
 _index_managers: Dict[str, KnowledgeIndexManager] = {}
 
-def get_index_manager(config: ClientConfig) -> KnowledgeIndexManager:
-    """Get or create index manager for tenant"""
-    if config.client_id not in _index_managers:
-        _index_managers[config.client_id] = KnowledgeIndexManager(config)
-    return _index_managers[config.client_id]
+def get_index_manager(config: ClientConfig):
+    """
+    Get or create index manager for tenant.
+
+    Uses Supabase storage by default (set KNOWLEDGE_STORAGE_BACKEND=filesystem to use local).
+    """
+    if USE_SUPABASE_STORAGE:
+        # Use Supabase-backed storage
+        return get_supabase_knowledge_manager(config)
+    else:
+        # Legacy filesystem storage
+        if config.client_id not in _index_managers:
+            _index_managers[config.client_id] = KnowledgeIndexManager(config)
+        return _index_managers[config.client_id]
 
 
 # ==================== Document Endpoints ====================
 
 @knowledge_router.get("/documents")
-async def list_documents(
+def list_documents(
     category: Optional[str] = None,
     status: Optional[str] = None,
     visibility: Optional[str] = None,
@@ -497,7 +576,7 @@ async def list_documents(
 
 
 @knowledge_router.post("/documents")
-async def upload_document(
+def upload_document(
     file: UploadFile = File(...),
     category: str = Form(default="general"),
     tags: str = Form(default=""),
@@ -522,7 +601,17 @@ async def upload_document(
         try:
             doc = manager.index_document(doc.document_id)
         except Exception as e:
-            logger.error(f"Auto-index failed: {e}")
+            logger.error(f"Auto-index failed for {doc.document_id}: {e}")
+            # Mark document as error so UI shows correct status
+            try:
+                if manager.client:
+                    manager.client.table('knowledge_documents').update({
+                        'status': 'error'
+                    }).eq('document_id', doc.document_id).eq(
+                        'tenant_id', config.client_id
+                    ).execute()
+            except Exception:
+                pass  # Best effort status update
 
     return {
         "success": True,
@@ -531,7 +620,7 @@ async def upload_document(
 
 
 @knowledge_router.get("/documents/{document_id}")
-async def get_document(
+def get_document(
     document_id: str,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -549,7 +638,7 @@ async def get_document(
 
 
 @knowledge_router.delete("/documents/{document_id}")
-async def delete_document(
+def delete_document(
     document_id: str,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -566,7 +655,7 @@ async def delete_document(
 
 
 @knowledge_router.post("/documents/{document_id}/reindex")
-async def reindex_document(
+def reindex_document(
     document_id: str,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -582,7 +671,7 @@ async def reindex_document(
 
 
 @knowledge_router.get("/documents/{document_id}/download")
-async def download_document(
+def download_document(
     document_id: str,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -593,6 +682,26 @@ async def download_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # Handle Supabase storage
+    if USE_SUPABASE_STORAGE:
+        file_content = manager.get_file_content(document_id)
+        if not file_content:
+            raise HTTPException(status_code=404, detail="File not found in storage")
+
+        content_type = {
+            "pdf": "application/pdf",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "txt": "text/plain",
+            "md": "text/markdown"
+        }.get(doc.file_type, "application/octet-stream")
+
+        return StreamingResponse(
+            BytesIO(file_content),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'}
+        )
+
+    # Legacy filesystem storage
     doc_meta = manager.metadata["documents"][document_id]
     file_path = Path(doc_meta["file_path"])
 
@@ -609,7 +718,7 @@ async def download_document(
 # ==================== Search Endpoint ====================
 
 @knowledge_router.post("/search")
-async def search_knowledge(
+def search_knowledge(
     request: SearchRequest,
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -633,7 +742,7 @@ async def search_knowledge(
 
 
 @knowledge_router.get("/search")
-async def search_knowledge_get(
+def search_knowledge_get(
     query: str,
     top_k: int = Query(default=5, ge=1, le=20),
     category: Optional[str] = None,
@@ -661,7 +770,7 @@ async def search_knowledge_get(
 # ==================== Status & Admin ====================
 
 @knowledge_router.get("/status")
-async def get_index_status(
+def get_index_status(
     config: ClientConfig = Depends(get_client_config)
 ):
     """Get knowledge base status"""
@@ -675,7 +784,7 @@ async def get_index_status(
 
 
 @knowledge_router.post("/rebuild")
-async def rebuild_index(
+def rebuild_index(
     config: ClientConfig = Depends(get_client_config)
 ):
     """Rebuild the entire knowledge index"""
@@ -694,7 +803,7 @@ async def rebuild_index(
 
 
 @knowledge_router.get("/categories")
-async def list_categories(
+def list_categories(
     config: ClientConfig = Depends(get_client_config)
 ):
     """List document categories"""
@@ -716,8 +825,66 @@ async def list_categories(
 
 # ==================== Global Knowledge Base Proxy ====================
 
+
+def _discover_global_documents_via_search(search_query: Optional[str] = None) -> list:
+    """Fallback: discover global documents via the RAG search endpoint.
+
+    The listing endpoint (/api/v1/rag/knowledge-base) may return empty while
+    the search endpoint (/api/v1/rag/search) has indexed hotel fact sheets and
+    travel guides. This performs a broad search and deduplicates by source to
+    build an approximate document list.
+    """
+    try:
+        search_url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/search"
+        queries = [search_query] if search_query else ["hotel", "destination", "travel guide"]
+        seen_sources = {}
+
+        for q in queries:
+            resp = http_requests.post(
+                search_url,
+                json={"query": q, "top_k": 20, "include_shared": True},
+                timeout=30,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+            )
+            if resp.status_code != 200:
+                continue
+            results = resp.json().get("results", [])
+            for r in results:
+                source = r.get("source", "") or r.get("metadata", {}).get("title", "")
+                if not source or source in seen_sources:
+                    continue
+                # Derive a friendly name from the source
+                metadata = r.get("metadata", {})
+                title = metadata.get("title") or metadata.get("name") or source.split("/")[-1]
+                seen_sources[source] = {
+                    "document_id": metadata.get("doc_id", source[:64]),
+                    "filename": title,
+                    "original_filename": title,
+                    "file_type": metadata.get("source_type", "pdf"),
+                    "file_size": 0,
+                    "status": "indexed",
+                    "chunk_count": metadata.get("chunk_count", 0),
+                    "uploaded_at": metadata.get("created_at"),
+                    "visibility": "global",
+                    "content_preview": (r.get("content", "")[:200] + "...") if r.get("content") else "",
+                    "category": metadata.get("category", "general"),
+                    "has_original_file": False,
+                    "view_url": None,
+                    "download_url": None,
+                    "original_url": None,
+                }
+
+        if seen_sources:
+            logger.info(f"Discovered {len(seen_sources)} global documents via search fallback")
+        return list(seen_sources.values())
+
+    except Exception as e:
+        logger.warning(f"Global KB search discovery failed: {e}")
+        return []
+
+
 @knowledge_router.get("/global")
-async def list_global_documents(
+def list_global_documents(
     search: Optional[str] = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0)
@@ -747,7 +914,9 @@ async def list_global_documents(
         documents = [
             {
                 "document_id": doc.get("id", ""),
+                "title": doc.get("title", doc.get("filename", "Unknown")),
                 "filename": doc.get("title", doc.get("filename", "Unknown")),
+                "original_filename": doc.get("original_filename", doc.get("title", "")),
                 "file_type": doc.get("source_type", "pdf"),
                 "file_size": doc.get("file_size", 0),
                 "status": "indexed",
@@ -757,10 +926,18 @@ async def list_global_documents(
                 "content_preview": doc.get("content_preview", ""),
                 "category": doc.get("category", "general"),
                 "has_original_file": doc.get("has_original_file", False),
-                "original_file_url": f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base/{doc.get('id', '')}/original" if doc.get("has_original_file") else None,
+                # Use local proxy URLs instead of direct Travel Platform URLs
+                "view_url": f"/api/v1/knowledge/global/{doc.get('id', '')}/view",
+                "download_url": f"/api/v1/knowledge/global/{doc.get('id', '')}/download",
+                "original_url": f"/api/v1/knowledge/global/{doc.get('id', '')}/original" if doc.get("has_original_file") else None,
             }
             for doc in data.get("documents", [])
         ]
+
+        # If the listing endpoint returned empty but the search API might have docs,
+        # discover documents via a broad search so the KB page isn't misleadingly empty
+        if not documents:
+            documents = _discover_global_documents_via_search(search)
 
         return {"success": True, "data": documents, "total": data.get("total", len(documents)), "count": len(documents)}
 
@@ -776,13 +953,13 @@ async def list_global_documents(
 
 
 @knowledge_router.get("/global/{document_id}/content")
-async def get_global_document_content(document_id: str):
+def get_global_document_content(document_id: str):
     """Proxy to fetch document content from Travel Platform."""
     try:
         url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/documents/{document_id}/content"
         response = http_requests.get(
             url, timeout=120,
-            headers={"Accept": "application/json", "Authorization": f"Bearer {TRAVEL_PLATFORM_API_KEY}"}
+            headers={"Accept": "application/json", "Authorization": f"ApiKey {TRAVEL_PLATFORM_API_KEY}", "X-Tenant-Slug": TRAVEL_PLATFORM_TENANT}
         )
 
         if response.status_code == 200:
@@ -794,13 +971,13 @@ async def get_global_document_content(document_id: str):
 
 
 @knowledge_router.get("/global/{document_id}/download")
-async def download_global_document(document_id: str):
+def download_global_document(document_id: str):
     """Proxy to download document from Travel Platform."""
     try:
-        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/documents/{document_id}/download"
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base/{document_id}/download"
         response = http_requests.get(
             url, timeout=120,
-            headers={"Authorization": f"Bearer {TRAVEL_PLATFORM_API_KEY}"}
+            headers={"Authorization": f"ApiKey {TRAVEL_PLATFORM_API_KEY}", "X-Tenant-Slug": TRAVEL_PLATFORM_TENANT}
         )
 
         if response.status_code == 200:
@@ -813,3 +990,60 @@ async def download_global_document(document_id: str):
     except Exception as e:
         logger.error(f"Global KB download error: {e}", exc_info=True)
         return JSONResponse(status_code=502, content={"detail": "Failed to download document"})
+
+
+@knowledge_router.get("/global/{document_id}/view")
+def view_global_document(document_id: str):
+    """Proxy to view document details from Travel Platform."""
+    try:
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base/{document_id}/view"
+        response = http_requests.get(
+            url, timeout=120,
+            headers={"Accept": "application/json"}
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            # Transform response for frontend
+            return {
+                "success": True,
+                "data": {
+                    "document_id": data.get("id", document_id),
+                    "title": data.get("title", ""),
+                    "filename": data.get("original_filename", data.get("title", "")),
+                    "file_type": data.get("source_type", "pdf"),
+                    "content": data.get("content", ""),
+                    "content_preview": data.get("content_preview", ""),
+                    "chunk_count": data.get("chunk_count", 0),
+                    "created_at": data.get("created_at"),
+                    "has_original_file": data.get("has_original_file", False),
+                    "chunks": data.get("chunks", [])
+                }
+            }
+
+        return JSONResponse(status_code=response.status_code, content={"success": False, "detail": f"Travel Platform returned {response.status_code}"})
+    except Exception as e:
+        logger.error(f"Global KB view error: {e}", exc_info=True)
+        return JSONResponse(status_code=502, content={"success": False, "detail": "Failed to fetch document"})
+
+
+@knowledge_router.get("/global/{document_id}/original")
+def download_global_document_original(document_id: str):
+    """Proxy to download original file (PDF) from Travel Platform."""
+    try:
+        url = f"{TRAVEL_PLATFORM_URL}/api/v1/rag/knowledge-base/{document_id}/original"
+        response = http_requests.get(
+            url, timeout=120,
+            headers={"Authorization": f"ApiKey {TRAVEL_PLATFORM_API_KEY}", "X-Tenant-Slug": TRAVEL_PLATFORM_TENANT}
+        )
+
+        if response.status_code == 200:
+            content_type = response.headers.get("content-type", "application/pdf")
+            content_disp = response.headers.get("content-disposition", "")
+            headers = {"content-disposition": content_disp} if content_disp else {}
+            return Response(content=response.content, media_type=content_type, headers=headers)
+
+        return JSONResponse(status_code=response.status_code, content={"detail": f"Travel Platform returned {response.status_code}"})
+    except Exception as e:
+        logger.error(f"Global KB original download error: {e}", exc_info=True)
+        return JSONResponse(status_code=502, content={"detail": "Failed to download original file"})

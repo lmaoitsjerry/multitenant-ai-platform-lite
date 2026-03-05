@@ -220,7 +220,7 @@ class TestExtractResourceId:
 # ==================== Client IP Extraction Tests ====================
 
 class TestGetClientIP:
-    """Tests for _get_client_ip method."""
+    """Tests for _get_client_ip method (now takes ASGI scope dict)."""
 
     def test_extracts_forwarded_for(self, mock_app):
         """Should extract IP from X-Forwarded-For header."""
@@ -228,11 +228,12 @@ class TestGetClientIP:
 
         middleware = PIIAuditMiddleware(mock_app)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"x-forwarded-for": "203.0.113.195, 70.41.3.18"}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [(b"x-forwarded-for", b"203.0.113.195, 70.41.3.18")],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "203.0.113.195"
 
@@ -242,11 +243,12 @@ class TestGetClientIP:
 
         middleware = PIIAuditMiddleware(mock_app)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"x-real-ip": "192.168.1.100"}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [(b"x-real-ip", b"192.168.1.100")],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "192.168.1.100"
 
@@ -256,11 +258,12 @@ class TestGetClientIP:
 
         middleware = PIIAuditMiddleware(mock_app)
 
-        mock_request = MagicMock()
-        mock_request.headers = {}
-        mock_request.client = MagicMock(host="192.168.1.50")
+        scope = {
+            "headers": [],
+            "client": ("192.168.1.50", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "192.168.1.50"
 
@@ -270,11 +273,11 @@ class TestGetClientIP:
 
         middleware = PIIAuditMiddleware(mock_app)
 
-        mock_request = MagicMock()
-        mock_request.headers = {}
-        mock_request.client = None
+        scope = {
+            "headers": [],
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip is None
 
@@ -314,31 +317,40 @@ class TestSetupPIIAuditMiddleware:
 class TestPIILogging:
     """Tests for PII access logging."""
 
-    def test_log_entry_structure(self, mock_app):
-        """Log entries should have required fields."""
+    @pytest.mark.asyncio
+    async def test_log_entry_structure(self, mock_app):
+        """Log entries should build an audit entry and attempt to insert it."""
         from src.middleware.pii_audit_middleware import PIIAuditMiddleware
 
         middleware = PIIAuditMiddleware(mock_app, enabled=True)
 
-        # Create mock request
-        mock_request = MagicMock()
-        mock_request.url.path = "/api/v1/crm/clients/123"
-        mock_request.method = "GET"
-        mock_request.headers = {}
-        mock_request.client = MagicMock(host="192.168.1.1")
-        mock_request.state = MagicMock()
-        mock_request.state.request_id = "test-request-id"
+        # Create ASGI scope
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/crm/clients/123",
+            "headers": [(b"x-client-id", b"test_tenant")],
+            "client": ("192.168.1.1", 12345),
+            "state": {"user": None, "request_id": "test-request-id"},
+        }
 
-        # Log structure test
-        with patch('src.middleware.pii_audit_middleware.logger') as mock_logger:
-            pii_config = {
-                "resource_type": "client",
-                "pii_fields": ["name", "email"],
-                "methods": ["GET"]
-            }
-            middleware._log_pii_access(mock_request, pii_config, "123", 200)
+        pii_config = {
+            "resource_type": "client",
+            "pii_fields": ["name", "email"],
+            "methods": ["GET"]
+        }
 
-            mock_logger.info.assert_called()
+        with patch.object(middleware, '_insert_audit_log_sync') as mock_insert:
+            await middleware._log_pii_access(scope, pii_config)
+
+            mock_insert.assert_called_once()
+            call_args = mock_insert.call_args
+            tenant_id = call_args[0][0]
+            audit_entry = call_args[0][1]
+            assert tenant_id == "test_tenant"
+            assert audit_entry["resource_type"] == "client"
+            assert audit_entry["action"] == "view"
+            assert audit_entry["ip_address"] == "192.168.1.1"
 
 
 # ==================== Middleware Dispatch Tests ====================
@@ -350,8 +362,7 @@ class TestMiddlewareDispatch:
     async def test_dispatch_with_disabled_middleware(self, mock_app):
         """Disabled middleware should pass through."""
         from src.middleware.pii_audit_middleware import PIIAuditMiddleware
-        from starlette.requests import Request
-        from starlette.responses import Response
+        from tests.conftest import call_asgi_middleware
 
         middleware = PIIAuditMiddleware(mock_app, enabled=False)
 
@@ -362,21 +373,16 @@ class TestMiddlewareDispatch:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        expected_response = Response(content="OK")
-        call_next = AsyncMock(return_value=expected_response)
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        call_next.assert_called_once()
-        assert response == expected_response
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_dispatch_with_non_pii_endpoint(self, mock_app):
         """Non-PII endpoints should pass through without logging."""
         from src.middleware.pii_audit_middleware import PIIAuditMiddleware
-        from starlette.requests import Request
-        from starlette.responses import Response
+        from tests.conftest import call_asgi_middleware
 
         middleware = PIIAuditMiddleware(mock_app, enabled=True)
 
@@ -387,16 +393,12 @@ class TestMiddlewareDispatch:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        expected_response = Response(content="OK")
-        call_next = AsyncMock(return_value=expected_response)
 
         with patch('src.middleware.pii_audit_middleware.logger') as mock_logger:
-            response = await middleware.dispatch(request, call_next)
+            response = await call_asgi_middleware(middleware, scope)
 
             # Should not log PII access for health endpoints
-            # (info might be called for other reasons)
-            assert response == expected_response
+            assert response.status_code == 200
 
 
 # ==================== Edge Cases ====================
@@ -444,11 +446,12 @@ class TestEdgeCases:
 
         middleware = PIIAuditMiddleware(mock_app)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"x-forwarded-for": "  203.0.113.195  "}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [(b"x-forwarded-for", b"  203.0.113.195  ")],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         # Should be trimmed
         assert ip.strip() == "203.0.113.195"

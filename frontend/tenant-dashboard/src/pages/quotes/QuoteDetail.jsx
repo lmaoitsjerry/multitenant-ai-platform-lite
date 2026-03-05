@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { quotesApi, crmApi, invoicesApi } from '../../services/api';
+import { pdfUrl } from '../../config/environment';
+import { normalizeQuoteStatus } from '../../utils/fieldTransformers';
 import {
   ArrowLeftIcon,
   EnvelopeIcon,
@@ -19,21 +21,27 @@ import {
   ExclamationTriangleIcon,
   ArrowDownTrayIcon,
   EyeIcon,
+  PaperAirplaneIcon,
+  TicketIcon,
+  TruckIcon,
 } from '@heroicons/react/24/outline';
 
 const statusConfig = {
   draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700', icon: ClockIcon },
-  generated: { label: 'Generated', color: 'bg-blue-100 text-blue-700', icon: ClockIcon },
+  quoted: { label: 'Quoted', color: 'bg-blue-100 text-blue-700', icon: ClockIcon },
+  generated: { label: 'Quoted', color: 'bg-blue-100 text-blue-700', icon: ClockIcon },
   sent: { label: 'Sent', color: 'bg-blue-100 text-blue-700', icon: EnvelopeIcon },
   viewed: { label: 'Viewed', color: 'bg-purple-100 text-purple-700', icon: CheckCircleIcon },
   accepted: { label: 'Accepted', color: 'bg-green-100 text-green-700', icon: CheckCircleIcon },
-  rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: XCircleIcon },
+  declined: { label: 'Declined', color: 'bg-red-100 text-red-700', icon: XCircleIcon },
+  rejected: { label: 'Declined', color: 'bg-red-100 text-red-700', icon: XCircleIcon },
   expired: { label: 'Expired', color: 'bg-orange-100 text-orange-700', icon: ClockIcon },
+  converted: { label: 'Converted', color: 'bg-green-100 text-green-700', icon: CheckCircleIcon },
 };
 
 // Convert to Invoice Modal
 function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
-  const [selectedHotel, setSelectedHotel] = useState(null);
+  const [selectedHotels, setSelectedHotels] = useState([]);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,8 +50,8 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
   const hotels = quote?.hotels || [];
 
   useEffect(() => {
-    if (hotels.length > 0 && !selectedHotel) {
-      setSelectedHotel(0);
+    if (hotels.length > 0 && selectedHotels.length === 0) {
+      setSelectedHotels([0]);
     }
     // Set default due date to 14 days from now
     const due = new Date();
@@ -52,23 +60,26 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
   }, [hotels]);
 
   const handleConvert = async () => {
-    if (selectedHotel === null) return;
-    
+    if (selectedHotels.length === 0) return;
+
     setLoading(true);
     setError(null);
 
     try {
-      const hotel = hotels[selectedHotel];
-      
-      const response = await invoicesApi.create({
-        quote_id: quote.quote_id,
-        items: [{
+      const items = selectedHotels.map(idx => {
+        const hotel = hotels[idx];
+        return {
           description: `${hotel.name || hotel.hotel_name} - ${quote.nights} nights (${quote.destination})`,
           hotel_name: hotel.name || hotel.hotel_name,
           room_type: hotel.room_type,
           meal_plan: hotel.meal_plan,
           amount: hotel.total_price,
-        }],
+        };
+      });
+
+      const response = await invoicesApi.create({
+        quote_id: quote.quote_id,
+        items,
         due_days: Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24)),
         notes: notes,
       });
@@ -90,51 +101,52 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl w-full max-w-lg mx-4 overflow-hidden shadow-xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Convert to Invoice</h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg">
-            <XMarkIcon className="w-5 h-5 text-gray-500" />
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-theme-surface rounded-xl w-full max-w-lg mx-4 overflow-hidden shadow-xl border border-theme">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-theme">
+          <h3 className="text-lg font-semibold text-theme">Convert to Invoice</h3>
+          <button onClick={onClose} className="p-1 hover:bg-theme-surface-elevated rounded-lg transition-colors">
+            <XMarkIcon className="w-5 h-5 text-theme-muted" />
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2">
               <ExclamationTriangleIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700">{error}</p>
+              <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Hotel Option <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-theme-secondary mb-2">
+              Select Services <span className="text-red-500">*</span>
             </label>
             <div className="space-y-2">
               {hotels.map((hotel, idx) => (
                 <label
                   key={idx}
-                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                    selectedHotel === idx
-                      ? 'border-purple-500 bg-purple-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
+                    selectedHotels.includes(idx)
+                      ? 'border-theme-primary bg-theme-primary/10 ring-1 ring-theme-primary'
+                      : 'border-theme hover:border-theme-primary/50 bg-theme-surface'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <input
-                      type="radio"
-                      name="hotel"
-                      checked={selectedHotel === idx}
-                      onChange={() => setSelectedHotel(idx)}
-                      className="w-4 h-4 text-purple-600"
+                      type="checkbox"
+                      checked={selectedHotels.includes(idx)}
+                      onChange={() => setSelectedHotels(prev =>
+                        prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+                      )}
+                      className="w-4 h-4 accent-[var(--color-primary)]"
                     />
                     <div>
-                      <p className="font-medium text-gray-900">{hotel.name || hotel.hotel_name}</p>
-                      <p className="text-sm text-gray-500">{hotel.room_type} • {hotel.meal_plan}</p>
+                      <p className="font-medium text-theme">{hotel.name || hotel.hotel_name}</p>
+                      <p className="text-sm text-theme-muted">{hotel.room_type} • {hotel.meal_plan}</p>
                     </div>
                   </div>
-                  <span className="font-semibold text-purple-600">
+                  <span className="font-semibold text-theme-primary">
                     R {(hotel.total_price || 0).toLocaleString()}
                   </span>
                 </label>
@@ -143,7 +155,7 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-theme-secondary mb-1">
               Due Date
             </label>
             <input
@@ -156,7 +168,7 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-theme-secondary mb-1">
               Notes (optional)
             </label>
             <textarea
@@ -168,13 +180,13 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-theme bg-theme-surface-elevated">
           <button onClick={onClose} className="btn-secondary">
             Cancel
           </button>
           <button
             onClick={handleConvert}
-            disabled={selectedHotel === null || loading}
+            disabled={selectedHotels.length === 0 || loading}
             className="btn-primary flex items-center gap-2"
           >
             {loading ? (
@@ -251,6 +263,24 @@ export default function QuoteDetail() {
     }
   };
 
+  const handleSendDraft = async () => {
+    setActionLoading('send');
+    try {
+      const response = await quotesApi.sendDraft(id);
+      if (response.data?.success) {
+        showToast('Quote sent to client!', 'success');
+        loadQuote(); // Refresh to show updated status
+      } else {
+        showToast(response.data?.error || 'Failed to send quote', 'error');
+      }
+    } catch (error) {
+      console.error('Send draft failed:', error);
+      showToast(error.response?.data?.detail || 'Failed to send quote', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleAddToCRM = async () => {
     if (!quote) return;
     
@@ -283,7 +313,7 @@ export default function QuoteDetail() {
 
   const handleInvoiceCreated = (invoice) => {
     showToast(`Invoice ${invoice.invoice_id} created successfully!`, 'success');
-    navigate('/invoices');
+    navigate(`/invoices/${invoice.invoice_id}`);
   };
 
   const handleDuplicate = () => {
@@ -341,7 +371,7 @@ export default function QuoteDetail() {
     );
   }
 
-  const status = statusConfig[quote.status] || statusConfig.draft;
+  const status = statusConfig[normalizeQuoteStatus(quote.status)] || statusConfig.draft;
   const StatusIcon = status.icon;
   const hotels = quote.hotels || [];
 
@@ -362,18 +392,33 @@ export default function QuoteDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleResendEmail}
-            disabled={actionLoading === 'resend'}
-            className="btn-secondary flex items-center gap-2"
-          >
-            {actionLoading === 'resend' ? (
-              <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <EnvelopeIcon className="w-5 h-5" />
-            )}
-            Resend Email
-          </button>
+          {normalizeQuoteStatus(quote.status) === 'draft' ? (
+            <button
+              onClick={handleSendDraft}
+              disabled={actionLoading === 'send'}
+              className="btn-primary flex items-center gap-2"
+            >
+              {actionLoading === 'send' ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <PaperAirplaneIcon className="w-5 h-5" />
+              )}
+              Send to Client
+            </button>
+          ) : (
+            <button
+              onClick={handleResendEmail}
+              disabled={actionLoading === 'resend'}
+              className="btn-secondary flex items-center gap-2"
+            >
+              {actionLoading === 'resend' ? (
+                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <EnvelopeIcon className="w-5 h-5" />
+              )}
+              Resend Email
+            </button>
+          )}
           <button onClick={handleDuplicate} className="btn-secondary flex items-center gap-2">
             <DocumentDuplicateIcon className="w-5 h-5" />
             Duplicate
@@ -451,11 +496,11 @@ export default function QuoteDetail() {
               </div>
               <div>
                 <p className="text-sm text-gray-500">Check-in</p>
-                <p className="font-medium text-gray-900">{formatDate(quote.check_in_date)}</p>
+                <p className="font-medium text-gray-900">{formatDate(quote.check_in)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Check-out</p>
-                <p className="font-medium text-gray-900">{formatDate(quote.check_out_date)}</p>
+                <p className="font-medium text-gray-900">{formatDate(quote.check_out)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Nights</p>
@@ -472,39 +517,52 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Hotel Options */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <BuildingOfficeIcon className="w-5 h-5 text-purple-600" />
-              Hotel Options
-            </h3>
-            <div className="space-y-4">
-              {hotels.length > 0 ? hotels.map((hotel, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors"
-                >
-                  <div>
-                    <p className="font-semibold text-gray-900">{hotel.name || hotel.hotel_name}</p>
-                    <p className="text-sm text-gray-500">
-                      {hotel.room_type} • {hotel.meal_plan}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      R {(hotel.price_per_person || 0).toLocaleString()} per person
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xl font-bold text-purple-600">
-                      R {(hotel.total_price || 0).toLocaleString()}
-                    </p>
-                    <p className="text-sm text-gray-500">Total</p>
-                  </div>
+          {/* Service Options — grouped by type */}
+          {(() => {
+            const serviceGroups = [
+              { items: hotels.filter(h => !h.type || h.type === 'hotel'), title: 'Hotel Options', icon: BuildingOfficeIcon },
+              { items: hotels.filter(h => h.type === 'activity'), title: 'Activities', icon: TicketIcon },
+              { items: hotels.filter(h => h.type === 'transfer'), title: 'Transfers', icon: TruckIcon },
+              { items: hotels.filter(h => h.type === 'flight'), title: 'Flights', icon: PaperAirplaneIcon },
+            ].filter(g => g.items.length > 0);
+
+            return serviceGroups.length > 0 ? serviceGroups.map(group => (
+              <div key={group.title} className="card">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <group.icon className="w-5 h-5 text-purple-600" />
+                  {group.title}
+                </h3>
+                <div className="space-y-4">
+                  {group.items.map((hotel, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors"
+                    >
+                      <div>
+                        <p className="font-semibold text-gray-900">{hotel.name || hotel.hotel_name}</p>
+                        <p className="text-sm text-gray-500">
+                          {hotel.room_type}{hotel.meal_plan ? ` • ${hotel.meal_plan}` : ''}
+                        </p>
+                        {hotel.nights && (
+                          <p className="text-sm text-gray-400">{hotel.nights} nights</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-purple-600">
+                          R {(hotel.total_price || 0).toLocaleString()}
+                        </p>
+                        <p className="text-sm text-gray-500">Total</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )) : (
-                <p className="text-gray-500 text-center py-4">No hotel options available</p>
-              )}
-            </div>
-          </div>
+              </div>
+            )) : (
+              <div className="card">
+                <p className="text-gray-500 text-center py-4">No options available</p>
+              </div>
+            );
+          })()}
 
           {/* Quote Preview */}
           <div className="card">
@@ -514,14 +572,14 @@ export default function QuoteDetail() {
             </h3>
             <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
               <iframe
-                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/quotes/${quote.quote_id}/pdf`}
+                src={`${pdfUrl('quotes', quote.quote_id)}`}
                 className="w-full h-[600px]"
                 title="Quote Preview"
               />
             </div>
             <div className="mt-3 flex justify-center gap-3">
               <a
-                href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/quotes/${quote.quote_id}/pdf`}
+                href={`${pdfUrl('quotes', quote.quote_id)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary text-sm inline-flex items-center gap-1"
@@ -570,12 +628,12 @@ export default function QuoteDetail() {
                   <p className="text-sm text-gray-500">{formatDateTime(quote.created_at)}</p>
                 </div>
               </div>
-              {quote.sent_at && (
+              {(quote.email_sent_at || quote.sent_at) && (
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
                   <div>
                     <p className="font-medium text-gray-900">Sent</p>
-                    <p className="text-sm text-gray-500">{formatDateTime(quote.sent_at)}</p>
+                    <p className="text-sm text-gray-500">{formatDateTime(quote.email_sent_at || quote.sent_at)}</p>
                   </div>
                 </div>
               )}

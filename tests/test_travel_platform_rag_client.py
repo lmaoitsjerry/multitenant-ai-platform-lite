@@ -73,8 +73,8 @@ class TestClientInitialization:
         with patch.dict('os.environ', {}, clear=True):
             client = TravelPlatformRAGClient()
 
-            assert client.base_url == 'http://localhost:8000'
-            assert client.tenant_slug == 'itc'
+            assert client.base_url == 'http://localhost:8080'
+            assert client.tenant_slug == 'itc-platform'
             assert client.timeout == 30
 
     def test_client_sets_auth_header(self, mock_env):
@@ -84,7 +84,7 @@ class TestClientInitialization:
         client = TravelPlatformRAGClient()
 
         assert 'Authorization' in client.session.headers
-        assert client.session.headers['Authorization'] == 'Bearer test-api-key'
+        assert client.session.headers['Authorization'] == 'ApiKey test-api-key'
 
     def test_client_marks_as_initialized(self, mock_env):
         """Client should mark itself as initialized."""
@@ -414,13 +414,13 @@ class TestClientInitEdgeCases:
             client = TravelPlatformRAGClient()
             assert 'localhost' in client.base_url or '127.0.0.1' in client.base_url
 
-    def test_client_default_tenant_is_itc(self):
-        """Default tenant slug should be 'itc'."""
+    def test_client_default_tenant_is_itc_platform(self):
+        """Default tenant slug should be 'itc-platform'."""
         from src.services.travel_platform_rag_client import TravelPlatformRAGClient
 
         with patch.dict('os.environ', {}, clear=True):
             client = TravelPlatformRAGClient()
-            assert client.tenant_slug == 'itc'
+            assert client.tenant_slug == 'itc-platform'
 
     def test_client_default_timeout_is_30(self):
         """Default timeout should be 30 seconds."""
@@ -642,15 +642,15 @@ class TestResponseParsing:
 class TestAuthHeaders:
     """Tests for authentication header configuration."""
 
-    def test_bearer_token_format(self, mock_env):
-        """Authorization header should use Bearer token format."""
+    def test_apikey_token_format(self, mock_env):
+        """Authorization header should use ApiKey token format."""
         from src.services.travel_platform_rag_client import TravelPlatformRAGClient
 
         client = TravelPlatformRAGClient()
         auth = client.session.headers.get('Authorization')
 
-        assert auth.startswith('Bearer ')
-        assert auth == 'Bearer test-api-key'
+        assert auth.startswith('ApiKey ')
+        assert auth == 'ApiKey test-api-key'
 
     def test_no_api_key_results_in_empty_auth(self):
         """When no API key is set, Authorization header should be empty."""

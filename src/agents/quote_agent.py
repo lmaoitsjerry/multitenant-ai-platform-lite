@@ -29,8 +29,9 @@ Usage:
 """
 
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import uuid
 import json
 
@@ -39,8 +40,25 @@ from config.database import DatabaseTables
 from src.tools.bigquery_tool import BigQueryTool
 from src.utils.pdf_generator import PDFGenerator
 from src.utils.email_sender import EmailSender
+from src.utils.field_normalizers import normalize_quote_status
 
 logger = logging.getLogger(__name__)
+
+
+def run_async(coro):
+    """Helper to run async code from sync context"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If there's a running loop, create a new task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 class QuoteAgent:
@@ -48,15 +66,20 @@ class QuoteAgent:
 
     def __init__(self, config: ClientConfig):
         """
-        Initialize quote agent with client configuration
+        Initialize quote agent with client configuration.
+
+        Heavy dependencies (BigQuery, PDF, Email) are lazy-loaded on first use
+        to keep list/get operations fast.
         """
         self.config = config
         self.db = DatabaseTables(config)
-        self.bq_tool = BigQueryTool(config)
-        self.pdf_generator = PDFGenerator(config)
-        self.email_sender = EmailSender(config)
-        
-        # Initialize Supabase for quote storage
+
+        # Lazy-initialized heavy dependencies (set to sentinel)
+        self._bq_tool = None
+        self._pdf_generator = None
+        self._email_sender = None
+
+        # Initialize Supabase for quote storage (lightweight, needed for all ops)
         self.supabase = None
         try:
             from src.tools.supabase_tool import SupabaseTool
@@ -72,11 +95,41 @@ class QuoteAgent:
         except Exception as e:
             logger.warning(f"CRM service not available: {e}")
 
+        # Initialize Rates Engine client for live pricing
+        self.rates_client = None
+        try:
+            from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+            self.rates_client = get_travel_platform_rates_client()
+            logger.info("Rates Engine client initialized")
+        except Exception as e:
+            logger.warning(f"Rates Engine client not available: {e}")
+
         # Settings
         self.max_hotels_per_quote = 3
         self.default_nights = 7
 
         logger.info(f"Quote agent initialized for {config.client_id}")
+
+    @property
+    def bq_tool(self):
+        """Lazy-load BigQuery tool (slow init, only needed for quote generation)."""
+        if self._bq_tool is None:
+            self._bq_tool = BigQueryTool(self.config)
+        return self._bq_tool
+
+    @property
+    def pdf_generator(self):
+        """Lazy-load PDF generator (only needed for quote generation/resend)."""
+        if self._pdf_generator is None:
+            self._pdf_generator = PDFGenerator(self.config)
+        return self._pdf_generator
+
+    @property
+    def email_sender(self):
+        """Lazy-load email sender (only needed for sending quotes)."""
+        if self._email_sender is None:
+            self._email_sender = EmailSender(self.config)
+        return self._email_sender
 
     def generate_quote(
         self,
@@ -84,7 +137,8 @@ class QuoteAgent:
         send_email: bool = True,
         assign_consultant: bool = True,
         selected_hotels: Optional[List[str]] = None,
-        initial_status: str = "generated"
+        initial_status: str = "quoted",
+        use_live_rates: bool = True
     ) -> Dict[str, Any]:
         """
         Generate a complete quote for customer
@@ -97,9 +151,11 @@ class QuoteAgent:
             initial_status: Initial quote status - 'draft' or 'generated' (default).
                            Use initial_status='draft' for email auto-quotes that require
                            consultant review before sending.
+            use_live_rates: Whether to use live Juniper rates (default: True).
+                           If False, falls back to BigQuery cached rates.
         """
         try:
-            logger.info(f"Generating quote for {customer_data.get('email')}")
+            logger.info(f"Generating quote for {customer_data.get('email')} (live_rates={use_live_rates})")
             if selected_hotels:
                 logger.info(f"User selected hotels: {selected_hotels}")
 
@@ -109,40 +165,56 @@ class QuoteAgent:
             # Validate and normalize input
             normalized = self._normalize_customer_data(customer_data)
 
-            # Find matching hotels - use different approach for user-selected vs auto-select
-            if selected_hotels:
-                # User selected specific hotels - use relaxed date filtering
-                logger.info(f"User selected {len(selected_hotels)} hotels: {selected_hotels}")
-                hotels = self.bq_tool.find_rates_by_hotel_names(
-                    hotel_names=selected_hotels,
-                    nights=normalized['nights'],
-                    check_in=normalized['check_in'],
-                    check_out=normalized['check_out']
-                )
-                logger.info(f"Found {len(hotels)} rate records for selected hotels")
-            else:
-                # Auto-select mode - use destination-based query with date filtering
-                hotels = self._find_hotels(normalized)
-                logger.info(f"Found {len(hotels)} hotels from database for {normalized['destination']}")
+            # Find matching hotels - use live rates or BigQuery based on flag
+            hotels = []
+            hotel_options = []
 
-            if not hotels:
-                logger.warning(f"No hotels found for {normalized['destination']}")
-                return {
-                    'success': False,
-                    'quote_id': quote_id,
-                    'error': f"No available hotels found for {normalized['destination']}",
-                    'status': 'no_availability'
-                }
+            if use_live_rates and self.rates_client:
+                # Use live Juniper rates via Rates Engine
+                logger.info(f"Using live rates for {normalized['destination']}")
+                hotel_options = self._find_hotels_live(normalized, selected_hotels)
+                if hotel_options:
+                    logger.info(f"Found {len(hotel_options)} hotels from live rates")
+                else:
+                    logger.warning("No live rates available, falling back to BigQuery")
+                    use_live_rates = False
 
-            # Calculate pricing for each hotel
-            hotel_options = self._calculate_hotel_options(hotels, normalized)
+            if not use_live_rates or not hotel_options:
+                # Fallback to BigQuery cached rates
+                if selected_hotels:
+                    # User selected specific hotels - use relaxed date filtering
+                    logger.info(f"User selected {len(selected_hotels)} hotels: {selected_hotels}")
+                    hotels = self.bq_tool.find_rates_by_hotel_names(
+                        hotel_names=selected_hotels,
+                        nights=normalized['nights'],
+                        check_in=normalized['check_in'],
+                        check_out=normalized['check_out']
+                    )
+                    logger.info(f"Found {len(hotels)} rate records for selected hotels")
+                else:
+                    # Auto-select mode - use destination-based query with date filtering
+                    hotels = self._find_hotels(normalized)
+                    logger.info(f"Found {len(hotels)} hotels from database for {normalized['destination']}")
 
+                if not hotels:
+                    logger.warning(f"No hotels found for {normalized['destination']}")
+                    return {
+                        'success': False,
+                        'quote_id': quote_id,
+                        'error': f"No available hotels found for {normalized['destination']}",
+                        'status': 'no_availability'
+                    }
+
+                # Calculate pricing for each hotel (BigQuery path)
+                hotel_options = self._calculate_hotel_options(hotels, normalized)
+
+            # Check we have hotel options from either path
             if not hotel_options:
                 return {
                     'success': False,
                     'quote_id': quote_id,
-                    'error': 'Failed to calculate pricing',
-                    'status': 'pricing_error'
+                    'error': 'Failed to find available hotels with pricing',
+                    'status': 'no_availability'
                 }
 
             # Select top hotels (limit to max)
@@ -169,7 +241,7 @@ class QuoteAgent:
                 'hotels': final_hotels,
                 'total_price': final_hotels[0]['total_price'] if final_hotels else 0,
                 'consultant': consultant,
-                'status': initial_status,  # Use initial_status ('draft' or 'generated')
+                'status': normalize_quote_status(initial_status),
                 'created_at': datetime.utcnow().isoformat()
             }
 
@@ -191,7 +263,14 @@ class QuoteAgent:
                         customer_email=normalized['email'],
                         customer_name=normalized['name'],
                         quote_pdf_data=pdf_bytes,
-                        destination=normalized['destination']
+                        destination=normalized['destination'],
+                        quote_details={
+                            'check_in': normalized.get('check_in'),
+                            'check_out': normalized.get('check_out'),
+                            'adults': normalized.get('adults', 0),
+                            'children': normalized.get('children', 0),
+                            'nights': normalized.get('nights', 0),
+                        },
                     )
                     if email_sent:
                         quote['sent_at'] = datetime.utcnow().isoformat()
@@ -205,7 +284,7 @@ class QuoteAgent:
                 quote['status'] = 'draft'
             else:
                 quote['email_sent'] = email_sent
-                quote['status'] = 'sent' if email_sent else 'generated'
+                quote['status'] = 'sent' if email_sent else 'quoted'
 
             # Auto-queue follow-up call for next business day if email was sent (skip for drafts)
             call_queued = False
@@ -220,8 +299,15 @@ class QuoteAgent:
 
             quote['call_queued'] = call_queued
 
-            # Save quote to Supabase
+            # Save quote to Supabase — must succeed for quote_id to be valid
             saved = self._save_quote_to_supabase(quote)
+            if not saved:
+                logger.error(f"Quote {quote_id} generated but failed to save to Supabase")
+                return {
+                    'success': False,
+                    'error': 'Quote generated but failed to save. Please try again.',
+                    'quote_id': None,
+                }
 
             # Auto-add to CRM
             crm_result = self._add_to_crm(normalized, quote_id)
@@ -254,10 +340,10 @@ class QuoteAgent:
             }
 
         except Exception as e:
-            logger.error(f"Quote generation failed: {e}")
+            logger.error(f"Quote generation failed: {e}", exc_info=True)
             return {
                 'success': False,
-                'error': str(e),
+                'error': 'Quote generation failed. Please try again.',
                 'status': 'error'
             }
 
@@ -330,8 +416,8 @@ class QuoteAgent:
                 return {'success': False}
                 
         except Exception as e:
-            logger.error(f"Failed to add to CRM: {e}")
-            return {'success': False, 'error': str(e)}
+            logger.error(f"Failed to add to CRM: {e}", exc_info=True)
+            return {'success': False, 'error': 'Failed to add client to CRM'}
 
     def _generate_quote_id(self) -> str:
         """Generate unique quote ID"""
@@ -375,9 +461,21 @@ class QuoteAgent:
             default_checkout = check_in_date + timedelta(days=self.default_nights)
             normalized['check_out'] = default_checkout.strftime('%Y-%m-%d')
 
-        # Calculate nights
+        # Validate dates are not in the past — advance to next year if needed
         check_in_dt = datetime.strptime(normalized['check_in'], '%Y-%m-%d')
         check_out_dt = datetime.strptime(normalized['check_out'], '%Y-%m-%d')
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        if check_in_dt < today:
+            # Advance to same month/day in the next valid year
+            while check_in_dt < today:
+                check_in_dt = check_in_dt.replace(year=check_in_dt.year + 1)
+            nights_delta = check_out_dt - datetime.strptime(normalized['check_in'], '%Y-%m-%d')
+            check_out_dt = check_in_dt + nights_delta
+            normalized['check_in'] = check_in_dt.strftime('%Y-%m-%d')
+            normalized['check_out'] = check_out_dt.strftime('%Y-%m-%d')
+            logger.info(f"Adjusted past dates to future: {normalized['check_in']} - {normalized['check_out']}")
+
+        # Calculate nights
         normalized['nights'] = (check_out_dt - check_in_dt).days
 
         # Validate destination against config
@@ -406,6 +504,167 @@ class QuoteAgent:
         )
 
         return hotels
+
+    def _find_hotels_live(
+        self,
+        customer_data: Dict[str, Any],
+        selected_hotels: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find matching hotels using live Juniper rates via Rates Engine.
+
+        Args:
+            customer_data: Normalized customer data with destination, dates, etc.
+            selected_hotels: Optional list of specific hotel names to include
+
+        Returns:
+            List of hotel options formatted for quote generation
+        """
+        if not self.rates_client:
+            logger.warning("Rates client not available for live search")
+            return []
+
+        try:
+            # Parse dates
+            check_in = datetime.strptime(customer_data['check_in'], '%Y-%m-%d').date()
+            check_out = datetime.strptime(customer_data['check_out'], '%Y-%m-%d').date()
+
+            # Call rates engine async
+            logger.info(
+                f"Live rates search: destination={customer_data['destination']}, "
+                f"dates={check_in} to {check_out}, adults={customer_data['adults']}"
+            )
+
+            result = run_async(
+                self.rates_client.search_hotels(
+                    destination=customer_data['destination'],
+                    check_in=check_in,
+                    check_out=check_out,
+                    adults=customer_data['adults'],
+                    children_ages=customer_data.get('children_ages', []),
+                    max_hotels=100  # Get more to filter/select from
+                )
+            )
+
+            if not result.get('success') or not result.get('hotels'):
+                logger.warning(f"No live rates found: {result.get('error', 'No hotels returned')}")
+                return []
+
+            # Transform hotels to quote format
+            hotel_options = []
+            nights = customer_data['nights']
+            total_guests = customer_data['adults'] + customer_data.get('children', 0)
+
+            for hotel in result['hotels']:
+                hotel_name = hotel.get('hotel_name', 'Unknown Hotel')
+
+                # Filter by selected hotels if provided
+                if selected_hotels:
+                    # Fuzzy match - check if any selected hotel name matches
+                    matched = False
+                    hotel_name_lower = hotel_name.lower()
+                    for selected in selected_hotels:
+                        if selected.lower() in hotel_name_lower or hotel_name_lower in selected.lower():
+                            matched = True
+                            break
+                    if not matched:
+                        continue
+
+                # Get hotel details
+                stars = hotel.get('stars') or 4
+                rating = f"{stars}*"
+                image_url = hotel.get('image_url')
+
+                # Process each room option
+                options = hotel.get('options', [])
+                if not options:
+                    # Use cheapest_price if no options array
+                    if hotel.get('cheapest_price'):
+                        options = [{
+                            'room_type': 'Standard Room',
+                            'meal_plan': hotel.get('cheapest_meal_plan', 'Bed & Breakfast'),
+                            'price_total': hotel.get('cheapest_price'),
+                            'price_per_night': hotel.get('cheapest_price') / max(nights, 1),
+                            'currency': 'ZAR'
+                        }]
+                    else:
+                        continue  # Skip hotels with no pricing
+
+                for option in options:
+                    room_type = option.get('room_type', 'Standard Room')
+                    meal_plan = option.get('meal_plan', 'Bed & Breakfast')
+                    total_price = option.get('price_total', 0)
+                    price_per_night = option.get('price_per_night', 0)
+                    currency = option.get('currency', 'ZAR')
+
+                    if total_price <= 0:
+                        continue
+
+                    # Calculate per-person price
+                    price_per_person = total_price / max(total_guests, 1)
+
+                    # Build pricing breakdown for PDF template
+                    pricing_breakdown = {
+                        'per_person_rates': {
+                            'adult_sharing': round(price_per_person, 2)
+                        },
+                        'totals': {
+                            'accommodation': round(total_price, 2),
+                            'flights': 0,
+                            'transfers': 0,
+                            'grand_total': round(total_price, 2)
+                        },
+                        'nights': nights,
+                        'currency': currency
+                    }
+
+                    hotel_option = {
+                        'name': hotel_name,
+                        'hotel_name': hotel_name,
+                        'rating': rating,
+                        'room_type': room_type,
+                        'meal_plan': meal_plan,
+                        'price_per_person': round(price_per_person, 2),
+                        'total_price': round(total_price, 2),
+                        'price_per_night': round(price_per_night, 2),
+                        'includes_flights': False,
+                        'includes_transfers': False,  # Live rates = accommodation only
+                        'rate_id': hotel.get('hotel_id'),
+                        'currency': currency,
+                        'image_url': image_url,
+                        'pricing_breakdown': pricing_breakdown,
+                        'source': 'live_rates'  # Mark as live rates for tracking
+                    }
+
+                    hotel_options.append(hotel_option)
+
+            # Sort by total price (cheapest first)
+            hotel_options.sort(key=lambda x: x['total_price'])
+
+            # If budget specified, prefer hotels closest to budget
+            budget = customer_data.get('budget')
+            if budget:
+                try:
+                    budget_value = float(budget)
+                    # Sort by proximity to budget (prefer slightly under to over)
+                    hotel_options.sort(key=lambda x: abs(x['price_per_person'] - budget_value))
+                except (ValueError, TypeError):
+                    pass  # Keep price-based sort
+
+            # Deduplicate by hotel name (keep best option per hotel)
+            seen_hotels = set()
+            unique_options = []
+            for option in hotel_options:
+                if option['hotel_name'] not in seen_hotels:
+                    unique_options.append(option)
+                    seen_hotels.add(option['hotel_name'])
+
+            logger.info(f"Live rates: {len(unique_options)} unique hotel options")
+            return unique_options
+
+        except Exception as e:
+            logger.error(f"Live rates search failed: {e}", exc_info=True)
+            return []
 
     def _calculate_hotel_options(
         self,
@@ -470,8 +729,8 @@ class QuoteAgent:
                 'customer_email': quote['customer_email'],
                 'customer_phone': quote.get('customer_phone'),
                 'destination': quote['destination'],
-                'check_in_date': quote['check_in_date'],
-                'check_out_date': quote['check_out_date'],
+                'check_in': quote.get('check_in_date', quote.get('check_in', '')),
+                'check_out': quote.get('check_out_date', quote.get('check_out', '')),
                 'nights': quote['nights'],
                 'adults': quote['adults'],
                 'children': quote.get('children', 0),
@@ -500,6 +759,7 @@ class QuoteAgent:
     def get_quote(self, quote_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve quote by ID from Supabase"""
         if not self.supabase or not self.supabase.client:
+            logger.warning(f"[GET_QUOTE] Supabase not available for quote {quote_id}")
             return None
 
         try:
@@ -507,15 +767,29 @@ class QuoteAgent:
                 .select("*")\
                 .eq('tenant_id', self.config.client_id)\
                 .eq('quote_id', quote_id)\
-                .single()\
+                .limit(1)\
                 .execute()
 
-            if result.data:
-                return result.data
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+
+            # Fallback: try by UUID id column (in case some paths pass UUID)
+            result = self.supabase.client.table('quotes')\
+                .select("*")\
+                .eq('tenant_id', self.config.client_id)\
+                .eq('id', quote_id)\
+                .limit(1)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                logger.info(f"[GET_QUOTE] Found quote by UUID id instead of quote_id: {quote_id}")
+                return result.data[0]
+
+            logger.warning(f"[GET_QUOTE] Quote not found: quote_id={quote_id}, tenant={self.config.client_id}")
             return None
 
         except Exception as e:
-            logger.error(f"Failed to get quote: {e}")
+            logger.error(f"Failed to get quote {quote_id}: {e}")
             return None
 
     def list_quotes(
@@ -766,11 +1040,11 @@ class QuoteAgent:
                 pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
                 logger.info(f"PDF regenerated for quote {quote_id}")
             except Exception as e:
-                logger.error(f"PDF generation failed for quote {quote_id}: {e}")
+                logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
                 return {
                     'success': False,
                     'quote_id': quote_id,
-                    'error': f'PDF generation failed: {str(e)}'
+                    'error': 'PDF generation failed'
                 }
 
             if not pdf_bytes:
@@ -791,11 +1065,11 @@ class QuoteAgent:
                     quote_id=quote_id
                 )
             except Exception as e:
-                logger.error(f"Email sending failed for quote {quote_id}: {e}")
+                logger.error(f"Email sending failed for quote {quote_id}: {e}", exc_info=True)
                 return {
                     'success': False,
                     'quote_id': quote_id,
-                    'error': f'Email sending failed: {str(e)}'
+                    'error': 'Email sending failed'
                 }
 
             if not email_sent:
@@ -847,11 +1121,11 @@ class QuoteAgent:
             }
 
         except Exception as e:
-            logger.error(f"Error sending draft quote {quote_id}: {e}")
+            logger.error(f"Error sending draft quote {quote_id}: {e}", exc_info=True)
             return {
                 'success': False,
                 'quote_id': quote_id,
-                'error': str(e)
+                'error': 'Failed to send quote'
             }
 
     def resend_quote(self, quote_id: str) -> Dict[str, Any]:
@@ -913,11 +1187,11 @@ class QuoteAgent:
                 pdf_bytes = self.pdf_generator.generate_quote_pdf(quote, hotels, customer_data)
                 logger.info(f"PDF regenerated for quote {quote_id}")
             except Exception as e:
-                logger.error(f"PDF generation failed for quote {quote_id}: {e}")
+                logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
                 return {
                     'success': False,
                     'quote_id': quote_id,
-                    'error': f'PDF generation failed: {str(e)}'
+                    'error': 'PDF generation failed'
                 }
 
             if not pdf_bytes:
@@ -938,11 +1212,11 @@ class QuoteAgent:
                 )
                 logger.info(f"Quote {quote_id} resent to {customer_email}")
             except Exception as e:
-                logger.error(f"Email send failed for quote {quote_id}: {e}")
+                logger.error(f"Email send failed for quote {quote_id}: {e}", exc_info=True)
                 return {
                     'success': False,
                     'quote_id': quote_id,
-                    'error': f'Email send failed: {str(e)}'
+                    'error': 'Email sending failed'
                 }
 
             sent_at = datetime.now().isoformat()
@@ -956,9 +1230,9 @@ class QuoteAgent:
             }
 
         except Exception as e:
-            logger.error(f"Error resending quote {quote_id}: {e}")
+            logger.error(f"Error resending quote {quote_id}: {e}", exc_info=True)
             return {
                 'success': False,
                 'quote_id': quote_id,
-                'error': str(e)
+                'error': 'Failed to resend quote'
             }

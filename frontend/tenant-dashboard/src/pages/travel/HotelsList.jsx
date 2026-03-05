@@ -21,6 +21,7 @@ import {
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { hotelsApi, travelApi } from '../../services/api';
 import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
+import HotelDetailModal from '../../components/travel/HotelDetailModal';
 
 // ==================== Filter Sidebar Component ====================
 // Also available as shared component: import FilterSidebar from '../../components/travel/HotelFilters';
@@ -225,9 +226,11 @@ function FilterSidebar({
   );
 }
 
-// ==================== Hotel Detail Modal ====================
-function HotelDetailModal({ hotel, onClose, formatCurrency, renderStars, formatRoomType, getProviderStyle, checkIn, checkOut, calculateNights }) {
+// ==================== Legacy Hotel Detail Modal (kept for reference, now using shared component) ====================
+function HotelDetailModalLegacy({ hotel, onClose, formatCurrency, renderStars, formatRoomType, getProviderStyle, checkIn, checkOut, calculateNights }) {
   if (!hotel) return null;
+  const nights = calculateNights ? calculateNights() : 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -247,13 +250,38 @@ function HotelDetailModal({ hotel, onClose, formatCurrency, renderStars, formatR
               </div>
               <div className="flex items-center gap-3 mt-2">
                 {renderStars(hotel.stars)}
-                {hotel.zone && <span className="text-sm text-gray-500"><MapPinIcon className="h-4 w-4 inline" /> {hotel.zone}</span>}
+                {hotel.zone && (
+                  hotel.latitude && hotel.longitude ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${hotel.latitude},${hotel.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-theme-primary hover:underline inline-flex items-center gap-0.5"
+                    >
+                      <MapPinIcon className="h-4 w-4" /> {hotel.zone}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-500"><MapPinIcon className="h-4 w-4 inline" /> {hotel.zone}</span>
+                  )
+                )}
+                {hotel.address && !hotel.zone && (
+                  <span className="text-sm text-gray-500"><MapPinIcon className="h-4 w-4 inline" /> {hotel.address}</span>
+                )}
               </div>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600">
               <XMarkIcon className="h-6 w-6" />
             </button>
           </div>
+
+          {/* Trip Details Bar */}
+          {(checkIn || checkOut || nights > 0) && (
+            <div className="mt-4 flex items-center gap-4 text-sm bg-blue-50 rounded-lg p-3">
+              {checkIn && <span className="text-blue-700"><CalendarIcon className="h-4 w-4 inline mr-1" />Check-in: {checkIn}</span>}
+              {checkOut && <span className="text-blue-700"><CalendarIcon className="h-4 w-4 inline mr-1" />Check-out: {checkOut}</span>}
+              {nights > 0 && <span className="text-blue-700 font-medium">{nights} night{nights !== 1 ? 's' : ''}</span>}
+            </div>
+          )}
 
           {hotel.description && (
             <div className="mt-4">
@@ -262,25 +290,75 @@ function HotelDetailModal({ hotel, onClose, formatCurrency, renderStars, formatR
             </div>
           )}
 
+          {/* Amenities */}
+          {hotel.amenities && hotel.amenities.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-medium text-gray-900 mb-2">Amenities</h3>
+              <div className="flex flex-wrap gap-2">
+                {hotel.amenities.map((amenity, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
+                    {amenity.toLowerCase().includes('wifi') || amenity.toLowerCase().includes('internet') ? (
+                      <WifiIcon className="h-3 w-3" />
+                    ) : amenity.toLowerCase().includes('pool') || amenity.toLowerCase().includes('swim') ? (
+                      <GlobeAltIcon className="h-3 w-3" />
+                    ) : null}
+                    {amenity}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {hotel.options && hotel.options.length > 0 && (
             <div className="mt-6">
               <h3 className="font-medium text-gray-900 mb-3">Room Options ({hotel.options.length})</h3>
               <div className="space-y-2">
                 {hotel.options.map((option, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <div>
-                      <span className="font-medium text-gray-900">{formatRoomType(option.room_type)}</span>
-                      <span className="text-gray-400 mx-2">&middot;</span>
-                      <span className="text-gray-600">{option.meal_plan}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <span className="font-semibold text-gray-900">{formatCurrency(option.price_total, option.currency)}</span>
-                        {option.price_per_night > 0 && (
-                          <div className="text-xs text-gray-500">{formatCurrency(option.price_per_night, option.currency)}/night</div>
+                  <div key={idx} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">{formatRoomType(option.room_type)}</span>
+                          <span className="text-gray-400">&middot;</span>
+                          <span className="text-gray-600">{option.meal_plan}</span>
+                          {option.provider && (
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              option.provider === 'hotelbeds' ? 'bg-orange-100 text-orange-700'
+                              : option.provider === 'juniper' ? 'bg-blue-100 text-blue-700'
+                              : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {option.provider === 'hotelbeds' ? 'HotelBeds' : option.provider === 'juniper' ? 'Juniper' : option.provider}
+                            </span>
+                          )}
+                          {option.refundable !== undefined && option.refundable !== null && (
+                            option.refundable ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                                <CheckCircleIcon className="h-3 w-3" /> Free cancellation
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                <XCircleIcon className="h-3 w-3" /> Non-refundable
+                              </span>
+                            )
+                          )}
+                        </div>
+                        {(option.bed_type || option.view || option.room_size) && (
+                          <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+                            {option.bed_type && <span>{option.bed_type}</span>}
+                            {option.view && <><span className="text-gray-300">&middot;</span><span>{option.view}</span></>}
+                            {option.room_size && <><span className="text-gray-300">&middot;</span><span>{option.room_size}</span></>}
+                          </div>
                         )}
                       </div>
-                      <AddToQuoteButton item={{ id: `${hotel.hotel_id}-${idx}`, type: 'hotel', name: hotel.hotel_name, price: option.price_total, currency: option.currency || 'EUR', details: { hotel_id: hotel.hotel_id, room_type: option.room_type, meal_plan: option.meal_plan, stars: hotel.stars, check_in: checkIn, check_out: checkOut } }} size="sm" />
+                      <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                        <div className="text-right">
+                          <span className="font-semibold text-gray-900">{formatCurrency(option.price_total, option.currency)}</span>
+                          {option.price_per_night > 0 && (
+                            <div className="text-xs text-gray-500">{formatCurrency(option.price_per_night, option.currency)}/night</div>
+                          )}
+                        </div>
+                        <AddToQuoteButton item={{ id: `${hotel.hotel_id}-${idx}`, type: 'hotel', name: hotel.hotel_name, price: option.price_total, currency: option.currency || 'EUR', details: { hotel_id: hotel.hotel_id, room_type: option.room_type, meal_plan: option.meal_plan, stars: hotel.stars, check_in: checkIn, check_out: checkOut } }} size="sm" />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -314,6 +392,7 @@ export default function HotelsList() {
   const [expandedHotel, setExpandedHotel] = useState(null);
   const [selectedHotel, setSelectedHotel] = useState(null);
   const [showAllOptions, setShowAllOptions] = useState({}); // Track which hotels show all room options
+  const [visibleCount, setVisibleCount] = useState(20); // Client-side pagination
 
   // Filter state
   const [filters, setFilters] = useState({
@@ -535,6 +614,7 @@ export default function HotelsList() {
     setError(null);
     setHotels([]);
     setSearchTime(null);
+    setVisibleCount(20);
     clearFilters(); // Reset filters on new search
 
     // Calculate total adults from all rooms (API currently supports single room)
@@ -965,7 +1045,7 @@ export default function HotelsList() {
             {/* Hotel Cards */}
             {filteredHotels.length > 0 ? (
               <div className="grid gap-4">
-                {filteredHotels.map((hotel) => (
+                {filteredHotels.slice(0, visibleCount).map((hotel) => (
                   <div
                     key={hotel.hotel_id}
                     className="card overflow-hidden hover:shadow-md transition-shadow"
@@ -1212,6 +1292,16 @@ export default function HotelsList() {
                     )}
                   </div>
                 ))}
+                {filteredHotels.length > visibleCount && (
+                  <div className="flex justify-center pt-4">
+                    <button
+                      onClick={() => setVisibleCount(prev => prev + 20)}
+                      className="px-6 py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                    >
+                      Show more ({filteredHotels.length - visibleCount} remaining)
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="card p-8 text-center">
@@ -1271,13 +1361,10 @@ export default function HotelsList() {
         <HotelDetailModal
           hotel={selectedHotel}
           onClose={() => setSelectedHotel(null)}
-          formatCurrency={formatCurrency}
-          renderStars={renderStars}
-          formatRoomType={formatRoomType}
-          getProviderStyle={getProviderStyle}
           checkIn={checkIn}
           checkOut={checkOut}
-          calculateNights={calculateNights}
+          nights={calculateNights()}
+          formatCurrency={formatCurrency}
         />
       )}
     </div>

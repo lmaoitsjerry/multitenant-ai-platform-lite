@@ -553,9 +553,7 @@ class TestGetMyConsentsUnit:
             "email": "user@example.com",
             "is_admin": False
         }
-
-    @pytest.mark.asyncio
-    async def test_get_my_consents_success(self, mock_config, mock_user):
+    def test_get_my_consents_success(self, mock_config, mock_user):
         """get_my_consents should return consent map."""
         from src.api.privacy_routes import get_my_consents
 
@@ -575,7 +573,7 @@ class TestGetMyConsentsUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await get_my_consents(
+            result = get_my_consents(
                 current_user=mock_user,
                 config=mock_config
             )
@@ -584,9 +582,7 @@ class TestGetMyConsentsUnit:
         assert 'consents' in result
         assert 'marketing_email' in result['consents']
         assert result['consents']['marketing_email']['granted'] is True
-
-    @pytest.mark.asyncio
-    async def test_get_my_consents_empty(self, mock_config, mock_user):
+    def test_get_my_consents_empty(self, mock_config, mock_user):
         """get_my_consents should return defaults when no consents exist."""
         from src.api.privacy_routes import get_my_consents
 
@@ -598,7 +594,7 @@ class TestGetMyConsentsUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await get_my_consents(
+            result = get_my_consents(
                 current_user=mock_user,
                 config=mock_config
             )
@@ -634,9 +630,7 @@ class TestUpdateConsentUnit:
         request.client.host = "192.168.1.1"
         request.headers = {"user-agent": "Test Agent"}
         return request
-
-    @pytest.mark.asyncio
-    async def test_update_consent_new(self, mock_config, mock_user, mock_request):
+    def test_update_consent_new(self, mock_config, mock_user, mock_request):
         """update_consent should create new consent record."""
         from src.api.privacy_routes import update_consent, ConsentUpdate
 
@@ -654,7 +648,7 @@ class TestUpdateConsentUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
             with patch('src.api.privacy_routes._log_pii_access'):
-                result = await update_consent(
+                result = update_consent(
                     consent=consent,
                     request=mock_request,
                     current_user=mock_user,
@@ -664,9 +658,7 @@ class TestUpdateConsentUnit:
         assert result['success'] is True
         assert result['consent_type'] == 'marketing_email'
         assert result['granted'] is True
-
-    @pytest.mark.asyncio
-    async def test_update_consent_existing(self, mock_config, mock_user, mock_request):
+    def test_update_consent_existing(self, mock_config, mock_user, mock_request):
         """update_consent should update existing consent record."""
         from src.api.privacy_routes import update_consent, ConsentUpdate
 
@@ -685,7 +677,7 @@ class TestUpdateConsentUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
             with patch('src.api.privacy_routes._log_pii_access'):
-                result = await update_consent(
+                result = update_consent(
                     consent=consent,
                     request=mock_request,
                     current_user=mock_user,
@@ -720,9 +712,7 @@ class TestSubmitDSARUnit:
         request.client = MagicMock()
         request.client.host = "192.168.1.1"
         return request
-
-    @pytest.mark.asyncio
-    async def test_submit_dsar_success(self, mock_config, mock_user, mock_request):
+    def test_submit_dsar_success(self, mock_config, mock_user, mock_request):
         """submit_dsar should create DSAR record."""
         from src.api.privacy_routes import submit_dsar, DSARRequest
 
@@ -746,7 +736,7 @@ class TestSubmitDSARUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
             with patch('src.api.privacy_routes._log_pii_access'):
-                result = await submit_dsar(
+                result = submit_dsar(
                     dsar=dsar,
                     request=mock_request,
                     background_tasks=mock_background,
@@ -757,9 +747,7 @@ class TestSubmitDSARUnit:
         assert result['success'] is True
         assert result['request_number'] == 'DSAR-2025-001'
         assert result['status'] == 'pending'
-
-    @pytest.mark.asyncio
-    async def test_submit_dsar_for_other_user_denied(self, mock_config, mock_user, mock_request):
+    def test_submit_dsar_for_other_user_denied(self, mock_config, mock_user, mock_request):
         """submit_dsar should deny requests for other users."""
         from src.api.privacy_routes import submit_dsar, DSARRequest
         from fastapi import HTTPException
@@ -774,7 +762,7 @@ class TestSubmitDSARUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool'):
             with pytest.raises(HTTPException) as exc_info:
-                await submit_dsar(
+                submit_dsar(
                     dsar=dsar,
                     request=mock_request,
                     background_tasks=mock_background,
@@ -802,9 +790,7 @@ class TestGetMyDSARsUnit:
             "email": "user@example.com",
             "is_admin": False
         }
-
-    @pytest.mark.asyncio
-    async def test_get_my_dsars_success(self, mock_config, mock_user):
+    def test_get_my_dsars_success(self, mock_config, mock_user):
         """get_my_dsars should return user's DSAR history."""
         from src.api.privacy_routes import get_my_dsars
 
@@ -820,7 +806,7 @@ class TestGetMyDSARsUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await get_my_dsars(
+            result = get_my_dsars(
                 current_user=mock_user,
                 config=mock_config
             )
@@ -846,9 +832,7 @@ class TestGetDSARStatusUnit:
             "email": "user@example.com",
             "is_admin": False
         }
-
-    @pytest.mark.asyncio
-    async def test_get_dsar_status_success(self, mock_config, mock_user):
+    def test_get_dsar_status_success(self, mock_config, mock_user):
         """get_dsar_status should return DSAR details."""
         from src.api.privacy_routes import get_dsar_status
 
@@ -865,7 +849,7 @@ class TestGetDSARStatusUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await get_dsar_status(
+            result = get_dsar_status(
                 request_id="dsar-123",
                 current_user=mock_user,
                 config=mock_config
@@ -873,9 +857,7 @@ class TestGetDSARStatusUnit:
 
         assert result['success'] is True
         assert result['request']['status'] == 'pending'
-
-    @pytest.mark.asyncio
-    async def test_get_dsar_status_not_found(self, mock_config, mock_user):
+    def test_get_dsar_status_not_found(self, mock_config, mock_user):
         """get_dsar_status should raise 404 when not found."""
         from src.api.privacy_routes import get_dsar_status
         from fastapi import HTTPException
@@ -890,7 +872,7 @@ class TestGetDSARStatusUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
             with pytest.raises(HTTPException) as exc_info:
-                await get_dsar_status(
+                get_dsar_status(
                     request_id="notfound",
                     current_user=mock_user,
                     config=mock_config
@@ -923,9 +905,7 @@ class TestRequestDataExportUnit:
         request.client = MagicMock()
         request.client.host = "192.168.1.1"
         return request
-
-    @pytest.mark.asyncio
-    async def test_request_data_export_success(self, mock_config, mock_user, mock_request):
+    def test_request_data_export_success(self, mock_config, mock_user, mock_request):
         """request_data_export should create export request."""
         from src.api.privacy_routes import request_data_export, DataExportRequest
 
@@ -944,7 +924,7 @@ class TestRequestDataExportUnit:
         )
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await request_data_export(
+            result = request_data_export(
                 export_request=export_req,
                 request=mock_request,
                 background_tasks=mock_background,
@@ -980,9 +960,7 @@ class TestRequestDataErasureUnit:
         request.client = MagicMock()
         request.client.host = "192.168.1.1"
         return request
-
-    @pytest.mark.asyncio
-    async def test_request_data_erasure_success(self, mock_config, mock_user, mock_request):
+    def test_request_data_erasure_success(self, mock_config, mock_user, mock_request):
         """request_data_erasure should create erasure request."""
         from src.api.privacy_routes import request_data_erasure
 
@@ -996,7 +974,7 @@ class TestRequestDataErasureUnit:
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
             with patch('src.api.privacy_routes._log_pii_access'):
-                result = await request_data_erasure(
+                result = request_data_erasure(
                     email="user@example.com",
                     request=mock_request,
                     background_tasks=mock_background,
@@ -1025,9 +1003,7 @@ class TestAdminListDSARsUnit:
             "email": "admin@example.com",
             "is_admin": True
         }
-
-    @pytest.mark.asyncio
-    async def test_list_all_dsars_success(self, mock_config, mock_admin_user):
+    def test_list_all_dsars_success(self, mock_config, mock_admin_user):
         """list_all_dsars should return all DSARs for tenant."""
         from src.api.privacy_routes import list_all_dsars
 
@@ -1044,7 +1020,7 @@ class TestAdminListDSARsUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await list_all_dsars(
+            result = list_all_dsars(
                 status=None,
                 limit=50,
                 offset=0,
@@ -1073,9 +1049,7 @@ class TestAdminUpdateDSARUnit:
             "email": "admin@example.com",
             "is_admin": True
         }
-
-    @pytest.mark.asyncio
-    async def test_update_dsar_status_success(self, mock_config, mock_admin_user):
+    def test_update_dsar_status_success(self, mock_config, mock_admin_user):
         """update_dsar_status should update DSAR status."""
         from src.api.privacy_routes import update_dsar_status, DSARStatusUpdate
 
@@ -1092,7 +1066,7 @@ class TestAdminUpdateDSARUnit:
         )
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await update_dsar_status(
+            result = update_dsar_status(
                 request_id="dsar-123",
                 update=update,
                 current_user=mock_admin_user,
@@ -1120,9 +1094,7 @@ class TestAdminAuditLogUnit:
             "email": "admin@example.com",
             "is_admin": True
         }
-
-    @pytest.mark.asyncio
-    async def test_get_audit_log_success(self, mock_config, mock_admin_user):
+    def test_get_audit_log_success(self, mock_config, mock_admin_user):
         """get_audit_log should return audit entries."""
         from src.api.privacy_routes import get_audit_log
 
@@ -1139,7 +1111,7 @@ class TestAdminAuditLogUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await get_audit_log(
+            result = get_audit_log(
                 resource_type=None,
                 action=None,
                 user_email=None,
@@ -1172,9 +1144,7 @@ class TestAdminReportBreachUnit:
             "email": "admin@example.com",
             "is_admin": True
         }
-
-    @pytest.mark.asyncio
-    async def test_report_breach_success(self, mock_config, mock_admin_user):
+    def test_report_breach_success(self, mock_config, mock_admin_user):
         """report_breach should create breach record."""
         from src.api.privacy_routes import report_breach, BreachReport
         from datetime import datetime
@@ -1199,7 +1169,7 @@ class TestAdminReportBreachUnit:
         )
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await report_breach(
+            result = report_breach(
                 breach=breach,
                 background_tasks=mock_background,
                 current_user=mock_admin_user,
@@ -1227,9 +1197,7 @@ class TestAdminListBreachesUnit:
             "email": "admin@example.com",
             "is_admin": True
         }
-
-    @pytest.mark.asyncio
-    async def test_list_breaches_success(self, mock_config, mock_admin_user):
+    def test_list_breaches_success(self, mock_config, mock_admin_user):
         """list_breaches should return breach records."""
         from src.api.privacy_routes import list_breaches
 
@@ -1245,7 +1213,7 @@ class TestAdminListBreachesUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch('src.api.privacy_routes.SupabaseTool', return_value=mock_supabase):
-            result = await list_breaches(
+            result = list_breaches(
                 status=None,
                 current_user=mock_admin_user,
                 config=mock_config
@@ -1260,36 +1228,37 @@ class TestGetClientConfigDependency:
 
     def test_get_client_config_caches(self):
         """get_client_config should cache config instances."""
-        from src.api.privacy_routes import get_client_config, _client_configs
+        from src.api.dependencies import get_client_config, _client_configs
 
-        # Clear cache
         _client_configs.clear()
 
-        with patch('src.api.privacy_routes.get_config') as mock_get_config:
+        with patch('src.api.dependencies.ClientConfig') as MockConfig:
             mock_config = MagicMock()
-            mock_get_config.return_value = mock_config
+            MockConfig.return_value = mock_config
 
             # First call
-            result1 = get_client_config(x_client_id="test-tenant")
+            result1 = get_client_config(x_client_id="test-privacy-tenant")
             # Second call should use cache
-            result2 = get_client_config(x_client_id="test-tenant")
+            result2 = get_client_config(x_client_id="test-privacy-tenant")
 
-            assert mock_get_config.call_count == 1
+            assert MockConfig.call_count == 1
             assert result1 is result2
 
-    def test_get_client_config_error_handling(self):
-        """get_client_config should raise 500 on config error."""
-        from src.api.privacy_routes import get_client_config, _client_configs
-        from fastapi import HTTPException
-
-        # Clear cache
         _client_configs.clear()
 
-        with patch('src.api.privacy_routes.get_config', side_effect=Exception("Config error")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="bad-tenant")
+    def test_get_client_config_error_handling(self):
+        """get_client_config should return fallback config on error."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-            assert exc_info.value.status_code == 500
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Config error")):
+            result = get_client_config(x_client_id="bad-tenant-privacy")
+
+            # Should return FallbackClientConfig instead of raising
+            assert isinstance(result, FallbackClientConfig)
+
+        _client_configs.clear()
 
 
 if __name__ == "__main__":

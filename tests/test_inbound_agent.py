@@ -88,163 +88,6 @@ def sample_chunks():
     ]
 
 
-# ==================== TestKnowledgeBaseRAG ====================
-
-class TestKnowledgeBaseRAG:
-    """Tests for KnowledgeBaseRAG class."""
-
-    def test_init_with_client_id(self):
-        """RAG initializes with correct paths based on client_id."""
-        rag = KnowledgeBaseRAG("test_tenant")
-
-        assert rag.client_id == "test_tenant"
-        assert rag.base_path == Path("clients/test_tenant/data/knowledge")
-        assert rag.index_path == Path("clients/test_tenant/data/knowledge/faiss_index")
-        assert rag.metadata_file == Path("clients/test_tenant/data/knowledge/metadata.json")
-        assert rag._index is None
-        assert rag._chunks is None
-
-    def test_load_index_missing_files(self):
-        """Returns False when index files don't exist."""
-        rag = KnowledgeBaseRAG("nonexistent_tenant")
-
-        # _load_index checks if files exist
-        result = rag._load_index()
-
-        assert result is False
-        assert rag._index is None
-        assert rag._chunks is None
-
-    def test_load_index_success(self, sample_chunks, tmp_path):
-        """Loads FAISS index and chunks when files exist."""
-        # Create mock index files
-        index_dir = tmp_path / "clients" / "test" / "data" / "knowledge" / "faiss_index"
-        index_dir.mkdir(parents=True)
-
-        index_file = index_dir / "index.faiss"
-        chunks_file = index_dir / "chunks.json"
-
-        index_file.write_text("fake_index")
-        chunks_file.write_text(json.dumps(sample_chunks))
-
-        # Create RAG with patched base_path
-        rag = KnowledgeBaseRAG("test")
-        rag.base_path = tmp_path / "clients" / "test" / "data" / "knowledge"
-        rag.index_path = index_dir
-
-        # Patch faiss at import time inside the method
-        mock_faiss = MagicMock()
-        mock_index = MagicMock()
-        mock_faiss.read_index.return_value = mock_index
-
-        import sys
-        sys.modules['faiss'] = mock_faiss
-
-        try:
-            result = rag._load_index()
-
-            assert result is True
-            assert rag._index is mock_index
-            assert rag._chunks == sample_chunks
-        finally:
-            # Cleanup
-            if 'faiss' in sys.modules and sys.modules['faiss'] is mock_faiss:
-                del sys.modules['faiss']
-
-    def test_search_no_index(self):
-        """Returns empty list when index not loaded."""
-        rag = KnowledgeBaseRAG("test_tenant")
-
-        # No files exist, so search should return empty
-        results = rag.search("zanzibar beaches")
-
-        assert results == []
-
-    def test_search_with_results(self, sample_chunks):
-        """Returns matched chunks with scores when index is pre-loaded."""
-        import numpy as np
-
-        # Create RAG and directly set index/chunks (simulating loaded state)
-        rag = KnowledgeBaseRAG("test")
-
-        # Mock index with search behavior
-        mock_index = MagicMock()
-        mock_index.search.return_value = (
-            np.array([[0.5, 1.0, 2.0]]),  # distances - lower = more similar
-            np.array([[0, 1, 2]])  # indices
-        )
-        rag._index = mock_index
-        rag._chunks = sample_chunks
-
-        # Mock embeddings model
-        mock_embeddings = MagicMock()
-        mock_embeddings.encode.return_value = np.array([[0.1] * 384], dtype=np.float32)
-        rag._embeddings = mock_embeddings
-
-        results = rag.search("zanzibar", top_k=3, visibility="public")
-
-        # Should get results with public visibility only (first 2 chunks)
-        assert len(results) <= 2  # Only public documents (doc1 and doc2)
-        if len(results) > 0:
-            assert "content" in results[0]
-            assert "score" in results[0]
-
-    def test_search_filters_by_visibility(self, sample_chunks):
-        """Only returns public docs for inbound agent."""
-        import numpy as np
-
-        # Create RAG and directly set index/chunks
-        rag = KnowledgeBaseRAG("test")
-
-        # Mock FAISS - return index 2 first (private doc has best score)
-        mock_index = MagicMock()
-        mock_index.search.return_value = (
-            np.array([[0.1, 0.5, 1.0]]),  # distances
-            np.array([[2, 0, 1]])  # Private doc (index 2) has best score
-        )
-        rag._index = mock_index
-        rag._chunks = sample_chunks
-
-        # Mock embeddings model
-        mock_embeddings = MagicMock()
-        mock_embeddings.encode.return_value = np.array([[0.1] * 384], dtype=np.float32)
-        rag._embeddings = mock_embeddings
-
-        results = rag.search("pricing", visibility="public")
-
-        # Should not include private document
-        for result in results:
-            assert "pricing guide" not in result.get("content", "").lower()
-
-    def test_search_respects_min_score(self, sample_chunks):
-        """Filters low-score results based on min_score threshold."""
-        import numpy as np
-
-        # Create RAG and directly set index/chunks
-        rag = KnowledgeBaseRAG("test")
-
-        # Mock FAISS - high distance = low score
-        mock_index = MagicMock()
-        mock_index.search.return_value = (
-            np.array([[10.0, 20.0, 100.0]]),  # Very high distances = low scores
-            np.array([[0, 1, 2]])
-        )
-        rag._index = mock_index
-        rag._chunks = sample_chunks
-
-        # Mock embeddings model
-        mock_embeddings = MagicMock()
-        mock_embeddings.encode.return_value = np.array([[0.1] * 384], dtype=np.float32)
-        rag._embeddings = mock_embeddings
-
-        # High min_score should filter out low-scoring results
-        results = rag.search("test", min_score=0.5)
-
-        # With distances of 10, 20, 100: scores are 1/(1+10)=0.09, etc.
-        # All below 0.5, so should be empty
-        assert len(results) == 0
-
-
 # ==================== TestInboundAgentInit ====================
 
 class TestInboundAgentInit:
@@ -909,59 +752,6 @@ class TestEdgeCases:
             assert agent.collected_info.get("email") == expected_email, f"Failed for: {message}"
 
 
-# ==================== TestLoadIndexExceptions ====================
-
-class TestLoadIndexExceptions:
-    """Tests for exception handling in _load_index."""
-
-    def test_load_index_faiss_import_error(self, tmp_path):
-        """Handles faiss import error gracefully."""
-        import sys
-
-        # Create mock index files
-        index_dir = tmp_path / "faiss_index"
-        index_dir.mkdir(parents=True)
-        (index_dir / "index.faiss").write_text("fake")
-        (index_dir / "chunks.json").write_text('[{"content": "test"}]')
-
-        rag = KnowledgeBaseRAG("test")
-        rag.index_path = index_dir
-
-        # Mock faiss to raise an exception
-        mock_faiss = MagicMock()
-        mock_faiss.read_index.side_effect = Exception("Failed to read index")
-        sys.modules['faiss'] = mock_faiss
-
-        try:
-            result = rag._load_index()
-            assert result is False
-        finally:
-            if 'faiss' in sys.modules and sys.modules['faiss'] is mock_faiss:
-                del sys.modules['faiss']
-
-    def test_get_embeddings_model_import_error(self):
-        """Handles SentenceTransformer import error."""
-        import sys
-
-        rag = KnowledgeBaseRAG("test")
-
-        # Ensure sentence_transformers is not available
-        original = sys.modules.get('sentence_transformers')
-        sys.modules['sentence_transformers'] = None
-
-        try:
-            # Need to clear cached embeddings
-            rag._embeddings = None
-            result = rag._get_embeddings_model()
-            # Should return None when import fails
-            # (The actual code catches ImportError)
-        finally:
-            if original:
-                sys.modules['sentence_transformers'] = original
-            elif 'sentence_transformers' in sys.modules:
-                del sys.modules['sentence_transformers']
-
-
 class TestSearchExceptions:
     """Tests for exception handling in search."""
 
@@ -1098,3 +888,263 @@ class TestSearchKnowledgeBase:
         assert "KNOWLEDGE BASE" in result
         assert "Zanzibar info" in result
         assert "0.8" in result
+
+
+# ==================== NEW TESTS: Classification, Auto-Reply, Routing, Context ====================
+
+class TestEmailClassificationExtraction:
+    """Tests for classifying/extracting intent from customer messages."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_destination_maldives(self, mock_config):
+        """Should extract Maldives destination."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("I want to visit the Maldives please")
+        assert agent.collected_info.get("destination") == "Maldives"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_destination_mauritius(self, mock_config):
+        """Should extract Mauritius destination."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("Tell me about Mauritius holidays")
+        assert agent.collected_info.get("destination") == "Mauritius"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_destination_seychelles(self, mock_config):
+        """Should extract Seychelles destination."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("We dream of Seychelles")
+        assert agent.collected_info.get("destination") == "Seychelles"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_pax_keyword(self, mock_config):
+        """Should extract adults count from 'pax' keyword."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("Booking for 5 pax")
+        assert agent.collected_info.get("adults") == 5
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_name_i_am_pattern(self, mock_config):
+        """Should extract name from 'I am X' pattern."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("I am David and I need a quote")
+        assert agent.collected_info.get("name") == "David"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_name_this_is_pattern(self, mock_config):
+        """Should extract name from 'this is X' pattern."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("Hello, this is Emma calling about a trip")
+        assert agent.collected_info.get("name") == "Emma"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_extract_no_destination_for_unknown(self, mock_config):
+        """Should not extract destination for unlisted locations."""
+        agent = InboundAgent(mock_config, "session123")
+        agent._extract_info_from_message("I want to visit Paris")
+        assert agent.collected_info.get("destination") is None
+
+
+class TestAutoReplyGeneration:
+    """Tests for auto-reply generation behavior without GenAI."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_fallback_response_without_genai(self, mock_config):
+        """Without GenAI, should return polite fallback message."""
+        agent = InboundAgent(mock_config, "session123")
+        result = agent.chat("I want to book a trip")
+
+        assert result["success"] is True
+        assert len(result["response"]) > 0
+        # Should suggest alternative contact
+        assert "email" in result["response"].lower() or "call" in result["response"].lower()
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_genai_error_returns_apology(self, mock_genai, mock_config):
+        """GenAI API error should return apology response."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception("Service down")
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+        result = agent.chat("Hello there")
+
+        assert result["success"] is False
+        assert "apologize" in result["response"].lower() or "inconvenience" in result["response"].lower()
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_chat_returns_collected_info(self, mock_genai, mock_config):
+        """Chat result should include collected_info dict."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {"destination": "Zanzibar"}
+        result = agent.chat("What hotels do you have?")
+
+        assert "collected_info" in result
+        assert result["collected_info"]["destination"] == "Zanzibar"
+
+
+class TestRoutingDecisions:
+    """Tests for routing decisions (ready_for_quote, quote request generation)."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_ready_for_quote_returned_in_chat(self, mock_config):
+        """Chat response should include ready_for_quote flag."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {
+            "destination": "Zanzibar",
+            "email": "test@example.com"
+        }
+        result = agent.chat("Please send me a quote")
+
+        assert "ready_for_quote" in result
+        assert result["ready_for_quote"] is True
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_not_ready_for_quote_returned_in_chat(self, mock_config):
+        """Chat should indicate not ready when required fields are missing."""
+        agent = InboundAgent(mock_config, "session123")
+        result = agent.chat("Hello I need info")
+
+        assert result["ready_for_quote"] is False
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_generate_quote_request_includes_phone(self, mock_config):
+        """Quote request should include phone when provided."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {
+            "destination": "Maldives",
+            "email": "test@example.com",
+            "phone": "+1234567890"
+        }
+
+        quote = agent.generate_quote_request()
+        assert quote is not None
+        assert quote["phone"] == "+1234567890"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_generate_quote_request_includes_special_requests(self, mock_config):
+        """Quote request should include special_requests as message."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {
+            "destination": "Mauritius",
+            "email": "test@example.com",
+            "special_requests": "Honeymoon package"
+        }
+
+        quote = agent.generate_quote_request()
+        assert quote is not None
+        assert quote["message"] == "Honeymoon package"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_generate_quote_includes_children_ages(self, mock_config):
+        """Quote request should include children_ages list."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {
+            "destination": "Seychelles",
+            "email": "test@example.com",
+            "children": 2,
+            "children_ages": [4, 7]
+        }
+
+        quote = agent.generate_quote_request()
+        assert quote["children_ages"] == [4, 7]
+
+
+class TestContextExtraction:
+    """Tests for context extraction from multi-turn conversations."""
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_info_accumulates_across_messages(self, mock_genai, mock_config):
+        """Collected info should accumulate across multiple chat messages."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+
+        agent.chat("I want to visit Zanzibar")
+        assert agent.collected_info.get("destination") == "Zanzibar"
+
+        agent.chat("We are 2 adults")
+        assert agent.collected_info.get("adults") == 2
+        assert agent.collected_info.get("destination") == "Zanzibar"  # Still there
+
+        agent.chat("My email is traveler@test.com")
+        assert agent.collected_info.get("email") == "traveler@test.com"
+        assert agent.collected_info.get("destination") == "Zanzibar"
+        assert agent.collected_info.get("adults") == 2
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_set_customer_info_merges(self, mock_config):
+        """set_customer_info should merge without overwriting existing keys."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {"destination": "Zanzibar"}
+        agent.set_customer_info({"email": "crm@example.com", "name": "CRM User"})
+
+        assert agent.collected_info["destination"] == "Zanzibar"
+        assert agent.collected_info["email"] == "crm@example.com"
+        assert agent.collected_info["name"] == "CRM User"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', False)
+    def test_set_customer_info_overwrites_existing(self, mock_config):
+        """set_customer_info should overwrite keys when provided."""
+        agent = InboundAgent(mock_config, "session123")
+        agent.collected_info = {"name": "Old Name"}
+        agent.set_customer_info({"name": "New Name"})
+
+        assert agent.collected_info["name"] == "New Name"
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_conversation_history_has_timestamps(self, mock_genai, mock_config):
+        """Each history entry should have a timestamp."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+        agent.chat("Hello")
+
+        history = agent.get_conversation_history()
+        for entry in history:
+            assert "timestamp" in entry
+            # Verify it parses as ISO format
+            datetime.fromisoformat(entry["timestamp"])
+
+    @patch('src.agents.inbound_agent.GENAI_AVAILABLE', True)
+    @patch('src.agents.inbound_agent.genai')
+    def test_customer_info_passed_to_chat_merged(self, mock_genai, mock_config):
+        """customer_info passed to chat() should merge into collected_info."""
+        mock_client = create_mock_genai_client()
+        mock_genai.Client.return_value = mock_client
+
+        agent = InboundAgent(mock_config, "session123")
+        agent.chat("Hello", customer_info={"name": "Prefilled", "budget": "$3000"})
+
+        assert agent.collected_info["name"] == "Prefilled"
+        assert agent.collected_info["budget"] == "$3000"
+
+
+class TestKnowledgeBaseRAGStub:
+    """Tests for KnowledgeBaseRAG stub behavior (local index removed)."""
+
+    def test_rag_search_always_returns_empty(self):
+        """Stub RAG should always return empty list."""
+        rag = KnowledgeBaseRAG("any_tenant")
+        result = rag.search("any query", top_k=10, visibility="public")
+        assert result == []
+
+    def test_rag_search_with_different_params(self):
+        """Stub RAG should return empty regardless of parameters."""
+        rag = KnowledgeBaseRAG("test")
+        result = rag.search("test", top_k=1, visibility="private", min_score=0.0)
+        assert result == []
+
+    def test_rag_client_id_stored(self):
+        """RAG should store client_id."""
+        rag = KnowledgeBaseRAG("my_tenant")
+        assert rag.client_id == "my_tenant"

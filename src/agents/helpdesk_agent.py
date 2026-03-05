@@ -322,16 +322,30 @@ class HelpdeskAgent:
             "content": f"[Tool results]\n{tool_results_text}"
         })
 
-        # Get synthesized response
+        # Get synthesized response with better guidance for using sources
+        synthesis_prompt = """You just searched the knowledge base and got results. Now provide a natural, helpful response.
+
+IMPORTANT GUIDELINES:
+- When you found relevant documents/information, ALWAYS use that information to answer the user's question
+- Include specific details from the search results (property names, amenities, features, etc.)
+- DO NOT say "I don't have enough information" if you found relevant documents
+- If the documents don't perfectly match the query, still share what you found and note any limitations
+- Be helpful and conversational - you're a travel assistant recommending properties
+- For travel/hotel questions, describe the properties enthusiastically with key highlights
+
+Example good response: "Great taste! Based on our knowledge base, I'd recommend [Property Name] - it offers [specific amenities]. Another excellent option is [Property 2] which features [details]..."
+
+Example BAD response: "I don't have enough information to answer this question." (NEVER say this when you found sources)"""
+
         final_response = self.client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": AGENT_SYSTEM_PROMPT + "\n\nYou just used tools and got results. Now provide a natural, helpful response to the user based on what you found. Don't mention 'tool results' - just answer naturally."},
+                {"role": "system", "content": AGENT_SYSTEM_PROMPT + "\n\n" + synthesis_prompt},
                 *self.conversation_history,
                 {"role": "user", "content": f"Based on the tool results above, provide a helpful response to: {user_message}"}
             ],
             temperature=0.7,
-            max_tokens=600
+            max_tokens=800
         )
 
         assistant_response = final_response.choices[0].message.content
@@ -363,20 +377,62 @@ class HelpdeskAgent:
             if not client.is_available():
                 return "Knowledge base is temporarily unavailable. Please try again later.", []
 
-            result = client.search(query, top_k=10, use_rerank=True)
+            result = client.search(query, top_k=5, include_shared=True)
 
-            if not result.get("success") or not result.get("answer"):
-                return "No relevant information found in the knowledge base.", []
+            if not result.get("success"):
+                return "Knowledge base search failed. Please try again.", []
 
-            # Return the synthesized answer and citations as sources
-            answer = result.get("answer", "")
+            # Get citations/sources
+            citations = result.get("citations", [])
             sources = [
                 {
                     "source": cite.get("source_title", "Knowledge Base"),
                     "score": cite.get("relevance_score", 0)
                 }
-                for cite in result.get("citations", [])[:5]
+                for cite in citations[:5]
             ]
+
+            # Return the synthesized answer if available
+            answer = result.get("answer", "")
+
+            # Check if the answer is unhelpful (LLM refused to answer despite having sources)
+            unhelpful_phrases = [
+                "i don't have enough information",
+                "i don't have specific details",
+                "i cannot find",
+                "i'm not able to answer",
+                "no information available",
+                "i don't have access",
+                "i couldn't find"
+            ]
+            answer_lower = answer.lower() if answer else ""
+            is_unhelpful = any(phrase in answer_lower for phrase in unhelpful_phrases)
+
+            # If answer is unhelpful but we have citations, build response from citation content
+            if is_unhelpful and citations:
+                # Extract actual content from citations to give to the LLM
+                citation_content = []
+                for cite in citations[:3]:
+                    content = cite.get("content", "") or cite.get("text", "") or cite.get("chunk", "")
+                    source = cite.get("source_title", "document")
+                    if content:
+                        citation_content.append(f"From {source}: {content[:500]}")
+
+                if citation_content:
+                    answer = "Relevant information found:\n\n" + "\n\n".join(citation_content)
+                    logger.info(f"RAG returned unhelpful answer but had {len(citations)} citations - using citation content directly")
+                else:
+                    source_names = [cite.get("source_title", "document") for cite in citations[:3]]
+                    answer = f"Found relevant information from: {', '.join(source_names)}. These documents contain details about the properties and destinations mentioned."
+
+            # Even if answer is empty but we have citations, provide context
+            elif not answer and citations:
+                # Build a response from the citation content if answer is empty
+                source_names = [cite.get("source_title", "document") for cite in citations[:3]]
+                answer = f"Found relevant information from: {', '.join(source_names)}. These documents contain details about the properties and destinations mentioned."
+                logger.info(f"RAG search: no answer but {len(citations)} citations found, using fallback")
+            elif not answer and not citations:
+                return "No relevant information found in the knowledge base.", []
 
             return answer, sources
 

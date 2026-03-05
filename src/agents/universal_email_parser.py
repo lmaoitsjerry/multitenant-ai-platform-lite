@@ -54,6 +54,7 @@ class UniversalEmailParser:
             # TRY FACEBOOK FORMAT FIRST
             fb_result = self._parse_facebook_format(full_text)
             if fb_result and fb_result.get('destination'):
+                fb_result['parse_method'] = 'fallback'
                 logger.info(f"✅ Parsed (FB): {fb_result['name']} | {fb_result['email']} | {fb_result['destination']}")
                 return fb_result
             
@@ -86,6 +87,7 @@ class UniversalEmailParser:
             if 'budget' in result and result['budget']:
                 result['total_budget'] = result['budget']
             
+            result['parse_method'] = 'fallback'
             logger.info(f"✅ Parsed: {result['name']} | {result['email']} | {result['destination']} | "
                        f"{result['adults']}A+{result['children']}C | R{result.get('budget', 'None')}")
             return result
@@ -107,9 +109,10 @@ class UniversalEmailParser:
             'children': 0,
             'children_ages': [],
             'budget': None,
-            'budget_is_per_person': False
+            'budget_is_per_person': False,
+            'parse_method': 'fallback'
         }
-    
+
     def _extract_destination(self, text):
         """Extract destination with fuzzy matching for typos"""
         from difflib import SequenceMatcher
@@ -219,7 +222,7 @@ class UniversalEmailParser:
     def _extract_travelers(self, text):
         """Extract adults and children counts"""
         result = {'adults': 2, 'children': 0, 'children_ages': []}
-        
+
         # Simple pattern: "X adults Y children" (allow 'and')
         match = re.search(r'(\d+)\s+adults?(?:\s+and)?\s+(\d+)\s+child[a-z]*', text, re.IGNORECASE | re.MULTILINE)
         if match:
@@ -228,12 +231,35 @@ class UniversalEmailParser:
                 result['adults'], result['children'] = adults, children
                 logger.info(f"   Travelers: {adults}A, {children}C")
                 return result
-        
-        # Just adults
+
+        # Just adults — explicit "N adults"
         adults_match = re.search(r'(\d+)\s+adults?', text, re.IGNORECASE)
         if adults_match and int(adults_match.group(1)) <= 20:
             result['adults'] = int(adults_match.group(1))
-        
+            logger.info(f"   Using travelers: {result['adults']}A, {result['children']}C")
+            return result
+
+        # "group of N" / "party of N"
+        group_match = re.search(r'(?:group|party)\s+of\s+(\d+)', text, re.IGNORECASE)
+        if group_match and int(group_match.group(1)) <= 20:
+            result['adults'] = int(group_match.group(1))
+            logger.info(f"   Travelers (group): {result['adults']}A")
+            return result
+
+        # "N pax/people/persons/guests/travelers/travellers"
+        pax_match = re.search(r'(\d+)\s+(?:pax|people|persons|guests|travelers|travellers)', text, re.IGNORECASE)
+        if pax_match and int(pax_match.group(1)) <= 20:
+            result['adults'] = int(pax_match.group(1))
+            logger.info(f"   Travelers (pax): {result['adults']}A")
+            return result
+
+        # "N of us"
+        us_match = re.search(r'(\d+)\s+of\s+us', text, re.IGNORECASE)
+        if us_match and int(us_match.group(1)) <= 20:
+            result['adults'] = int(us_match.group(1))
+            logger.info(f"   Travelers (of us): {result['adults']}A")
+            return result
+
         logger.info(f"   Using travelers: {result['adults']}A, {result['children']}C")
         return result
     
@@ -258,9 +284,20 @@ class UniversalEmailParser:
         return {'single_adults': 0}
     
     def _extract_requested_hotels(self, text):
-        """Extract requested hotel names"""
-        # Simplified - return empty list for now
-        return []
+        """Extract requested hotel names from email text"""
+        hotels = []
+        # Pattern: "stay at <Hotel Name>", "book <Hotel Name>", "at the <Hotel Name>"
+        patterns = [
+            r'(?:stay(?:ing)?\s+at|book(?:ing)?\s+(?:the\s+)?|at\s+the)\s+([A-Z][A-Za-z\s&\'-]{3,40}?)(?:\s*[,.\n]|\s+(?:hotel|resort|lodge|in\s))',
+            r'(?:hotel|resort|lodge)\s*:\s*([A-Z][A-Za-z\s&\'-]{3,40}?)(?:\s*[,.\n]|$)',
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for m in matches:
+                name = m.strip().rstrip('.')
+                if len(name) > 3 and name.lower() not in ('the', 'a', 'an', 'our', 'their'):
+                    hotels.append(name)
+        return hotels[:3]  # Max 3 hotel names
     
     def _parse_facebook_format(self, text):
         """Parse Facebook/website lead format"""

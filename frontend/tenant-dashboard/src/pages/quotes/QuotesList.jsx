@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { quotesApi, pricingApi } from '../../services/api';
+import { normalizeQuoteStatus } from '../../utils/fieldTransformers';
 import { SkeletonTable } from '../../components/ui/Skeleton';
 import {
   PlusIcon,
@@ -17,12 +18,15 @@ import {
 
 const statusConfig = {
   draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700' },
-  generated: { label: 'Generated', color: 'bg-blue-100 text-blue-700' },
+  quoted: { label: 'Quoted', color: 'bg-blue-100 text-blue-700' },
+  generated: { label: 'Quoted', color: 'bg-blue-100 text-blue-700' },
   sent: { label: 'Sent', color: 'bg-blue-100 text-blue-700' },
   viewed: { label: 'Viewed', color: 'bg-purple-100 text-purple-700' },
   accepted: { label: 'Accepted', color: 'bg-green-100 text-green-700' },
-  rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700' },
+  declined: { label: 'Declined', color: 'bg-red-100 text-red-700' },
+  rejected: { label: 'Declined', color: 'bg-red-100 text-red-700' },
   expired: { label: 'Expired', color: 'bg-orange-100 text-orange-700' },
+  converted: { label: 'Converted', color: 'bg-green-100 text-green-700' },
 };
 
 export default function QuotesList() {
@@ -199,7 +203,7 @@ export default function QuotesList() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredQuotes.map((quote) => {
-                const status = statusConfig[quote.status] || statusConfig.draft;
+                const status = statusConfig[normalizeQuoteStatus(quote.status)] || statusConfig.draft;
                 return (
                   <tr
                     key={quote.quote_id}
@@ -215,7 +219,7 @@ export default function QuotesList() {
                     </td>
                     <td className="px-6 py-4 text-gray-900">{quote.destination}</td>
                     <td className="px-6 py-4 text-gray-600 text-sm">
-                      {formatDateRange(quote.check_in_date, quote.check_out_date)}
+                      {formatDateRange(quote.check_in || quote.check_in_date, quote.check_out || quote.check_out_date)}
                       {quote.nights && <span className="text-gray-400 ml-1">({quote.nights}n)</span>}
                     </td>
                     <td className="px-6 py-4 text-gray-600">

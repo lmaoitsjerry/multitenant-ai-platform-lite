@@ -3,9 +3,11 @@ import { Suspense, lazy, useEffect, useMemo } from 'react';
 import { AppProvider } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { QuoteCartProvider } from './context/QuoteCartContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/layout/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { warmCache, prefetchForRoute } from './services/api';
+import { warmCache } from './services/api';
 
 // Skeleton loaders for instant visual feedback
 function DashboardSkeleton() {
@@ -166,19 +168,6 @@ function CacheWarmer() {
   return null;
 }
 
-// Route prefetcher - prefetches data for upcoming navigation
-function RoutePrefetcher() {
-  const location = useLocation();
-
-  useEffect(() => {
-    // DISABLED: prefetching adds load to backend
-    // TODO: Re-enable when backend uses async Supabase client
-    // prefetchForRoute(location.pathname);
-  }, [location.pathname]);
-
-  return null;
-}
-
 // Auth pages (public)
 const Login = lazy(() => import('./pages/Login'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -200,18 +189,30 @@ const GenerateQuote = lazy(() => import('./pages/quotes/GenerateQuote'));
 const Pipeline = lazy(() => import('./pages/crm/Pipeline'));
 const ClientsList = lazy(() => import('./pages/crm/ClientsList'));
 const ClientDetail = lazy(() => import('./pages/crm/ClientDetail'));
+const EnquiryTriage = lazy(() => import('./pages/EnquiryTriage'));
 
 // Invoices
 const InvoicesList = lazy(() => import('./pages/invoices/InvoicesList'));
 const InvoiceDetail = lazy(() => import('./pages/invoices/InvoiceDetail'));
 
-// Pricing
-const PricingRates = lazy(() => import('./pages/pricing/PricingRates'));
-const PricingHotels = lazy(() => import('./pages/pricing/PricingHotels'));
-const HotelDetail = lazy(() => import('./pages/pricing/HotelDetail'));
+// Travel Services
+const TravelHotels = lazy(() => import('./pages/travel/HotelsList'));
+const TravelActivities = lazy(() => import('./pages/travel/ActivitiesList'));
+const TravelFlights = lazy(() => import('./pages/travel/FlightsList'));
+const TravelTransfers = lazy(() => import('./pages/travel/TransfersList'));
+const HolidayPackages = lazy(() => import('./pages/travel/HolidayPackages'));
 
-// Helpdesk
-const Helpdesk = lazy(() => import('./pages/Helpdesk'));
+// Knowledge Base
+const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
+
+// Website Services
+const WebsiteOverview = lazy(() => import('./pages/website/WebsiteOverview'));
+const WebsiteTemplates = lazy(() => import('./pages/website/WebsiteTemplates'));
+const WebsiteBranding = lazy(() => import('./pages/website/WebsiteBranding'));
+const WebsiteMedia = lazy(() => import('./pages/website/WebsiteMedia'));
+const WebsiteProducts = lazy(() => import('./pages/website/WebsiteProducts'));
+const WebsiteBookings = lazy(() => import('./pages/website/WebsiteBookings'));
+const WebsitePreview = lazy(() => import('./pages/website/WebsitePreview'));
 
 // Other
 const Analytics = lazy(() => import('./pages/Analytics'));
@@ -219,12 +220,13 @@ const Settings = lazy(() => import('./pages/Settings'));
 
 function App() {
   return (
+    <ErrorBoundary>
     <ThemeProvider>
       <AuthProvider>
         <AppProvider>
+          <QuoteCartProvider>
           <Router>
             <CacheWarmer />
-            <RoutePrefetcher />
             <Routes>
               {/* Public routes - no auth required */}
               <Route path="/login" element={
@@ -272,6 +274,7 @@ function App() {
               <Route path="/*" element={
                 <ProtectedRoute>
                   <Layout>
+                    <ErrorBoundary module="protected-routes">
                     <Suspense fallback={<RouteSkeleton />}>
                       <Routes>
                         {/* Dashboard */}
@@ -286,18 +289,33 @@ function App() {
                         <Route path="/crm/pipeline" element={<Pipeline />} />
                         <Route path="/crm/clients" element={<ClientsList />} />
                         <Route path="/crm/clients/:id" element={<ClientDetail />} />
+                        <Route path="/crm/triage" element={<EnquiryTriage />} />
 
                         {/* Invoices */}
                         <Route path="/invoices" element={<InvoicesList />} />
                         <Route path="/invoices/:id" element={<InvoiceDetail />} />
 
-                        {/* Pricing */}
-                        <Route path="/pricing/rates" element={<PricingRates />} />
-                        <Route path="/pricing/hotels" element={<PricingHotels />} />
-                        <Route path="/pricing/hotels/:hotelName" element={<HotelDetail />} />
+                        {/* Travel Services */}
+                        <Route path="/travel/hotels" element={<TravelHotels />} />
+                        <Route path="/travel/packages" element={<HolidayPackages />} />
+                        <Route path="/travel/activities" element={<TravelActivities />} />
+                        <Route path="/travel/flights" element={<TravelFlights />} />
+                        <Route path="/travel/transfers" element={<TravelTransfers />} />
 
-                        {/* Helpdesk */}
-                        <Route path="/helpdesk" element={<Helpdesk />} />
+                        {/* Website Services */}
+                        <Route path="/website" element={<WebsiteOverview />} />
+                        <Route path="/website/templates" element={<WebsiteTemplates />} />
+                        <Route path="/website/branding" element={<WebsiteBranding />} />
+                        <Route path="/website/media" element={<WebsiteMedia />} />
+                        <Route path="/website/products" element={<WebsiteProducts />} />
+                        <Route path="/website/bookings" element={<WebsiteBookings />} />
+                        <Route path="/website/preview" element={<WebsitePreview />} />
+
+                        {/* Knowledge Base */}
+                        <Route path="/knowledge" element={<KnowledgeBase />} />
+
+                        {/* Helpdesk - now accessed via header icon, redirect old route */}
+                        <Route path="/helpdesk" element={<Navigate to="/" replace />} />
 
                         {/* Analytics */}
                         <Route path="/analytics" element={<Analytics />} />
@@ -309,14 +327,17 @@ function App() {
                         <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>
                     </Suspense>
+                    </ErrorBoundary>
                   </Layout>
                 </ProtectedRoute>
               } />
             </Routes>
           </Router>
+          </QuoteCartProvider>
         </AppProvider>
       </AuthProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

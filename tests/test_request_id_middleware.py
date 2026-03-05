@@ -96,7 +96,7 @@ class TestRequestIdOnErrors:
 
 
 class TestClientIPExtraction:
-    """Tests for client IP extraction from headers."""
+    """Tests for client IP extraction from ASGI scope headers."""
 
     def test_extracts_forwarded_for(self):
         """Should extract IP from X-Forwarded-For header."""
@@ -104,11 +104,12 @@ class TestClientIPExtraction:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"X-Forwarded-For": "203.0.113.195, 70.41.3.18"}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [(b"x-forwarded-for", b"203.0.113.195, 70.41.3.18")],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "203.0.113.195"
 
@@ -118,11 +119,12 @@ class TestClientIPExtraction:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"X-Real-IP": "192.168.1.100"}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [(b"x-real-ip", b"192.168.1.100")],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "192.168.1.100"
 
@@ -132,11 +134,12 @@ class TestClientIPExtraction:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {}
-        mock_request.client = MagicMock(host="192.168.1.50")
+        scope = {
+            "headers": [],
+            "client": ("192.168.1.50", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "192.168.1.50"
 
@@ -146,11 +149,12 @@ class TestClientIPExtraction:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {}
-        mock_request.client = None
+        scope = {
+            "headers": [],
+            "client": None,
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "unknown"
 
@@ -160,14 +164,15 @@ class TestClientIPExtraction:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {
-            "X-Forwarded-For": "203.0.113.195",
-            "X-Real-IP": "192.168.1.100"
+        scope = {
+            "headers": [
+                (b"x-forwarded-for", b"203.0.113.195"),
+                (b"x-real-ip", b"192.168.1.100"),
+            ],
+            "client": ("10.0.0.1", 12345),
         }
-        mock_request.client = MagicMock(host="10.0.0.1")
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "203.0.113.195"
 
@@ -295,7 +300,7 @@ class TestMultipleRequestsHandling:
 
         def make_request():
             response = client.get("/test")
-            return response.json()["request_id"]
+            return response.headers["X-Request-ID"]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(make_request) for _ in range(5)]
@@ -306,7 +311,7 @@ class TestMultipleRequestsHandling:
 
 
 class TestIPExtractionEdgeCases:
-    """Edge case tests for IP extraction."""
+    """Edge case tests for IP extraction with ASGI scope."""
 
     def test_multiple_ips_in_forwarded_for(self):
         """Should extract first IP from multiple IPs."""
@@ -314,13 +319,14 @@ class TestIPExtractionEdgeCases:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {
-            "X-Forwarded-For": "203.0.113.195, 70.41.3.18, 150.172.238.178"
+        scope = {
+            "headers": [
+                (b"x-forwarded-for", b"203.0.113.195, 70.41.3.18, 150.172.238.178"),
+            ],
+            "client": ("10.0.0.1", 12345),
         }
-        mock_request.client = MagicMock(host="10.0.0.1")
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert ip == "203.0.113.195"
 
@@ -330,13 +336,14 @@ class TestIPExtractionEdgeCases:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {
-            "X-Forwarded-For": "  203.0.113.195  ,  70.41.3.18  "
+        scope = {
+            "headers": [
+                (b"x-forwarded-for", b"  203.0.113.195  ,  70.41.3.18  "),
+            ],
+            "client": ("10.0.0.1", 12345),
         }
-        mock_request.client = MagicMock(host="10.0.0.1")
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         # Should extract trimmed IP
         assert ip.strip() == "203.0.113.195"
@@ -347,11 +354,14 @@ class TestIPExtractionEdgeCases:
 
         middleware = RequestIdMiddleware(None)
 
-        mock_request = MagicMock()
-        mock_request.headers = {"X-Real-IP": "2001:0db8:85a3:0000:0000:8a2e:0370:7334"}
-        mock_request.client = MagicMock(host="10.0.0.1")
+        scope = {
+            "headers": [
+                (b"x-real-ip", b"2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
+            ],
+            "client": ("10.0.0.1", 12345),
+        }
 
-        ip = middleware._get_client_ip(mock_request)
+        ip = middleware._get_client_ip(scope)
 
         assert "2001:0db8" in ip
 
@@ -392,14 +402,14 @@ class TestMiddlewareInitialization:
 
         assert middleware.app is app
 
-    def test_middleware_has_dispatch(self):
-        """Middleware should have dispatch method."""
+    def test_middleware_has_call(self):
+        """Middleware should have __call__ method (pure ASGI)."""
         from src.middleware.request_id_middleware import RequestIdMiddleware
 
         middleware = RequestIdMiddleware(None)
 
-        assert hasattr(middleware, 'dispatch')
-        assert callable(getattr(middleware, 'dispatch', None))
+        assert hasattr(middleware, '__call__')
+        assert callable(middleware)
 
 
 class TestRequestStateAccess:

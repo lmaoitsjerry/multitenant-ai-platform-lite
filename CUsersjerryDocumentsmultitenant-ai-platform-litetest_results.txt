@@ -1,0 +1,940 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-8.3.4, pluggy-1.6.0
+rootdir: C:\Users\jerry\Documents\multitenant-ai-platform-lite
+configfile: pyproject.toml
+plugins: anyio-4.11.0, deepeval-3.8.1, langsmith-0.6.4, asyncio-0.24.0, cov-7.0.0, repeat-0.9.4, rerunfailures-16.1, xdist-3.8.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collected 3883 items
+
+tests\test_admin_analytics_routes.py ...................FF.........      [  0%]
+tests\test_admin_knowledge_routes.py sssssssssssssssEEEEEEEEE......EEEEE [  1%]
+EEEEEEEEEEEEEEEEEEEEEEE............EEEEEEEEEEE........F............FFFFF [  3%]
+FF.F.F.F.FF                                                              [  3%]
+tests\test_admin_routes.py ...............ss....s....................... [  4%]
+...............................................................          [  6%]
+tests\test_admin_sendgrid_routes.py ..................................   [  7%]
+tests\test_admin_tenants_routes.py ..................................... [  8%]
+.............................                                            [  9%]
+tests\test_analytics_routes.py ......................................... [ 10%]
+......................FFF.FFFFFF                                         [ 11%]
+tests\test_api_routes.py ............................................... [ 12%]
+..FF...                                                                  [ 12%]
+tests\test_auth_middleware.py ......FFFFFFFFFFFFF                        [ 12%]
+tests\test_auth_routes.py .............................................. [ 14%]
+                                                                         [ 14%]
+tests\test_auth_service.py .............................F.......         [ 15%]
+tests\test_bigquery_tool.py ........................................     [ 16%]
+tests\test_branding_routes.py .......................................... [ 17%]
+....................................................                     [ 18%]
+tests\test_circuit_breaker.py ......................                     [ 19%]
+tests\test_config.py ................................................... [ 20%]
+...............................................                          [ 21%]
+tests\test_core_routes.py .............................................. [ 22%]
+.                                                                        [ 22%]
+tests\test_crm_service.py .............................................. [ 24%]
+..................................                                       [ 24%]
+tests\test_dependencies.py ...................                           [ 25%]
+tests\test_email_parser.py .......................F.....FFF.             [ 26%]
+tests\test_email_sender.py ............................................. [ 27%]
+.........................                                                [ 28%]
+tests\test_email_webhook.py ............................................ [ 29%]
+......................................................                   [ 30%]
+tests\test_error_handler.py .................................            [ 31%]
+tests\test_faiss_service.py EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE            [ 32%]
+tests\test_helpdesk_agent.py ........................................... [ 33%]
+FF....FF..F                                                              [ 33%]
+tests\test_helpdesk_routes.py .......................................... [ 34%]
+..........................FFFFFFFFFFF.FFFFFFFFFFFFFFFFFFFF.              [ 36%]
+tests\test_helpdesk_service.py FFFFFFFFFFFFFFFFFFFFFFFFFFFFF             [ 36%]
+tests\test_hotelbeds_client.py ...F.................                     [ 37%]
+tests\test_hotelbeds_routes.py ....................................      [ 38%]
+tests\test_inbound_agent.py FFF......................................... [ 39%]
+..........FF.......                                                      [ 40%]
+tests\test_inbound_routes.py .............FFFF..FF.F.FFFFFFF...FFF       [ 41%]
+tests\test_integration_email_pipeline.py ..F......                       [ 41%]
+tests\test_integration_helpdesk_rag.py ..F                               [ 41%]
+tests\test_integration_quote_gen.py F......FF...                         [ 41%]
+tests\test_integration_tenant_isolation.py ................              [ 42%]
+tests\test_knowledge_routes.py ...................................FFFF.F [ 43%]
+.FFFFFFFFFFFFFF...F                                                      [ 43%]
+tests\test_leaderboard_routes.py ....................................... [ 44%]
+....FFF.FF.FF.F..F                                                       [ 45%]
+tests\test_llm_email_parser.py .................................         [ 45%]
+tests\test_login_throttle.py ...............                             [ 46%]
+tests\test_main_app.py .................................                 [ 47%]
+tests\test_metrics_routes.py F.....................FF.....               [ 47%]
+tests\test_middleware_integration.py ................................... [ 48%]
+....                                                                     [ 48%]
+tests\test_notifications_routes.py .................................FFF. [ 49%]
+FFFF.F.FFF......................                                         [ 50%]
+tests\test_onboarding_routes.py ..........F............................. [ 51%]
+......FFFFFFFFFFFF..............                                         [ 52%]
+tests\test_pdf_generator.py ...sssssssssssssssss..sssssss..              [ 53%]
+tests\test_pdf_generator_unit.py ...................ss.sssss..ssssss..   [ 54%]
+tests\test_performance_service.py ...................................... [ 55%]
+...                                                                      [ 55%]
+tests\test_performance_service_expanded.py ............................. [ 56%]
+......                                                                   [ 56%]
+tests\test_pii_audit_middleware.py ...................FFFF..FFF...F...   [ 57%]
+tests\test_pricing_routes.py ........................................... [ 58%]
+....................................................                     [ 59%]
+tests\test_privacy_routes.py ...................................FFFFF.FF [ 60%]
+.FFFFFFF..                                                               [ 60%]
+tests\test_provisioning_service.py ..................................... [ 61%]
+........................................................                 [ 63%]
+tests\test_query_classifier.py ......................................... [ 64%]
+                                                                         [ 64%]
+tests\test_quote_agent.py .............................................. [ 65%]
+........................................................................ [ 67%]
+.......                                                                  [ 67%]
+tests\test_quote_agent_expanded.py EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE [ 68%]
+EEEE                                                                     [ 68%]
+tests\test_rag_response_service.py ..................................... [ 69%]
+...................                                                      [ 70%]
+tests\test_rag_services.py ............................................  [ 71%]
+tests\test_rag_tool.py ..............................                    [ 72%]
+tests\test_rate_limiter.py ..............................sssssss.....s.  [ 73%]
+tests\test_rates_routes.py ...................                           [ 73%]
+tests\test_request_id_middleware.py ..F...FFFFF........FFFF...FFFFF      [ 74%]
+tests\test_request_size_middleware.py ..............F.............       [ 75%]
+tests\test_reranker_service.py ..................                        [ 75%]
+tests\test_response_models.py .......................................... [ 76%]
+....                                                                     [ 76%]
+tests\test_retry_utils.py ...............................                [ 77%]
+tests\test_routes.py ...........................................F.FF.FF. [ 78%]
+F.FF.F.F.FF.....F.F                                                      [ 79%]
+tests\test_security_headers.py ..........F.....F..............           [ 80%]
+tests\test_sendgrid_admin.py .............................               [ 80%]
+tests\test_sendgrid_admin_service.py .................................   [ 81%]
+tests\test_services.py .....................                             [ 82%]
+tests\test_settings_routes.py ...............................FFFFF..FF.. [ 83%]
+FF..FF......                                                             [ 83%]
+tests\test_structured_logger.py ............................             [ 84%]
+tests\test_supabase_tool.py ............................................ [ 85%]
+.........                                                                [ 85%]
+tests\test_template_renderer.py ................                         [ 86%]
+tests\test_templates.py sss....................................          [ 87%]
+tests\test_templates_routes.py ...................FFFFF.FFFFFFFFFFFFFFFF [ 88%]
+                                                                         [ 88%]
+tests\test_tenant_config_service.py .................................... [ 89%]
+................................................                         [ 90%]
+tests\test_theme_presets.py ............................                 [ 91%]
+tests\test_thread_safety.py ..FFF.......                                 [ 91%]
+tests\test_timing_middleware.py ..FFFFFF.FF.FFFFFFFFFFFFFFFF             [ 92%]
+tests\test_tracing.py .............................                      [ 92%]
+tests\test_travel_platform_rag_client.py ...F..................          [ 93%]
+tests\test_travel_platform_rates_client.py F...................          [ 94%]
+tests\test_travel_services_routes.py ................................... [ 94%]
+.....................................................                    [ 96%]
+tests\test_twilio_vapi_provisioner.py .................................. [ 97%]
+........................                                                 [ 97%]
+tests\test_universal_email_parser.py .............................       [ 98%]
+tests\test_users_routes.py ................................FF.F..F.F.F.F [ 99%]
+...F.......                                                              [100%]Running teardown with pytest sessionfinish...
+
+
+============================== warnings summary ===============================
+..\..\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\cloud\aiplatform\models.py:52
+  C:\Users\jerry\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\cloud\aiplatform\models.py:52: FutureWarning: Support for google-cloud-storage < 3.0.0 will be removed in a future version of google-cloud-aiplatform. Please upgrade to google-cloud-storage >= 3.0.0.
+    from google.cloud.aiplatform.utils import gcs_utils
+
+tests/test_helpdesk_routes.py::TestTestSearchEndpoint::test_test_search_returns_results
+  C:\Users\jerry\AppData\Local\Programs\Python\Python312\Lib\site-packages\_pytest\stash.py:108: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    del self._storage[key]
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_pricing_routes.py::TestRateUpdateModelExtended::test_rate_update_empty_is_valid
+  C:\Users\jerry\AppData\Local\Programs\Python\Python312\Lib\site-packages\pydantic\main.py:250: RuntimeWarning: coroutine 'to_thread' was never awaited
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_list_documen
+ts_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 121, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_list_documen
+ts_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 126, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_create_docum
+ent_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 134, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_create_docum
+ent_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 142, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_get_document
+_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 151, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_get_document
+_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 156, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_update_docum
+ent_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 164, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_update_docum
+ent_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 172, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_delete_docum
+ent_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 181, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_delete_docum
+ent_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 186, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_rebuild_inde
+x_requires_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 194, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_rebuild_inde
+x_invalid_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 199, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_stats_requir
+es_admin_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 207, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_stats_invali
+d_token was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 212, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_knowledge_routes.py::TestAdminKnowledgeAuth::test_admin_endpoi
+nt_without_token_configured_returns_503 was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+knowledge_routes.py', 220, 'Skipped: TestClient hangs due to FAISS/GCS 
+initialization - use endpoint function tests instead')
+Test 
+tests/test_admin_routes.py::TestDiagnosticsEndpoint::test_get_diagnostics_quote
+s_without_supabase was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+routes.py', 348, 'Skipped: SupabaseService module may not exist in current 
+codebase')
+Test 
+tests/test_admin_routes.py::TestDiagnosticsEndpoint::test_get_diagnostics_quote
+s_accepts_tenant_filter was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+routes.py', 360, 'Skipped: SupabaseService module may not exist in current 
+codebase')
+Test 
+tests/test_admin_routes.py::TestVAPIProvisioningEndpoints::test_provision_vapi_
+tenant_not_found was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_admin_
+routes.py', 418, 'Skipped: VAPIProvisioner module not present in current 
+codebase')
+Test 
+tests/test_pdf_generator.py::TestGenerateQuotePDF::test_generate_quote_pdf_retu
+rns_bytes was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 232, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateQuotePDF::test_generate_quote_pdf_vali
+d_pdf_header was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 249, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateQuotePDF::test_generate_quote_pdf_with
+_multiple_hotels was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 266, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateQuotePDF::test_generate_quote_pdf_hand
+les_empty_hotels was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 296, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateQuotePDF::test_generate_quote_pdf_uses
+_config_currency was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 312, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+returns_bytes was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 333, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+valid_pdf was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 350, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+with_vat was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 366, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+without_vat was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 384, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+with_travelers was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 401, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+without_travelers was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 418, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+with_price_includes was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 442, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+with_banking_details was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 458, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+sanitizes_unicode was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 475, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestGenerateInvoicePDF::test_generate_invoice_pdf_
+handles_missing_banking was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 501, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestWeasyPrintIntegration::test_uses_weasyprint_wh
+en_available was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 536, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_pdf_generator.py::TestWeasyPrintIntegration::test_template_renderer_
+called_with_context was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 552, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_pdf_generator.py::TestPDFGeneratorErrors::test_handles_fpdf_exceptio
+n was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 606, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestPDFGeneratorErrors::test_handles_invoice_fpdf_
+exception was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 625, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestColorConversion::test_hex_to_rgb_conversion 
+was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 650, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestColorConversion::test_handles_invalid_color_fo
+rmat was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 670, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestPageBreaks::test_handles_many_hotels_page_brea
+ks was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 695, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestPageBreaks::test_handles_many_invoice_items_pa
+ge_breaks was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 726, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator.py::TestPageBreaks::test_handles_many_travelers_page_b
+reaks was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator.py', 755, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestGenerateQuotePdf::test_uses_weasyprint_wh
+en_available_with_renderer was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 250, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_pdf_generator_unit.py::TestGenerateQuotePdfWithFpdf::test_fpdf_gener
+ates_pdf_bytes was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 285, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestGenerateInvoicePdf::test_generates_invoic
+e_with_fpdf was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 390, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestGenerateInvoicePdf::test_invoice_handles_
+empty_travelers was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 403, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestGenerateInvoicePdf::test_invoice_handles_
+minimal_data was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 418, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestWeasyPrintIntegration::test_uses_weasypri
+nt_when_available was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 449, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_pdf_generator_unit.py::TestWeasyPrintIntegration::test_template_rend
+erer_called_with_context was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 470, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_pdf_generator_unit.py::TestPDFPageBreaks::test_handles_many_hotels_p
+age_breaks was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 543, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestPDFPageBreaks::test_handles_many_invoice_
+items was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 573, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestPDFPageBreaks::test_handles_many_traveler
+s was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 601, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestVATCalculation::test_invoice_with_vat was
+skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 653, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestVATCalculation::test_invoice_without_vat 
+was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 669, 'Skipped: fpdf2 not available')
+Test 
+tests/test_pdf_generator_unit.py::TestPDFGeneratorErrors::test_handles_weasypri
+nt_error_fallback was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_pdf_ge
+nerator_unit.py', 699, 'Skipped: WeasyPrint not available')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_falls_back_when_redis_unava
+ilable was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 406, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_is_healthy_returns_false_wh
+en_no_redis was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 421, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_get_count_uses_fallback was
+skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 431, 'Skipped: redis package not installed')
+Test tests/test_rate_limiter.py::TestRedisFallback::test_reset_uses_fallback 
+was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 445, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_redis_store_with_valid_conn
+ection was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 459, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_redis_store_get_count_valid
+was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 481, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestRedisFallback::test_redis_store_get_count_none 
+was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 495, 'Skipped: redis package not installed')
+Test 
+tests/test_rate_limiter.py::TestGetStore::test_get_store_uses_redis_when_config
+ured was skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_rate_l
+imiter.py', 583, 'Skipped: redis package not installed')
+Test tests/test_templates.py::TestTemplates::test_agent_prompt_rendering was 
+skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_templa
+tes.py', 50, 'Skipped: Agent prompt file has encoding issues on Windows 
+(non-ASCII)')
+Test tests/test_templates.py::TestTemplates::test_email_template_rendering was 
+skipped. Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_templa
+tes.py', 30, 'Skipped: Template uses custom date filter not registered in 
+renderer')
+Test tests/test_templates.py::TestTemplates::test_pdf_generation was skipped. 
+Reason: 
+('C:\\Users\\jerry\\Documents\\multitenant-ai-platform-lite\\tests\\test_templa
+tes.py', 58, 'Skipped: WeasyPrint HTML class not available in test 
+environment')
+=========================== short test summary info ===========================
+FAILED tests/test_admin_analytics_routes.py::TestGetAllInvoicesStats::test_returns_zeros_without_client
+FAILED tests/test_admin_analytics_routes.py::TestGetUserAndClientCounts::test_returns_zeros_without_client
+FAILED tests/test_admin_knowledge_routes.py::TestUtilityFunctions::test_get_index_stats_with_files
+FAILED tests/test_admin_knowledge_routes.py::TestListDocumentsFunction::test_list_documents_returns_all
+FAILED tests/test_admin_knowledge_routes.py::TestListDocumentsFunction::test_list_documents_filters_by_category
+FAILED tests/test_admin_knowledge_routes.py::TestListDocumentsFunction::test_list_documents_filters_by_tenant
+FAILED tests/test_admin_knowledge_routes.py::TestListDocumentsFunction::test_list_documents_global_filter
+FAILED tests/test_admin_knowledge_routes.py::TestListDocumentsFunction::test_list_documents_pagination
+FAILED tests/test_admin_knowledge_routes.py::TestCreateDocumentFunction::test_create_document_success
+FAILED tests/test_admin_knowledge_routes.py::TestCreateDocumentFunction::test_create_document_default_values
+FAILED tests/test_admin_knowledge_routes.py::TestGetDocumentFunction::test_get_document_found
+FAILED tests/test_admin_knowledge_routes.py::TestUpdateDocumentFunction::test_update_document_title
+FAILED tests/test_admin_knowledge_routes.py::TestDeleteDocumentFunction::test_delete_document_success
+FAILED tests/test_admin_knowledge_routes.py::TestRebuildIndexFunction::test_rebuild_index_success
+FAILED tests/test_admin_knowledge_routes.py::TestStatsFunction::test_stats_returns_correct_counts
+FAILED tests/test_analytics_routes.py::TestDashboardStatsHandler::test_get_dashboard_stats_with_mock
+FAILED tests/test_analytics_routes.py::TestDashboardStatsHandler::test_get_dashboard_stats_no_client
+FAILED tests/test_analytics_routes.py::TestDashboardActivityHandler::test_get_recent_activity_with_mock
+FAILED tests/test_analytics_routes.py::TestQuoteAnalyticsHandler::test_get_quote_analytics_with_mock
+FAILED tests/test_analytics_routes.py::TestQuoteAnalyticsHandler::test_get_quote_analytics_empty
+FAILED tests/test_analytics_routes.py::TestInvoiceAnalyticsHandler::test_get_invoice_analytics_with_mock
+FAILED tests/test_analytics_routes.py::TestInvoiceAnalyticsHandler::test_get_invoice_analytics_empty
+FAILED tests/test_analytics_routes.py::TestCallAnalyticsHandler::test_get_call_analytics_with_mock
+FAILED tests/test_analytics_routes.py::TestPipelineAnalyticsHandler::test_get_pipeline_analytics_with_mock
+FAILED tests/test_api_routes.py::TestResponseFormat::test_health_response_format
+FAILED tests/test_api_routes.py::TestResponseFormat::test_root_response_format
+FAILED tests/test_auth_middleware.py::TestTenantSpoofingRejection::test_mismatched_tenant_header_returns_403
+FAILED tests/test_auth_middleware.py::TestTenantSpoofingRejection::test_matching_tenant_header_succeeds
+FAILED tests/test_auth_middleware.py::TestTenantSpoofingRejection::test_no_tenant_header_uses_default
+FAILED tests/test_auth_middleware.py::TestPublicPathBypass::test_health_endpoint_skips_auth
+FAILED tests/test_auth_middleware.py::TestPublicPathBypass::test_options_preflight_skips_auth
+FAILED tests/test_auth_middleware.py::TestMissingInvalidAuth::test_missing_auth_header_returns_401
+FAILED tests/test_auth_middleware.py::TestMissingInvalidAuth::test_invalid_bearer_format_returns_401
+FAILED tests/test_auth_middleware.py::TestMissingInvalidAuth::test_invalid_jwt_returns_401
+FAILED tests/test_auth_middleware.py::TestMissingInvalidAuth::test_user_not_found_returns_401
+FAILED tests/test_auth_middleware.py::TestMissingInvalidAuth::test_deactivated_user_returns_401
+FAILED tests/test_auth_middleware.py::TestUserContextPopulation::test_user_context_has_correct_fields
+FAILED tests/test_auth_middleware.py::TestUserContextPopulation::test_consultant_user_is_not_admin
+FAILED tests/test_auth_middleware.py::TestUnknownTenant::test_unknown_tenant_returns_400
+FAILED tests/test_auth_service.py::TestUpdatePassword::test_update_password_auth_error
+FAILED tests/test_email_parser.py::TestBudgetParsing::test_parse_usd_budget
+FAILED tests/test_email_parser.py::TestLLMResponseNormalization::test_normalize_invalid_adults
+FAILED tests/test_email_parser.py::TestLLMResponseNormalization::test_normalize_negative_children
+FAILED tests/test_email_parser.py::TestParseMethodTracking::test_fallback_method_indicated
+FAILED tests/test_helpdesk_agent.py::TestHandleToolCalls::test_tool_call_recorded_in_history
+FAILED tests/test_helpdesk_agent.py::TestHandleToolCalls::test_tool_call_args_recorded
+FAILED tests/test_helpdesk_agent.py::TestEdgeCases::test_search_with_empty_query
+FAILED tests/test_helpdesk_agent.py::TestEdgeCases::test_search_with_missing_query_key
+FAILED tests/test_helpdesk_agent.py::TestMultipleTurnConversation::test_tool_calls_accumulated
+FAILED tests/test_helpdesk_routes.py::TestAskHelpdeskHandler::test_ask_helpdesk_success_with_dual_kb
+FAILED tests/test_helpdesk_routes.py::TestAskHelpdeskHandler::test_ask_helpdesk_llm_fallback
+FAILED tests/test_helpdesk_routes.py::TestAskHelpdeskHandler::test_ask_helpdesk_error_fallback
+FAILED tests/test_helpdesk_routes.py::TestAskHelpdeskHandler::test_ask_helpdesk_exception_handling
+FAILED tests/test_helpdesk_routes.py::TestTopicsHandler::test_get_topics_returns_success
+FAILED tests/test_helpdesk_routes.py::TestSearchHandler::test_search_without_query_returns_all
+FAILED tests/test_helpdesk_routes.py::TestSearchHandler::test_search_filters_by_name
+FAILED tests/test_helpdesk_routes.py::TestSearchHandler::test_search_filters_by_description
+FAILED tests/test_helpdesk_routes.py::TestSearchHandler::test_search_no_match_returns_first_three
+FAILED tests/test_helpdesk_routes.py::TestRagStatusHandler::test_rag_status_success
+FAILED tests/test_helpdesk_routes.py::TestRagStatusHandler::test_rag_status_error
+FAILED tests/test_helpdesk_routes.py::TestTestSearchHandler::test_test_search_success
+FAILED tests/test_helpdesk_routes.py::TestTestSearchHandler::test_test_search_no_answer
+FAILED tests/test_helpdesk_routes.py::TestTestSearchHandler::test_test_search_exception
+FAILED tests/test_helpdesk_routes.py::TestHelpdeskHealthHandler::test_health_check_healthy
+FAILED tests/test_helpdesk_routes.py::TestHelpdeskHealthHandler::test_health_check_degraded
+FAILED tests/test_helpdesk_routes.py::TestHelpdeskHealthHandler::test_health_check_error
+FAILED tests/test_helpdesk_routes.py::TestAgentChatHandler::test_agent_chat_success
+FAILED tests/test_helpdesk_routes.py::TestAgentChatHandler::test_agent_chat_direct_response
+FAILED tests/test_helpdesk_routes.py::TestAgentChatHandler::test_agent_chat_exception
+FAILED tests/test_helpdesk_routes.py::TestAgentResetHandler::test_agent_reset_success
+FAILED tests/test_helpdesk_routes.py::TestAgentResetHandler::test_agent_reset_exception
+FAILED tests/test_helpdesk_routes.py::TestAgentStatsHandler::test_agent_stats_success
+FAILED tests/test_helpdesk_routes.py::TestAgentStatsHandler::test_agent_stats_exception
+FAILED tests/test_helpdesk_routes.py::TestReinitHandler::test_reinit_success
+FAILED tests/test_helpdesk_routes.py::TestReinitHandler::test_reinit_unavailable
+FAILED tests/test_helpdesk_routes.py::TestReinitHandler::test_reinit_exception
+FAILED tests/test_helpdesk_routes.py::TestAccuracyTestHandler::test_list_accuracy_test_cases
+FAILED tests/test_helpdesk_routes.py::TestAccuracyTestHandler::test_run_specific_test
+FAILED tests/test_helpdesk_routes.py::TestAccuracyTestHandler::test_run_all_tests
+FAILED tests/test_helpdesk_routes.py::TestAccuracyTestHandler::test_run_nonexistent_test
+FAILED tests/test_helpdesk_service.py::TestFAISSServiceInitialization::test_service_is_singleton
+FAILED tests/test_helpdesk_service.py::TestFAISSServiceInitialization::test_service_starts_uninitialized
+FAILED tests/test_helpdesk_service.py::TestFAISSServiceInitialization::test_get_faiss_helpdesk_service_returns_instance
+FAILED tests/test_helpdesk_service.py::TestFAISSServiceInitialization::test_reset_faiss_service
+FAILED tests/test_helpdesk_service.py::TestGCSDownload::test_download_from_gcs_returns_false_without_client
+FAILED tests/test_helpdesk_service.py::TestGCSDownload::test_download_from_gcs_returns_false_for_missing_blob
+FAILED tests/test_helpdesk_service.py::TestFAISSSearch::test_search_returns_empty_when_not_initialized
+FAILED tests/test_helpdesk_service.py::TestFAISSSearch::test_search_with_initialized_service
+FAILED tests/test_helpdesk_service.py::TestFAISSSearch::test_search_score_calculation
+FAILED tests/test_helpdesk_service.py::TestSearchWithContext::test_search_with_context_filters_by_score
+FAILED tests/test_helpdesk_service.py::TestSearchWithContext::test_search_with_context_returns_minimum_results
+FAILED tests/test_helpdesk_service.py::TestMMRSearch::test_mmr_search_returns_diverse_results
+FAILED tests/test_helpdesk_service.py::TestMMRSearch::test_mmr_lambda_affects_diversity
+FAILED tests/test_helpdesk_service.py::TestMMRSearch::test_mmr_search_empty_when_not_initialized
+FAILED tests/test_helpdesk_service.py::TestDocumentRetrieval::test_get_document_returns_none_for_invalid_index
+FAILED tests/test_helpdesk_service.py::TestDocumentRetrieval::test_get_document_returns_none_for_missing_doc_id
+FAILED tests/test_helpdesk_service.py::TestDocumentRetrieval::test_get_document_handles_langchain_docstore
+FAILED tests/test_helpdesk_service.py::TestDocumentRetrieval::test_get_document_handles_dict_docstore
+FAILED tests/test_helpdesk_service.py::TestDocumentRetrieval::test_get_document_handles_list_docstore
+FAILED tests/test_helpdesk_service.py::TestServiceStatus::test_get_status_returns_status_dict
+FAILED tests/test_helpdesk_service.py::TestServiceStatus::test_get_status_shows_initialized_state
+FAILED tests/test_helpdesk_service.py::TestServiceConfiguration::test_gcs_bucket_name_default
+FAILED tests/test_helpdesk_service.py::TestServiceConfiguration::test_gcs_index_prefix_default
+FAILED tests/test_helpdesk_service.py::TestServiceConfiguration::test_cache_dir_defined
+FAILED tests/test_helpdesk_service.py::TestErrorHandling::test_search_handles_embedding_error
+FAILED tests/test_helpdesk_service.py::TestErrorHandling::test_mmr_search_falls_back_to_regular_search
+FAILED tests/test_helpdesk_service.py::TestAsyncInitialization::test_initialize_faiss_service_async
+FAILED tests/test_helpdesk_service.py::TestEmbeddingsModel::test_get_embeddings_model_caches_result
+FAILED tests/test_helpdesk_service.py::TestEmbeddingsModel::test_get_embeddings_model_handles_import_gracefully
+FAILED tests/test_hotelbeds_client.py::TestHotelBedsClientInit::test_default_base_url
+FAILED tests/test_inbound_agent.py::TestKnowledgeBaseRAG::test_init_with_client_id
+FAILED tests/test_inbound_agent.py::TestKnowledgeBaseRAG::test_load_index_missing_files
+FAILED tests/test_inbound_agent.py::TestKnowledgeBaseRAG::test_load_index_success
+FAILED tests/test_inbound_agent.py::TestLoadIndexExceptions::test_load_index_faiss_import_error
+FAILED tests/test_inbound_agent.py::TestLoadIndexExceptions::test_get_embeddings_model_import_error
+FAILED tests/test_inbound_routes.py::TestListTicketsLogic::test_list_tickets_returns_tickets
+FAILED tests/test_inbound_routes.py::TestListTicketsLogic::test_list_tickets_with_status_filter
+FAILED tests/test_inbound_routes.py::TestListTicketsLogic::test_list_tickets_calculates_stats
+FAILED tests/test_inbound_routes.py::TestGetTicketLogic::test_get_ticket_returns_ticket
+FAILED tests/test_inbound_routes.py::TestUpdateTicketLogic::test_update_ticket_success
+FAILED tests/test_inbound_routes.py::TestUpdateTicketLogic::test_update_ticket_with_assignment
+FAILED tests/test_inbound_routes.py::TestReplyToTicketLogic::test_reply_to_ticket_success
+FAILED tests/test_inbound_routes.py::TestReplyToTicketLogic::test_reply_updates_status_to_in_progress
+FAILED tests/test_inbound_routes.py::TestInboundStatsLogic::test_get_stats_returns_stats
+FAILED tests/test_inbound_routes.py::TestInboundStatsLogic::test_get_stats_empty_when_no_database
+FAILED tests/test_inbound_routes.py::TestInboundStatsLogic::test_get_stats_empty_tickets
+FAILED tests/test_inbound_routes.py::TestTenantIsolation::test_get_ticket_filters_by_tenant
+FAILED tests/test_inbound_routes.py::TestTenantIsolation::test_update_ticket_filters_by_tenant
+FAILED tests/test_inbound_routes.py::TestTenantIsolation::test_get_stats_filters_by_tenant
+FAILED tests/test_inbound_routes.py::TestConversationHandling::test_reply_adds_agent_role
+FAILED tests/test_inbound_routes.py::TestConversationHandling::test_get_ticket_includes_conversation
+FAILED tests/test_inbound_routes.py::TestConversationHandling::test_conversation_from_metadata_fallback
+FAILED tests/test_integration_email_pipeline.py::TestDraftQuoteApproveAndSend::test_draft_quote_approve_and_send
+FAILED tests/test_integration_helpdesk_rag.py::TestFAISSHelpdeskService::test_faiss_service_search_with_context
+FAILED tests/test_integration_quote_gen.py::TestHotelMatchingWithFAISS::test_hotel_matcher_uses_faiss_search
+FAILED tests/test_integration_quote_gen.py::TestQuoteAgentFullFlow::test_generate_quote_full_flow
+FAILED tests/test_integration_quote_gen.py::TestQuoteAgentFullFlow::test_generate_draft_quote_no_email
+FAILED tests/test_knowledge_routes.py::TestListDocumentsUnit::test_list_documents_success
+FAILED tests/test_knowledge_routes.py::TestListDocumentsUnit::test_list_documents_filter_category
+FAILED tests/test_knowledge_routes.py::TestListDocumentsUnit::test_list_documents_filter_status
+FAILED tests/test_knowledge_routes.py::TestGetDocumentUnit::test_get_document_success
+FAILED tests/test_knowledge_routes.py::TestDeleteDocumentUnit::test_delete_document_success
+FAILED tests/test_knowledge_routes.py::TestSearchKnowledgeUnit::test_search_knowledge_success
+FAILED tests/test_knowledge_routes.py::TestSearchKnowledgeUnit::test_search_knowledge_empty
+FAILED tests/test_knowledge_routes.py::TestSearchKnowledgeGetUnit::test_search_get_success
+FAILED tests/test_knowledge_routes.py::TestIndexStatusUnit::test_index_status_success
+FAILED tests/test_knowledge_routes.py::TestRebuildIndexUnit::test_rebuild_index_success
+FAILED tests/test_knowledge_routes.py::TestListCategoriesUnit::test_list_categories_success
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_list_global_documents_success
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_list_global_documents_with_search
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_list_global_documents_timeout
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_list_global_documents_connection_error
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_list_global_documents_error_status
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_get_global_document_content_success
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_get_global_document_content_error
+FAILED tests/test_knowledge_routes.py::TestGlobalKnowledgeBaseProxy::test_download_global_document_success
+FAILED tests/test_knowledge_routes.py::TestDocumentUploadHandler::test_upload_document_handler
+FAILED tests/test_leaderboard_routes.py::TestGetRankingsEndpoint::test_get_rankings_returns_rankings
+FAILED tests/test_leaderboard_routes.py::TestGetRankingsEndpoint::test_get_rankings_normalizes_invalid_period
+FAILED tests/test_leaderboard_routes.py::TestGetRankingsEndpoint::test_get_rankings_normalizes_invalid_metric
+FAILED tests/test_leaderboard_routes.py::TestGetMyPerformanceEndpoint::test_get_my_performance_user_in_rankings
+FAILED tests/test_leaderboard_routes.py::TestGetMyPerformanceEndpoint::test_get_my_performance_user_not_in_rankings
+FAILED tests/test_leaderboard_routes.py::TestGetPerformanceSummaryEndpoint::test_get_summary_returns_summary
+FAILED tests/test_leaderboard_routes.py::TestGetPerformanceSummaryEndpoint::test_get_summary_without_top_performer
+FAILED tests/test_leaderboard_routes.py::TestGetConsultantPerformanceEndpoint::test_get_consultant_performance_found
+FAILED tests/test_leaderboard_routes.py::TestGetConsultantPerformanceEndpoint::test_get_consultant_performance_normalizes_period
+FAILED tests/test_metrics_routes.py::TestMetricsEndpoint::test_metrics_returns_prometheus_format
+FAILED tests/test_metrics_routes.py::TestMetricsRouterSetup::test_metrics_router_exists
+FAILED tests/test_metrics_routes.py::TestMetricsRouterSetup::test_metrics_router_has_metrics_endpoint
+FAILED tests/test_notifications_routes.py::TestListNotificationsUnit::test_list_notifications_success
+FAILED tests/test_notifications_routes.py::TestListNotificationsUnit::test_list_notifications_with_pagination
+FAILED tests/test_notifications_routes.py::TestListNotificationsUnit::test_list_notifications_unread_only
+FAILED tests/test_notifications_routes.py::TestUnreadCountUnit::test_get_unread_count_success
+FAILED tests/test_notifications_routes.py::TestUnreadCountUnit::test_get_unread_count_zero
+FAILED tests/test_notifications_routes.py::TestUnreadCountUnit::test_get_unread_count_error_returns_zero
+FAILED tests/test_notifications_routes.py::TestMarkNotificationReadUnit::test_mark_notification_read_success
+FAILED tests/test_notifications_routes.py::TestMarkAllReadUnit::test_mark_all_read_success
+FAILED tests/test_notifications_routes.py::TestNotificationPreferencesUnit::test_get_preferences_success
+FAILED tests/test_notifications_routes.py::TestNotificationPreferencesUnit::test_get_preferences_returns_defaults
+FAILED tests/test_notifications_routes.py::TestNotificationPreferencesUnit::test_update_preferences_success
+FAILED tests/test_onboarding_routes.py::TestGeneratePromptEndpoint::test_generate_prompt_unavailable_without_genai
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_returns_error_when_not_available
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_returns_error_when_no_master_key
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_creates_subuser_successfully
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_assigns_platform_domain
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_handles_subuser_already_exists
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_handles_api_key_creation_failure
+FAILED tests/test_onboarding_routes.py::TestProvisionSendgridSubuser::test_handles_exception_gracefully
+FAILED tests/test_onboarding_routes.py::TestCreateTenantConfig::test_creates_tenant_directory
+FAILED tests/test_onboarding_routes.py::TestCreateTenantConfig::test_writes_config_yaml
+FAILED tests/test_onboarding_routes.py::TestCreateTenantConfig::test_writes_inbound_prompt
+FAILED tests/test_onboarding_routes.py::TestCreateTenantConfig::test_uses_resolved_emails
+FAILED tests/test_onboarding_routes.py::TestCreateTenantConfig::test_generates_short_name
+FAILED tests/test_pii_audit_middleware.py::TestGetClientIP::test_extracts_forwarded_for
+FAILED tests/test_pii_audit_middleware.py::TestGetClientIP::test_extracts_real_ip
+FAILED tests/test_pii_audit_middleware.py::TestGetClientIP::test_falls_back_to_client_host
+FAILED tests/test_pii_audit_middleware.py::TestGetClientIP::test_returns_none_when_no_client
+FAILED tests/test_pii_audit_middleware.py::TestPIILogging::test_log_entry_structure
+FAILED tests/test_pii_audit_middleware.py::TestMiddlewareDispatch::test_dispatch_with_disabled_middleware
+FAILED tests/test_pii_audit_middleware.py::TestMiddlewareDispatch::test_dispatch_with_non_pii_endpoint
+FAILED tests/test_pii_audit_middleware.py::TestEdgeCases::test_whitespace_in_forwarded_header
+FAILED tests/test_privacy_routes.py::TestGetMyConsentsUnit::test_get_my_consents_success
+FAILED tests/test_privacy_routes.py::TestGetMyConsentsUnit::test_get_my_consents_empty
+FAILED tests/test_privacy_routes.py::TestUpdateConsentUnit::test_update_consent_new
+FAILED tests/test_privacy_routes.py::TestUpdateConsentUnit::test_update_consent_existing
+FAILED tests/test_privacy_routes.py::TestSubmitDSARUnit::test_submit_dsar_success
+FAILED tests/test_privacy_routes.py::TestGetMyDSARsUnit::test_get_my_dsars_success
+FAILED tests/test_privacy_routes.py::TestGetDSARStatusUnit::test_get_dsar_status_success
+FAILED tests/test_privacy_routes.py::TestRequestDataExportUnit::test_request_data_export_success
+FAILED tests/test_privacy_routes.py::TestRequestDataErasureUnit::test_request_data_erasure_success
+FAILED tests/test_privacy_routes.py::TestAdminListDSARsUnit::test_list_all_dsars_success
+FAILED tests/test_privacy_routes.py::TestAdminUpdateDSARUnit::test_update_dsar_status_success
+FAILED tests/test_privacy_routes.py::TestAdminAuditLogUnit::test_get_audit_log_success
+FAILED tests/test_privacy_routes.py::TestAdminReportBreachUnit::test_report_breach_success
+FAILED tests/test_privacy_routes.py::TestAdminListBreachesUnit::test_list_breaches_success
+FAILED tests/test_request_id_middleware.py::TestRequestIdGeneration::test_request_id_in_request_state
+FAILED tests/test_request_id_middleware.py::TestClientIPExtraction::test_extracts_forwarded_for
+FAILED tests/test_request_id_middleware.py::TestClientIPExtraction::test_extracts_real_ip
+FAILED tests/test_request_id_middleware.py::TestClientIPExtraction::test_falls_back_to_client_host
+FAILED tests/test_request_id_middleware.py::TestClientIPExtraction::test_returns_unknown_when_no_client
+FAILED tests/test_request_id_middleware.py::TestClientIPExtraction::test_prefers_forwarded_for_over_real_ip
+FAILED tests/test_request_id_middleware.py::TestMultipleRequestsHandling::test_concurrent_requests_isolated
+FAILED tests/test_request_id_middleware.py::TestIPExtractionEdgeCases::test_multiple_ips_in_forwarded_for
+FAILED tests/test_request_id_middleware.py::TestIPExtractionEdgeCases::test_whitespace_in_forwarded_for
+FAILED tests/test_request_id_middleware.py::TestIPExtractionEdgeCases::test_ipv6_address
+FAILED tests/test_request_id_middleware.py::TestMiddlewareInitialization::test_middleware_has_dispatch
+FAILED tests/test_request_id_middleware.py::TestRequestStateAccess::test_request_state_has_request_id
+FAILED tests/test_request_id_middleware.py::TestRequestStateAccess::test_request_state_id_matches_header
+FAILED tests/test_request_id_middleware.py::TestRequestIdPropagation::test_custom_id_propagates_to_state
+FAILED tests/test_request_id_middleware.py::TestRequestIdPropagation::test_id_available_in_route_handler
+FAILED tests/test_request_size_middleware.py::TestRequestSizeEdgeCases::test_negative_content_length
+FAILED tests/test_routes.py::TestGenerateQuoteUnit::test_generate_quote_success
+FAILED tests/test_routes.py::TestListQuotesUnit::test_list_quotes_success - T...
+FAILED tests/test_routes.py::TestGetQuoteUnit::test_get_quote_success - TypeE...
+FAILED tests/test_routes.py::TestListClientsUnit::test_list_clients_success
+FAILED tests/test_routes.py::TestCreateClientUnit::test_create_client_success
+FAILED tests/test_routes.py::TestGetClientUnit::test_get_client_success - Typ...
+FAILED tests/test_routes.py::TestListInvoicesUnit::test_list_invoices_success
+FAILED tests/test_routes.py::TestGetInvoiceUnit::test_get_invoice_success - T...
+FAILED tests/test_routes.py::TestUpdateInvoiceStatusUnit::test_update_invoice_status_success
+FAILED tests/test_routes.py::TestCreateManualInvoiceUnit::test_create_manual_invoice_success
+FAILED tests/test_routes.py::TestCreateManualInvoiceUnit::test_create_manual_invoice_calculates_total
+FAILED tests/test_routes.py::TestPipelineSummaryUnit::test_get_pipeline_summary_success
+FAILED tests/test_routes.py::TestLogActivityUnit::test_log_activity_success
+FAILED tests/test_routes.py::TestGetCRMStatsUnit::test_get_crm_stats_success
+FAILED tests/test_security_headers.py::TestSecurityHeadersConstants::test_default_csp_constant
+FAILED tests/test_security_headers.py::TestCSPDirectives::test_csp_base_uri
+FAILED tests/test_settings_routes.py::TestGetSettingsUnit::test_get_tenant_settings_merges_db_and_config
+FAILED tests/test_settings_routes.py::TestGetSettingsUnit::test_get_tenant_settings_handles_no_db_settings
+FAILED tests/test_settings_routes.py::TestUpdateSettingsUnit::test_update_tenant_settings_company
+FAILED tests/test_settings_routes.py::TestUpdateSettingsUnit::test_update_tenant_settings_email
+FAILED tests/test_settings_routes.py::TestUpdateSettingsUnit::test_update_tenant_settings_banking
+FAILED tests/test_settings_routes.py::TestUpdateEmailSettingsUnit::test_update_email_settings_success
+FAILED tests/test_settings_routes.py::TestUpdateEmailSettingsUnit::test_update_email_settings_all_fields
+FAILED tests/test_settings_routes.py::TestUpdateBankingSettingsUnit::test_update_banking_settings_success
+FAILED tests/test_settings_routes.py::TestUpdateBankingSettingsUnit::test_update_banking_settings_all_fields
+FAILED tests/test_settings_routes.py::TestUpdateCompanySettingsUnit::test_update_company_settings_success
+FAILED tests/test_settings_routes.py::TestUpdateCompanySettingsUnit::test_update_company_settings_all_fields
+FAILED tests/test_templates_routes.py::TestGetTemplateSettingsLogic::test_get_template_settings_returns_settings
+FAILED tests/test_templates_routes.py::TestGetTemplateSettingsLogic::test_get_template_settings_returns_defaults_on_none
+FAILED tests/test_templates_routes.py::TestGetTemplateSettingsLogic::test_get_template_settings_returns_defaults_on_error
+FAILED tests/test_templates_routes.py::TestUpdateTemplateSettingsLogic::test_update_template_settings_success
+FAILED tests/test_templates_routes.py::TestUpdateTemplateSettingsLogic::test_update_template_settings_partial_update
+FAILED tests/test_templates_routes.py::TestQuoteTemplateLogic::test_get_quote_template_returns_quote_only
+FAILED tests/test_templates_routes.py::TestQuoteTemplateLogic::test_get_quote_template_returns_defaults_on_none
+FAILED tests/test_templates_routes.py::TestInvoiceTemplateLogic::test_get_invoice_template_returns_invoice_only
+FAILED tests/test_templates_routes.py::TestInvoiceTemplateLogic::test_get_invoice_template_returns_defaults_on_none
+FAILED tests/test_templates_routes.py::TestResetTemplateSettingsLogic::test_reset_template_settings_returns_defaults
+FAILED tests/test_templates_routes.py::TestResetTemplateSettingsLogic::test_reset_template_settings_calls_update
+FAILED tests/test_templates_routes.py::TestLayoutsEndpoint::test_get_available_layouts_returns_layouts
+FAILED tests/test_templates_routes.py::TestLayoutsEndpoint::test_get_available_layouts_has_required_fields
+FAILED tests/test_templates_routes.py::TestLayoutsEndpoint::test_get_available_layouts_includes_standard
+FAILED tests/test_templates_routes.py::TestLayoutsEndpoint::test_get_available_layouts_includes_modern
+FAILED tests/test_templates_routes.py::TestLayoutsEndpoint::test_get_available_layouts_includes_minimal
+FAILED tests/test_templates_routes.py::TestErrorRecovery::test_get_settings_recovers_from_error
+FAILED tests/test_templates_routes.py::TestErrorRecovery::test_get_quote_recovers_from_error
+FAILED tests/test_templates_routes.py::TestErrorRecovery::test_get_invoice_recovers_from_error
+FAILED tests/test_templates_routes.py::TestTemplateMerge::test_update_preserves_unmodified_fields
+FAILED tests/test_templates_routes.py::TestTemplateMerge::test_update_invoice_only
+FAILED tests/test_thread_safety.py::TestFAISSSingletonThreadSafety::test_singleton_returns_same_instance
+FAILED tests/test_thread_safety.py::TestFAISSSingletonThreadSafety::test_concurrent_singleton_creation
+FAILED tests/test_thread_safety.py::TestFAISSSingletonThreadSafety::test_double_check_locking_exists
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_skips_health_check_endpoints
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_skips_root_endpoint
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_adds_response_time_header
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_logs_request_duration
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_logs_warning_for_slow_requests
+FAILED tests/test_timing_middleware.py::TestTimingMiddleware::test_logs_critical_for_very_slow_requests
+FAILED tests/test_timing_middleware.py::TestPrometheusIntegration::test_records_prometheus_metrics_when_available
+FAILED tests/test_timing_middleware.py::TestPrometheusIntegration::test_records_error_count_for_4xx
+FAILED tests/test_timing_middleware.py::TestSkipPaths::test_skips_health_live
+FAILED tests/test_timing_middleware.py::TestSkipPaths::test_skips_health_ready
+FAILED tests/test_timing_middleware.py::TestSkipPaths::test_skips_metrics - A...
+FAILED tests/test_timing_middleware.py::TestSkipPaths::test_does_not_skip_api_endpoints
+FAILED tests/test_timing_middleware.py::TestResponseTimeHeader::test_header_format
+FAILED tests/test_timing_middleware.py::TestResponseTimeHeader::test_header_contains_numeric_value
+FAILED tests/test_timing_middleware.py::TestResponseTimeHeader::test_header_value_is_non_negative
+FAILED tests/test_timing_middleware.py::TestThresholdLogging::test_fast_request_logs_info
+FAILED tests/test_timing_middleware.py::TestThresholdLogging::test_slow_request_logs_warning
+FAILED tests/test_timing_middleware.py::TestHTTPMethods::test_handles_get - A...
+FAILED tests/test_timing_middleware.py::TestHTTPMethods::test_handles_post - ...
+FAILED tests/test_timing_middleware.py::TestHTTPMethods::test_handles_put - A...
+FAILED tests/test_timing_middleware.py::TestHTTPMethods::test_handles_delete
+FAILED tests/test_timing_middleware.py::TestStatusCodeTracking::test_logs_2xx_status
+FAILED tests/test_timing_middleware.py::TestStatusCodeTracking::test_logs_4xx_status
+FAILED tests/test_timing_middleware.py::TestStatusCodeTracking::test_logs_5xx_status
+FAILED tests/test_travel_platform_rag_client.py::TestClientInitialization::test_client_has_default_values
+FAILED tests/test_travel_platform_rates_client.py::TestClientInitialization::test_client_initializes_with_defaults
+FAILED tests/test_users_routes.py::TestListUsersUnit::test_list_users_returns_users
+FAILED tests/test_users_routes.py::TestListUsersUnit::test_list_users_handles_empty_list
+FAILED tests/test_users_routes.py::TestInviteUserUnit::test_invite_user_creates_invitation
+FAILED tests/test_users_routes.py::TestListInvitationsUnit::test_list_invitations_returns_invitations
+FAILED tests/test_users_routes.py::TestCancelInvitationUnit::test_cancel_invitation_success
+FAILED tests/test_users_routes.py::TestGetUserUnit::test_get_user_returns_user
+FAILED tests/test_users_routes.py::TestUpdateUserUnit::test_update_user_name
+FAILED tests/test_users_routes.py::TestDeactivateUserUnit::test_deactivate_user_success
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_returns_list
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_with_category_filter
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_with_tenant_filter
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_global_filter
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_pagination_limit
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_pagination_offset
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_max_limit_200
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_empty_result
+ERROR tests/test_admin_knowledge_routes.py::TestListDocumentsEndpoint::test_list_documents_response_structure
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_success
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_returns_doc_with_id
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_sets_timestamps
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_default_category
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_default_visibility
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_with_tenant_id
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_validation_title_required
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_validation_content_required
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_validation_title_max_length
+ERROR tests/test_admin_knowledge_routes.py::TestCreateDocumentEndpoint::test_create_document_invalidates_cache
+ERROR tests/test_admin_knowledge_routes.py::TestGetDocumentEndpoint::test_get_document_success
+ERROR tests/test_admin_knowledge_routes.py::TestGetDocumentEndpoint::test_get_document_not_found
+ERROR tests/test_admin_knowledge_routes.py::TestGetDocumentEndpoint::test_get_document_loads_content_from_gcs
+ERROR tests/test_admin_knowledge_routes.py::TestGetDocumentEndpoint::test_get_document_falls_back_to_local
+ERROR tests/test_admin_knowledge_routes.py::TestGetDocumentEndpoint::test_get_document_response_structure
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_success
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_not_found
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_partial
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_title
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_category
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_content_saves_to_gcs
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_marks_unindexed
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_updates_timestamp
+ERROR tests/test_admin_knowledge_routes.py::TestUpdateDocumentEndpoint::test_update_document_invalidates_cache
+ERROR tests/test_admin_knowledge_routes.py::TestDeleteDocumentEndpoint::test_delete_document_success
+ERROR tests/test_admin_knowledge_routes.py::TestDeleteDocumentEndpoint::test_delete_document_not_found
+ERROR tests/test_admin_knowledge_routes.py::TestDeleteDocumentEndpoint::test_delete_document_returns_deleted_doc
+ERROR tests/test_admin_knowledge_routes.py::TestDeleteDocumentEndpoint::test_delete_document_invalidates_cache
+ERROR tests/test_admin_knowledge_routes.py::TestRebuildIndexEndpoint::test_rebuild_index_success
+ERROR tests/test_admin_knowledge_routes.py::TestRebuildIndexEndpoint::test_rebuild_index_marks_documents_indexed
+ERROR tests/test_admin_knowledge_routes.py::TestRebuildIndexEndpoint::test_rebuild_index_updates_timestamps
+ERROR tests/test_admin_knowledge_routes.py::TestRebuildIndexEndpoint::test_rebuild_index_response_structure
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_returns_totals
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_returns_category_counts
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_returns_global_vs_tenant
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_returns_index_info
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_returns_storage_info
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_includes_faiss_status
+ERROR tests/test_admin_knowledge_routes.py::TestStatsEndpoint::test_stats_handles_faiss_error
+ERROR tests/test_faiss_service.py::TestFAISSServiceInit::test_singleton_pattern
+ERROR tests/test_faiss_service.py::TestFAISSServiceInit::test_init_not_initialized_by_default
+ERROR tests/test_faiss_service.py::TestFAISSServiceInit::test_cache_directory_created
+ERROR tests/test_faiss_service.py::TestFAISSServiceInitialize::test_initialize_downloads_from_gcs
+ERROR tests/test_faiss_service.py::TestFAISSServiceInitialize::test_initialize_gcs_failure
+ERROR tests/test_faiss_service.py::TestFAISSServiceInitialize::test_initialize_already_initialized
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_returns_results
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_uninitialized_returns_empty
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_with_top_k
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_result_has_content
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_result_has_score
+ERROR tests/test_faiss_service.py::TestFAISSServiceSearch::test_search_result_has_source
+ERROR tests/test_faiss_service.py::TestSearchWithContext::test_search_with_context_basic
+ERROR tests/test_faiss_service.py::TestSearchWithContext::test_search_with_context_min_score
+ERROR tests/test_faiss_service.py::TestSearchWithContext::test_search_with_context_uses_mmr
+ERROR tests/test_faiss_service.py::TestSearchWithMMR::test_mmr_returns_diverse_results
+ERROR tests/test_faiss_service.py::TestSearchWithMMR::test_mmr_fallback_to_regular
+ERROR tests/test_faiss_service.py::TestSearchWithMMR::test_mmr_uninitialized_returns_empty
+ERROR tests/test_faiss_service.py::TestGetDocument::test_get_document_langchain_format
+ERROR tests/test_faiss_service.py::TestGetDocument::test_get_document_dict_format
+ERROR tests/test_faiss_service.py::TestGetDocument::test_get_document_list_format
+ERROR tests/test_faiss_service.py::TestGetDocument::test_get_document_not_found
+ERROR tests/test_faiss_service.py::TestGetDocument::test_get_document_invalid_index
+ERROR tests/test_faiss_service.py::TestGetStatus::test_get_status_initialized
+ERROR tests/test_faiss_service.py::TestGetStatus::test_get_status_not_initialized
+ERROR tests/test_faiss_service.py::TestGetStatus::test_get_status_has_error
+ERROR tests/test_faiss_service.py::TestGetStatus::test_get_status_vector_count
+ERROR tests/test_faiss_service.py::TestHelperFunctions::test_get_faiss_helpdesk_service_singleton
+ERROR tests/test_faiss_service.py::TestHelperFunctions::test_reset_faiss_service
+ERROR tests/test_faiss_service.py::TestHelperFunctions::test_reset_faiss_service_clears_cache
+ERROR tests/test_faiss_service.py::TestHelperFunctions::test_initialize_faiss_service_async
+ERROR tests/test_faiss_service.py::TestDocstoreFormats::test_docstore_with_internal_dict
+ERROR tests/test_faiss_service.py::TestDocstoreFormats::test_langchain_docstore_not_found
+ERROR tests/test_quote_agent_expanded.py::TestQuoteIdGeneration::test_quote_id_format
+ERROR tests/test_quote_agent_expanded.py::TestQuoteIdGeneration::test_quote_id_contains_today_date
+ERROR tests/test_quote_agent_expanded.py::TestQuoteIdGeneration::test_quote_ids_are_unique
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_basic_data
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_dates_from_strings
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_dates_from_datetime
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_default_dates
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_destination_case_insensitive
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_children_ages
+ERROR tests/test_quote_agent_expanded.py::TestCustomerDataNormalization::test_normalize_budget_from_total_budget
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_success
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_not_found
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_not_draft_status
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_no_email
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_pdf_failure
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_email_failure
+ERROR tests/test_quote_agent_expanded.py::TestSendDraftQuote::test_send_draft_quote_schedules_call
+ERROR tests/test_quote_agent_expanded.py::TestResendQuote::test_resend_quote_success
+ERROR tests/test_quote_agent_expanded.py::TestResendQuote::test_resend_quote_not_found
+ERROR tests/test_quote_agent_expanded.py::TestResendQuote::test_resend_quote_any_status
+ERROR tests/test_quote_agent_expanded.py::TestResendQuote::test_resend_quote_no_email
+ERROR tests/test_quote_agent_expanded.py::TestUpdateQuoteStatus::test_update_to_sent
+ERROR tests/test_quote_agent_expanded.py::TestUpdateQuoteStatus::test_update_to_viewed
+ERROR tests/test_quote_agent_expanded.py::TestUpdateQuoteStatus::test_update_to_accepted
+ERROR tests/test_quote_agent_expanded.py::TestUpdateQuoteStatus::test_update_status_no_supabase
+ERROR tests/test_quote_agent_expanded.py::TestListQuotes::test_list_quotes_basic
+ERROR tests/test_quote_agent_expanded.py::TestListQuotes::test_list_quotes_with_status_filter
+ERROR tests/test_quote_agent_expanded.py::TestListQuotes::test_list_quotes_pagination
+ERROR tests/test_quote_agent_expanded.py::TestListQuotes::test_list_quotes_no_supabase
+ERROR tests/test_quote_agent_expanded.py::TestBusinessDayCalculation::test_next_business_day_skips_saturday
+ERROR tests/test_quote_agent_expanded.py::TestBusinessDayCalculation::test_next_business_day_with_days_ahead
+ERROR tests/test_quote_agent_expanded.py::TestCRMIntegration::test_add_new_client_to_crm
+ERROR tests/test_quote_agent_expanded.py::TestCRMIntegration::test_existing_client_moves_to_negotiating
+ERROR tests/test_quote_agent_expanded.py::TestCRMIntegration::test_no_crm_service
+ERROR tests/test_quote_agent_expanded.py::TestErrorHandling::test_generate_quote_pricing_error
+ERROR tests/test_quote_agent_expanded.py::TestErrorHandling::test_save_quote_supabase_error
+ERROR tests/test_quote_agent_expanded.py::TestScheduleFollowUpCall::test_schedule_call_success
+ERROR tests/test_quote_agent_expanded.py::TestScheduleFollowUpCall::test_schedule_call_no_supabase
+ERROR tests/test_quote_agent_expanded.py::TestGetQuote::test_get_quote_success
+ERROR tests/test_quote_agent_expanded.py::TestGetQuote::test_get_quote_not_found
+ERROR tests/test_quote_agent_expanded.py::TestGetQuote::test_get_quote_no_supabase
+= 316 failed, 3379 passed, 66 skipped, 3 warnings, 122 errors in 1412.15s (0:23:32) =

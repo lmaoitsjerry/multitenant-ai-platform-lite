@@ -75,36 +75,40 @@ def reset_singleton():
 
 @pytest.fixture
 def mock_faiss_service():
-    """Mock FAISS helpdesk service."""
+    """Mock Travel Platform RAG client (replaces old FAISS service)."""
     mock_service = MagicMock()
-    mock_service.search_with_context.return_value = [
-        {
-            'content': 'Mauritius is a beautiful island destination with luxury resorts.',
-            'source': 'destinations/mauritius.md',
-            'score': 0.85
-        },
-        {
-            'content': 'Popular hotels include LUX Grand Gaube and Constance Belle Mare.',
-            'source': 'hotels/mauritius-hotels.md',
-            'score': 0.78
-        }
-    ]
+    mock_service.is_available.return_value = True
+    mock_service.search.return_value = {
+        'success': True,
+        'citations': [
+            {
+                'source_title': 'destinations/mauritius.md',
+                'content': 'Mauritius is a beautiful island destination with luxury resorts.',
+            },
+            {
+                'source_title': 'hotels/mauritius-hotels.md',
+                'content': 'Popular hotels include LUX Grand Gaube and Constance Belle Mare.',
+            }
+        ],
+        'answer': 'Mauritius is a beautiful island destination with luxury resorts.'
+    }
     return mock_service
 
 
 @pytest.fixture
 def mock_faiss_service_empty():
-    """Mock FAISS service returning no results."""
+    """Mock RAG client returning no results."""
     mock_service = MagicMock()
-    mock_service.search_with_context.return_value = []
+    mock_service.is_available.return_value = True
+    mock_service.search.return_value = {'success': True, 'citations': [], 'answer': ''}
     return mock_service
 
 
 @pytest.fixture
 def mock_faiss_service_error():
-    """Mock FAISS service that raises an error."""
+    """Mock RAG client that is unavailable."""
     mock_service = MagicMock()
-    mock_service.search_with_context.side_effect = Exception("FAISS index not found")
+    mock_service.is_available.return_value = False
     return mock_service
 
 
@@ -725,7 +729,7 @@ class TestHandleToolCalls:
         agent = HelpdeskAgent(mock_config)
         inject_mock_client(agent, mock_client)
 
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_faiss_service):
             agent.chat("What hotels do you have?")
 
         assert len(agent.tool_calls) > 0
@@ -744,7 +748,7 @@ class TestHandleToolCalls:
         agent = HelpdeskAgent(mock_config)
         inject_mock_client(agent, mock_client)
 
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_faiss_service):
             agent.chat("Hotels in Mauritius")
 
         assert agent.tool_calls[0]["args"]["query"] == "mauritius hotels"
@@ -819,7 +823,7 @@ class TestEdgeCases:
         """Search handles empty query."""
         from src.agents.helpdesk_agent import HelpdeskAgent
 
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_faiss_service):
             agent = HelpdeskAgent(mock_config)
             result, sources = agent._execute_search({"query": ""})
 
@@ -830,7 +834,7 @@ class TestEdgeCases:
         """Search handles missing query key."""
         from src.agents.helpdesk_agent import HelpdeskAgent
 
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_faiss_service):
             agent = HelpdeskAgent(mock_config)
             result, sources = agent._execute_search({})
 
@@ -889,7 +893,7 @@ class TestMultipleTurnConversation:
         agent = HelpdeskAgent(mock_config)
         inject_mock_client(agent, mock_client)
 
-        with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss_service):
+        with patch('src.services.travel_platform_rag_client.get_travel_platform_rag_client', return_value=mock_faiss_service):
             agent.chat("Tell me about Mauritius")
             agent.chat("How do I create a quote?")
 

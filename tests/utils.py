@@ -430,7 +430,7 @@ class MockContext:
         if config is None:
             config = MockFactory.create_config()
 
-        return patch('src.api.routes.get_client_config',
+        return patch('src.api.dependencies.get_client_config',
                     return_value=config)
 
 

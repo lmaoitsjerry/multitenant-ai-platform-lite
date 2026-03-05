@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { usersApi, clientApi, templatesApi, authApi, tenantSettingsApi } from '../services/api';
-import TeamSettings from './settings/TeamSettings';
+import { usersApi, clientApi, templatesApi, authApi, tenantSettingsApi, notificationsApi } from '../services/api';
+import { serializeNotificationPrefs } from '../utils/fieldTransformers';
 import TemplateBuilder from './settings/TemplateBuilder';
 import PrivacySettings from './settings/PrivacySettings';
 import LogoCropModal from '../components/ui/LogoCropModal';
@@ -25,12 +25,14 @@ import {
   ArrowUpTrayIcon,
   XMarkIcon,
   EyeIcon,
-  UsersIcon,
   DocumentTextIcon,
   WrenchScrewdriverIcon,
   BanknotesIcon,
   ChevronDownIcon,
   CheckIcon,
+  InboxIcon,
+  ClipboardDocumentIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 // Confirmation Modal Component
@@ -58,10 +60,96 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }) {
   );
 }
 
+// Password Change Component
+function PasswordChangeCard() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess(false);
+
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await authApi.changePassword(newPassword);
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordSuccess(false), 5000);
+    } catch (err) {
+      setPasswordError(err.response?.data?.detail || 'Failed to change password');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  return (
+    <div className="card mt-6">
+      <h2 className="text-lg font-semibold text-gray-900 mb-2">Change Password</h2>
+      <p className="text-sm text-gray-500 mb-6">Update your account password</p>
+      <div className="space-y-4 max-w-lg">
+        {passwordError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            {passwordError}
+          </div>
+        )}
+        {passwordSuccess && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+            <CheckCircleIcon className="w-4 h-4" />
+            Password changed successfully
+          </div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="input"
+            placeholder="Enter new password"
+            minLength={8}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="input"
+            placeholder="Confirm new password"
+            minLength={8}
+          />
+        </div>
+        <button
+          onClick={handleChangePassword}
+          disabled={changingPassword || !newPassword || !confirmPassword}
+          className="btn-primary"
+        >
+          {changingPassword ? 'Changing...' : 'Change Password'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const tabs = [
   { id: 'profile', label: 'Profile', icon: UserIcon },
   { id: 'company', label: 'Company', icon: BuildingOfficeIcon },
-  { id: 'team', label: 'Team', icon: UsersIcon, adminOnly: true },
   { id: 'branding', label: 'Branding', icon: PaintBrushIcon },
   { id: 'notifications', label: 'Notifications', icon: BellIcon },
   { id: 'privacy', label: 'Privacy', icon: ShieldCheckIcon },
@@ -313,6 +401,129 @@ function LogoUpload({ label, currentUrl, onUpload, description, accept = "image/
         aspectRatio={1}
         title={`Crop ${label}`}
       />
+    </div>
+  );
+}
+
+// Email Integration Card — shows tenant's inbound email address
+function EmailIntegrationCard({ clientId }) {
+  const [copied, setCopied] = useState(false);
+
+  const inboundDomain = import.meta.env.VITE_INBOUND_EMAIL_DOMAIN || 'zorah.ai';
+  const inboundAddress = clientId ? `${clientId}@${inboundDomain}` : null;
+
+  const handleCopy = async () => {
+    if (!inboundAddress) return;
+    try {
+      await navigator.clipboard.writeText(inboundAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for non-HTTPS contexts
+      const textarea = document.createElement('textarea');
+      textarea.value = inboundAddress;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
+          <InboxIcon className="w-5 h-5 text-primary-600" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Email Integration</h2>
+          <p className="text-sm text-gray-500">AI-powered inbound email processing</p>
+        </div>
+      </div>
+
+      {/* Inbound Email Address */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          Your Inbound Email Address
+        </label>
+        {inboundAddress ? (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
+              <EnvelopeIcon className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+              <span className="text-sm font-mono text-gray-900 select-all">{inboundAddress}</span>
+            </div>
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              {copied ? (
+                <>
+                  <CheckIcon className="w-4 h-4 text-green-600" />
+                  <span className="text-green-600">Copied</span>
+                </>
+              ) : (
+                <>
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                  <span>Copy</span>
+                </>
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
+            <span className="text-sm text-gray-400">Loading...</span>
+          </div>
+        )}
+        <p className="mt-1.5 text-xs text-gray-500">
+          Forward customer travel inquiries to this address. They'll appear automatically in your Enquiry Triage.
+        </p>
+      </div>
+
+      {/* How it works */}
+      <div className="bg-gray-50 border border-gray-100 rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <SparklesIcon className="w-4 h-4 text-primary-600" />
+          <h3 className="text-sm font-medium text-gray-900">How it works</h3>
+        </div>
+        <ol className="space-y-2 text-sm text-gray-600">
+          <li className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 bg-primary-100 text-primary-700 rounded-full text-xs font-medium flex items-center justify-center mt-0.5">1</span>
+            <span>Forward (or auto-forward) travel inquiry emails to this address</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 bg-primary-100 text-primary-700 rounded-full text-xs font-medium flex items-center justify-center mt-0.5">2</span>
+            <span>Our AI parses travel details (destination, dates, guests, budget)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 bg-primary-100 text-primary-700 rounded-full text-xs font-medium flex items-center justify-center mt-0.5">3</span>
+            <span>A new enquiry appears in your Enquiry Triage inbox</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="flex-shrink-0 w-5 h-5 bg-primary-100 text-primary-700 rounded-full text-xs font-medium flex items-center justify-center mt-0.5">4</span>
+            <span>Review the AI-extracted details and create a quote</span>
+          </li>
+        </ol>
+      </div>
+
+      {/* Custom Domain */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-gray-900">Custom Domain</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Use your own email address (e.g., sales@yourdomain.com)
+            </p>
+          </div>
+          <a
+            href="mailto:support@zorahai.com?subject=Custom%20Email%20Domain%20Setup"
+            className="text-sm font-medium text-primary-600 hover:text-primary-700 transition-colors"
+          >
+            Contact Support
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
@@ -661,10 +872,16 @@ export default function Settings() {
   // Generic save for other settings
   const handleSave = async () => {
     setSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setSaving(false);
-    setToast({ message: 'Settings saved successfully!', type: 'success' });
-    setTimeout(() => setToast(null), 3000);
+    try {
+      await notificationsApi.updatePreferences(serializeNotificationPrefs(notifications));
+      setToast({ message: 'Notification preferences saved!', type: 'success' });
+    } catch (error) {
+      console.error('Failed to save notification preferences:', error);
+      setToast({ message: 'Failed to save notification preferences', type: 'error' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 3000);
+    }
   };
 
   // Unified save handler for all dirty fields
@@ -741,6 +958,17 @@ export default function Settings() {
 
   // Check if any fields are dirty
   const hasUnsavedChanges = Object.values(dirtyFields).some(Boolean);
+
+  // Warn before switching tabs with unsaved changes
+  const handleTabSwitch = (tabId) => {
+    if (hasUnsavedChanges && tabId !== activeTab) {
+      if (!window.confirm('You have unsaved changes. Discard and switch tabs?')) {
+        return;
+      }
+      setDirtyFields({ company: false, email: false, banking: false });
+    }
+    setActiveTab(tabId);
+  };
 
   // Branding handlers
   const handleApplyPreset = async (presetId) => {
@@ -853,7 +1081,7 @@ export default function Settings() {
             {visibleTabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabSwitch(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
                   activeTab === tab.id
                     ? 'bg-primary-100 text-primary-700'
@@ -918,6 +1146,11 @@ export default function Settings() {
                 </button>
               </div>
             </div>
+          )}
+
+          {/* Password Change (shown under profile tab) */}
+          {activeTab === 'profile' && (
+            <PasswordChangeCard />
           )}
 
           {/* Company Settings */}
@@ -1120,11 +1353,6 @@ export default function Settings() {
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Team Settings (Admin only) */}
-          {activeTab === 'team' && isAdmin && (
-            <TeamSettings />
           )}
 
           {/* Branding Settings */}
@@ -1724,6 +1952,9 @@ export default function Settings() {
           {/* Integrations */}
           {activeTab === 'integrations' && (
             <div className="space-y-6">
+              {/* Email Integration */}
+              <EmailIntegrationCard clientId={clientInfo?.client_id} />
+
               <div className="card">
                 <h2 className="text-lg font-semibold text-gray-900 mb-6">Integrations</h2>
                 <div className="space-y-4">

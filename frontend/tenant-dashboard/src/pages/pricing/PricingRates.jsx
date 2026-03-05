@@ -20,6 +20,12 @@ export default function PricingRates() {
     meal_plan: '',
   });
   const [search, setSearch] = useState('');
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   useEffect(() => {
     loadData();
@@ -93,7 +99,7 @@ export default function PricingRates() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export rates');
+      showToast('Failed to export rates');
     }
   };
 
@@ -284,6 +290,18 @@ export default function PricingRates() {
       {!loading && filteredRates.length > 0 && (
         <div className="text-sm text-gray-500 text-center">
           Showing {filteredRates.length} rate{filteredRates.length !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg z-50 max-w-md ${
+          toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          <span>{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-80 text-white/80">
+            &times;
+          </button>
         </div>
       )}
     </div>

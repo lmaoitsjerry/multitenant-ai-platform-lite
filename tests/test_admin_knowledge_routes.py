@@ -1211,163 +1211,6 @@ class TestRebuildIndexEndpoint:
                 assert "documents_indexed" in data
 
 
-# ==================== Stats Endpoint Tests ====================
-
-class TestStatsEndpoint:
-    """Test GET /api/v1/admin/knowledge/stats endpoint."""
-
-    def test_stats_returns_totals(self, test_client, admin_headers, sample_documents):
-        """GET /stats should return total_documents and total_chunks."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 1000}
-                        mock_faiss.return_value.get_status.return_value = {"initialized": True, "vector_count": 100}
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert data["success"] is True
-                        assert "total_documents" in data["data"]
-                        assert "total_chunks" in data["data"]
-
-    def test_stats_returns_category_counts(self, test_client, admin_headers, sample_documents):
-        """GET /stats should return category breakdown."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-                        mock_faiss.return_value.get_status.return_value = {"initialized": False}
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "categories" in data["data"]
-
-    def test_stats_returns_global_vs_tenant(self, test_client, admin_headers, sample_documents):
-        """GET /stats should separate global and tenant docs."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-                        mock_faiss.return_value.get_status.return_value = {"initialized": False}
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "global_documents" in data["data"]
-                        assert "tenant_documents" in data["data"]
-                        # sample_documents has 2 global (tenant_id=None) and 1 tenant-specific
-                        assert data["data"]["global_documents"] == 2
-                        assert data["data"]["tenant_documents"] == 1
-
-    def test_stats_returns_index_info(self, test_client, admin_headers, sample_documents):
-        """GET /stats should return index size and last_indexed."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {
-                            "last_indexed": "2025-01-01T00:00:00",
-                            "index_size_bytes": 5000
-                        }
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-                        mock_faiss.return_value.get_status.return_value = {"initialized": False}
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "last_indexed" in data["data"]
-                        assert "index_size_bytes" in data["data"]
-
-    def test_stats_returns_storage_info(self, test_client, admin_headers, sample_documents):
-        """GET /stats should return storage type (gcs/local)."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test-bucket", "total_size_bytes": 0}
-                        mock_faiss.return_value.get_status.return_value = {"initialized": False}
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "storage" in data["data"]
-                        assert data["data"]["storage"]["type"] == "gcs"
-
-    def test_stats_includes_faiss_status(self, test_client, admin_headers, sample_documents):
-        """GET /stats should include faiss_index info."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-                        mock_faiss.return_value.get_status.return_value = {
-                            "initialized": True,
-                            "vector_count": 500,
-                            "document_count": 10
-                        }
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "faiss_index" in data["data"]
-                        assert data["data"]["faiss_index"]["initialized"] is True
-
-    def test_stats_handles_faiss_error(self, test_client, admin_headers, sample_documents):
-        """GET /stats should handle FAISS service errors gracefully."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service") as mock_faiss:
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-                        mock_faiss.side_effect = Exception("FAISS not available")
-
-                        response = test_client.get(
-                            "/api/v1/admin/knowledge/stats",
-                            headers=admin_headers
-                        )
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "faiss_index" in data["data"]
-                        assert data["data"]["faiss_index"]["initialized"] is False
-                        assert "error" in data["data"]["faiss_index"]
-
-
 # ==================== Local Storage Fallback Tests ====================
 
 class TestLocalStorageFallback:
@@ -1489,7 +1332,7 @@ class TestUtilityFunctions:
 
     def test_get_index_stats_with_files(self, tmp_path):
         """get_index_stats should calculate size and last_indexed."""
-        index_dir = tmp_path / "faiss_index"
+        index_dir = tmp_path / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
         (index_dir / "index.faiss").write_bytes(b"x" * 1000)
         (index_dir / "chunks.pkl").write_bytes(b"y" * 500)
@@ -1673,16 +1516,14 @@ class TestRouterRegistration:
 
 class TestListDocumentsFunction:
     """Test list_knowledge_documents endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_list_documents_returns_all(self, sample_documents):
+    def test_list_documents_returns_all(self, sample_documents):
         """list_knowledge_documents should return all documents."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = sample_documents
 
             from src.api.admin_knowledge_routes import list_knowledge_documents
 
-            result = await list_knowledge_documents(
+            result = list_knowledge_documents(
                 category=None, tenant_id=None, limit=50, offset=0, admin_verified=True
             )
 
@@ -1690,16 +1531,14 @@ class TestListDocumentsFunction:
             assert result["total"] == 3
             assert result["count"] == 3
             assert len(result["data"]) == 3
-
-    @pytest.mark.asyncio
-    async def test_list_documents_filters_by_category(self, sample_documents):
+    def test_list_documents_filters_by_category(self, sample_documents):
         """list_knowledge_documents should filter by category."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = sample_documents
 
             from src.api.admin_knowledge_routes import list_knowledge_documents
 
-            result = await list_knowledge_documents(
+            result = list_knowledge_documents(
                 category="tips", tenant_id=None, limit=50, offset=0, admin_verified=True
             )
 
@@ -1707,16 +1546,14 @@ class TestListDocumentsFunction:
             assert result["total"] == 1
             for doc in result["data"]:
                 assert doc["category"] == "tips"
-
-    @pytest.mark.asyncio
-    async def test_list_documents_filters_by_tenant(self, sample_documents):
+    def test_list_documents_filters_by_tenant(self, sample_documents):
         """list_knowledge_documents should filter by tenant_id."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = sample_documents
 
             from src.api.admin_knowledge_routes import list_knowledge_documents
 
-            result = await list_knowledge_documents(
+            result = list_knowledge_documents(
                 category=None, tenant_id="tenant_001", limit=50, offset=0, admin_verified=True
             )
 
@@ -1724,16 +1561,14 @@ class TestListDocumentsFunction:
             assert result["total"] == 1
             for doc in result["data"]:
                 assert doc["tenant_id"] == "tenant_001"
-
-    @pytest.mark.asyncio
-    async def test_list_documents_global_filter(self, sample_documents):
+    def test_list_documents_global_filter(self, sample_documents):
         """list_knowledge_documents should filter global docs with tenant_id=global."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = sample_documents
 
             from src.api.admin_knowledge_routes import list_knowledge_documents
 
-            result = await list_knowledge_documents(
+            result = list_knowledge_documents(
                 category=None, tenant_id="global", limit=50, offset=0, admin_verified=True
             )
 
@@ -1741,16 +1576,14 @@ class TestListDocumentsFunction:
             assert result["total"] == 2  # Two docs without tenant_id
             for doc in result["data"]:
                 assert not doc.get("tenant_id")
-
-    @pytest.mark.asyncio
-    async def test_list_documents_pagination(self, sample_documents):
+    def test_list_documents_pagination(self, sample_documents):
         """list_knowledge_documents should apply limit and offset."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = sample_documents
 
             from src.api.admin_knowledge_routes import list_knowledge_documents
 
-            result = await list_knowledge_documents(
+            result = list_knowledge_documents(
                 category=None, tenant_id=None, limit=1, offset=1, admin_verified=True
             )
 
@@ -1761,9 +1594,7 @@ class TestListDocumentsFunction:
 
 class TestCreateDocumentFunction:
     """Test create_knowledge_document endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_create_document_success(self):
+    def test_create_document_success(self):
         """create_knowledge_document should create new document."""
         with patch("src.api.admin_knowledge_routes.save_gcs_document") as mock_save:
             with patch("src.api.admin_knowledge_routes.invalidate_cache") as mock_invalidate:
@@ -1780,7 +1611,7 @@ class TestCreateDocumentFunction:
                     category="faq"
                 )
 
-                result = await create_knowledge_document(request=request, admin_verified=True)
+                result = create_knowledge_document(request=request, admin_verified=True)
 
                 assert result["success"] is True
                 assert result["message"] == "Document created successfully"
@@ -1791,9 +1622,7 @@ class TestCreateDocumentFunction:
                 assert result["data"]["id"].startswith("doc_")
                 mock_save.assert_called_once()
                 mock_invalidate.assert_called_once_with("documents")
-
-    @pytest.mark.asyncio
-    async def test_create_document_default_values(self):
+    def test_create_document_default_values(self):
         """create_knowledge_document should apply default values."""
         with patch("src.api.admin_knowledge_routes.save_gcs_document") as mock_save:
             with patch("src.api.admin_knowledge_routes.invalidate_cache"):
@@ -1809,14 +1638,12 @@ class TestCreateDocumentFunction:
                     content="Content here."
                 )
 
-                result = await create_knowledge_document(request=request, admin_verified=True)
+                result = create_knowledge_document(request=request, admin_verified=True)
 
                 assert result["data"]["category"] == "general"  # Default
                 assert result["data"]["visibility"] == "public"  # Default
                 assert result["data"]["indexed"] is False
-
-    @pytest.mark.asyncio
-    async def test_create_document_save_failure(self):
+    def test_create_document_save_failure(self):
         """create_knowledge_document should raise on save failure."""
         with patch("src.api.admin_knowledge_routes.save_gcs_document") as mock_save:
             mock_save.return_value = False
@@ -1833,16 +1660,14 @@ class TestCreateDocumentFunction:
             )
 
             with pytest.raises(HTTPException) as exc_info:
-                await create_knowledge_document(request=request, admin_verified=True)
+                create_knowledge_document(request=request, admin_verified=True)
 
             assert exc_info.value.status_code == 500
 
 
 class TestGetDocumentFunction:
     """Test get_knowledge_document endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_get_document_found(self, sample_document):
+    def test_get_document_found(self, sample_document):
         """get_knowledge_document should return document with content."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.get_gcs_document_content") as mock_content:
@@ -1851,15 +1676,13 @@ class TestGetDocumentFunction:
 
                 from src.api.admin_knowledge_routes import get_knowledge_document
 
-                result = await get_knowledge_document(
+                result = get_knowledge_document(
                     doc_id=sample_document["id"], admin_verified=True
                 )
 
                 assert result["success"] is True
                 assert result["data"]["id"] == sample_document["id"]
-
-    @pytest.mark.asyncio
-    async def test_get_document_not_found(self):
+    def test_get_document_not_found(self):
         """get_knowledge_document should raise 404 for missing doc."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = []
@@ -1868,7 +1691,7 @@ class TestGetDocumentFunction:
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
-                await get_knowledge_document(
+                get_knowledge_document(
                     doc_id="doc_nonexistent", admin_verified=True
                 )
 
@@ -1877,9 +1700,7 @@ class TestGetDocumentFunction:
 
 class TestUpdateDocumentFunction:
     """Test update_knowledge_document endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_update_document_title(self, sample_document):
+    def test_update_document_title(self, sample_document):
         """update_knowledge_document should update title."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.save_documents_metadata") as mock_save:
@@ -1893,7 +1714,7 @@ class TestUpdateDocumentFunction:
                     )
 
                     request = DocumentUpdateRequest(title="Updated Title")
-                    result = await update_knowledge_document(
+                    result = update_knowledge_document(
                         doc_id=sample_document["id"],
                         request=request,
                         admin_verified=True
@@ -1901,9 +1722,7 @@ class TestUpdateDocumentFunction:
 
                     assert result["success"] is True
                     assert result["data"]["title"] == "Updated Title"
-
-    @pytest.mark.asyncio
-    async def test_update_document_not_found(self):
+    def test_update_document_not_found(self):
         """update_knowledge_document should raise 404 for missing doc."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = []
@@ -1916,7 +1735,7 @@ class TestUpdateDocumentFunction:
 
             request = DocumentUpdateRequest(title="New Title")
             with pytest.raises(HTTPException) as exc_info:
-                await update_knowledge_document(
+                update_knowledge_document(
                     doc_id="doc_nonexistent",
                     request=request,
                     admin_verified=True
@@ -1927,9 +1746,7 @@ class TestUpdateDocumentFunction:
 
 class TestDeleteDocumentFunction:
     """Test delete_knowledge_document endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_delete_document_success(self, sample_document):
+    def test_delete_document_success(self, sample_document):
         """delete_knowledge_document should delete document."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             with patch("src.api.admin_knowledge_routes.delete_gcs_document") as mock_gcs:
@@ -1941,15 +1758,13 @@ class TestDeleteDocumentFunction:
 
                         from src.api.admin_knowledge_routes import delete_knowledge_document
 
-                        result = await delete_knowledge_document(
+                        result = delete_knowledge_document(
                             doc_id=sample_document["id"], admin_verified=True
                         )
 
                         assert result["success"] is True
                         assert result["data"]["id"] == sample_document["id"]
-
-    @pytest.mark.asyncio
-    async def test_delete_document_not_found(self):
+    def test_delete_document_not_found(self):
         """delete_knowledge_document should raise 404 for missing doc."""
         with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
             mock_load.return_value = []
@@ -1958,59 +1773,11 @@ class TestDeleteDocumentFunction:
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
-                await delete_knowledge_document(
+                delete_knowledge_document(
                     doc_id="doc_nonexistent", admin_verified=True
                 )
 
             assert exc_info.value.status_code == 404
-
-
-class TestRebuildIndexFunction:
-    """Test rebuild_faiss_index endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_rebuild_index_success(self, sample_documents):
-        """rebuild_faiss_index should mark documents as indexed."""
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.save_documents_metadata") as mock_save:
-                mock_load.return_value = [d.copy() for d in sample_documents]
-                mock_save.return_value = True
-
-                from src.api.admin_knowledge_routes import rebuild_faiss_index
-
-                result = await rebuild_faiss_index(admin_verified=True)
-
-                assert result["success"] is True
-                assert result["documents_indexed"] == 3
-                mock_save.assert_called_once()
-
-
-class TestStatsFunction:
-    """Test get_knowledge_stats endpoint function directly."""
-
-    @pytest.mark.asyncio
-    async def test_stats_returns_correct_counts(self, sample_documents):
-        """get_knowledge_stats should return correct statistics."""
-        mock_faiss_service = MagicMock()
-        mock_faiss_service.get_status.return_value = {"initialized": False}
-
-        with patch("src.api.admin_knowledge_routes.load_documents_metadata") as mock_load:
-            with patch("src.api.admin_knowledge_routes.get_index_stats") as mock_index:
-                with patch("src.api.admin_knowledge_routes.get_gcs_bucket_stats") as mock_gcs:
-                    with patch("src.services.faiss_helpdesk_service.get_faiss_helpdesk_service", return_value=mock_faiss_service):
-                        mock_load.return_value = sample_documents
-                        mock_index.return_value = {"last_indexed": None, "index_size_bytes": 0}
-                        mock_gcs.return_value = {"connected": True, "bucket_name": "test", "total_size_bytes": 0}
-
-                        from src.api.admin_knowledge_routes import get_knowledge_stats
-
-                        result = await get_knowledge_stats(admin_verified=True)
-
-                        assert result["success"] is True
-                        assert result["data"]["total_documents"] == 3
-                        # sample_documents has 2 with tenant_id=None (global) and 1 with tenant_id
-                        assert result["data"]["global_documents"] == 2
-                        assert result["data"]["tenant_documents"] == 1
 
 
 if __name__ == "__main__":

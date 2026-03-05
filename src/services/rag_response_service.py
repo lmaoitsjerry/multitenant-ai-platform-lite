@@ -1,7 +1,7 @@
 """
 RAG Response Service - Natural Language Synthesis
 
-Transforms FAISS search results into conversational, helpful responses
+Transforms RAG search results into conversational, helpful responses
 using GPT-4o-mini. Handles unknown questions gracefully.
 
 Key improvements:
@@ -15,61 +15,18 @@ Key improvements:
 
 import os
 import logging
-import threading
-import time
 from typing import List, Dict, Any, Optional
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from src.utils.circuit_breaker import CircuitBreaker
+from src.utils.error_handling import CircuitBreakerState
+
 logger = logging.getLogger(__name__)
 
 
-class CircuitBreaker:
-    """Simple circuit breaker for external service calls"""
-
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.failures = 0
-        self.last_failure_time = 0
-        self.state = "closed"  # closed, open, half-open
-        self._lock = threading.Lock()
-
-    def record_success(self):
-        with self._lock:
-            self.failures = 0
-            self.state = "closed"
-
-    def record_failure(self):
-        with self._lock:
-            self.failures += 1
-            self.last_failure_time = time.time()
-            if self.failures >= self.failure_threshold:
-                self.state = "open"
-                logger.warning(f"Circuit breaker OPEN after {self.failures} failures")
-
-    def can_execute(self) -> bool:
-        with self._lock:
-            if self.state == "closed":
-                return True
-            if self.state == "open":
-                if time.time() - self.last_failure_time >= self.recovery_timeout:
-                    self.state = "half-open"
-                    logger.info("Circuit breaker HALF-OPEN, allowing test request")
-                    return True
-                return False
-            return True  # half-open allows requests
-
-    def get_status(self) -> dict:
-        return {
-            "state": self.state,
-            "failures": self.failures,
-            "threshold": self.failure_threshold
-        }
-
-
 # Global circuit breaker for OpenAI
-_openai_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+_openai_circuit_breaker = CircuitBreaker(name="openai", failure_threshold=5, recovery_timeout=60)
 
 
 def _is_retryable_openai_error(exception: Exception) -> bool:
@@ -166,10 +123,18 @@ FOCUS FOR THIS QUERY:
 - Give a balanced view but also a recommendation if appropriate
 - Help guide their decision without being pushy""",
 
+    "booking": """
+FOCUS FOR THIS QUERY:
+- Explain the booking process step by step
+- Mention the Quotes, Pipeline and CRM sections
+- Be clear about what happens at each stage
+- Include tips for efficiency and common workflows""",
+
     "general": """
 FOCUS FOR THIS QUERY:
 - Answer the question directly and helpfully
 - Use information from the context naturally
+- If the question is about a destination, include best time to visit, climate highlights, and what makes it special
 - Offer to provide more details if needed"""
 }
 
@@ -256,7 +221,7 @@ class RAGResponseService:
             return {
                 'answer': answer,
                 'sources': [
-                    {'filename': self._clean_source_name(r.get('source', ''), r), 'score': r.get('score', 0)}
+                    {'title': self._clean_source_name(r.get('source', ''), r), 'filename': self._clean_source_name(r.get('source', ''), r), 'relevance_score': r.get('score', 0), 'score': r.get('score', 0)}
                     for r in search_results[:5]  # Top 5 sources
                 ],
                 'method': 'rag',
@@ -490,24 +455,62 @@ Provide a helpful, natural response using the information above. If the context 
         combined = "\n\n".join(content_parts)
         answer = f"Here's what I found for you:\n\n{combined}\n\nWant me to dig deeper into any of these, or help you find something specific?"
 
-        return {
+        response = {
             'answer': answer,
             'sources': [
-                {'filename': self._clean_source_name(r.get('source', ''), r), 'score': r.get('score', 0)}
+                {'title': self._clean_source_name(r.get('source', ''), r), 'filename': self._clean_source_name(r.get('source', ''), r), 'relevance_score': r.get('score', 0), 'score': r.get('score', 0)}
                 for r in results[:3]
             ],
-            'method': 'fallback'
+            'method': 'fallback',
+            **CircuitBreakerState.response_metadata(
+                state=_openai_circuit_breaker.state,
+                fallback_used=True,
+                service="knowledge_base",
+            ),
         }
+        return response
 
     def _no_results_response(self, question: str) -> Dict[str, Any]:
-        """Graceful handling when no relevant documents found"""
+        """Generate a helpful LLM response even when no KB results found"""
+        # Try to use LLM for a conversational response
+        if self.client:
+            try:
+                no_context_prompt = f"""You are Zara, a helpful travel assistant at Zorah Travel. The user asked a question but your knowledge base didn't return specific documents for it.
+
+USER QUESTION: {question}
+
+Respond helpfully and conversationally. Use your general travel knowledge to answer as best you can.
+
+If the question is about:
+- Destinations (Zanzibar, Mauritius, Maldives, Kenya, Seychelles, etc.): Share useful travel knowledge — best time to visit, climate, highlights, visa tips, what makes it special
+- Hotels/resorts: Mention you can search available properties and pricing through the Rates Engine
+- Platform features: Provide guidance on Quotes, CRM Pipeline, Settings, etc.
+- Pricing: Mention checking the Pricing section or generating a quote with live rates
+
+Answer in 2-4 short paragraphs. Be specific and informative — don't be vague. End with an offer to help further."""
+
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": no_context_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=400
+                )
+                answer = response.choices[0].message.content.strip()
+                return {
+                    'answer': answer,
+                    'sources': [],
+                    'method': 'llm_no_context'
+                }
+            except Exception as e:
+                logger.warning(f"LLM no-results generation failed: {e}")
+
+        # Ultimate fallback if LLM also fails
         answer = (
-            "Hmm, I don't have specific details on that in my knowledge base right now. "
-            "A few things that might help:\n\n"
-            "- Try asking in a different way - sometimes different keywords work better\n"
-            "- For specific rates or availability, the pricing system might have what you need\n"
-            "- If you're looking for a particular property, I can help you find similar options\n\n"
-            "What else can I help you with?"
+            "I don't have specific details on that right now, but I'd love to help! "
+            "Could you try rephrasing your question, or let me know what you're looking for?"
         )
         return {
             'answer': answer,

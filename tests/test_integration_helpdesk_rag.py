@@ -96,38 +96,5 @@ class TestRAGResponseService:
             assert response['method'] == 'fallback'
             assert 'Test content' in response['answer']
 
-class TestFAISSHelpdeskService:
-    """Test FAISS helpdesk service integration"""
-
-    def test_faiss_service_search_with_context(self):
-        """Test search_with_context returns filtered results"""
-        from src.services.faiss_helpdesk_service import FAISSHelpdeskService
-
-        # Create mock service
-        service = FAISSHelpdeskService()
-
-        # Mock the internal state to simulate initialized service
-        service._initialized = True
-
-        # Mock the search method with 4 results (3+ above threshold ensures filtering works)
-        with patch.object(service, 'search') as mock_search:
-            mock_search.return_value = [
-                {'content': 'Zanzibar hotel info', 'score': 0.85, 'source': 'zanzibar.md'},
-                {'content': 'Mauritius resort data', 'score': 0.75, 'source': 'mauritius.md'},
-                {'content': 'Seychelles beach info', 'score': 0.65, 'source': 'seychelles.md'},
-                {'content': 'Low score result', 'score': 0.2, 'source': 'other.md'},  # Below threshold
-            ]
-
-            results = service.search_with_context('Zanzibar hotels', top_k=8, min_score=0.3)
-
-        # Should return only results above threshold (3 results)
-        assert len(results) == 3
-        # All results should meet min_score threshold
-        for r in results:
-            assert r.get('score', 0) >= 0.3
-        # Results should include Zanzibar
-        assert any('Zanzibar' in r.get('content', '') for r in results)
-
-
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

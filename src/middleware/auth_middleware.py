@@ -6,8 +6,10 @@ Works alongside the existing X-Client-ID header-based tenant identification.
 """
 
 import os
+import time
 import logging
 from typing import Optional, Callable
+from collections import defaultdict
 from functools import wraps
 from fastapi import Request, HTTPException, Depends, Header
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +20,94 @@ from src.utils.structured_logger import set_tenant_id
 from config.loader import get_config
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== Tenant Suspension Cache ====================
+
+# Simple time-based cache for tenant suspension status (avoids DB hit on every request)
+_tenant_status_cache: dict[str, tuple[str, float]] = {}
+_TENANT_STATUS_TTL = 300  # 5 minutes
+
+
+def _is_tenant_suspended(tenant_id: str) -> bool:
+    """
+    Check if a tenant is suspended, using a cached lookup.
+    Returns True if the tenant is confirmed suspended.
+    Returns False if active, unknown, or if the check fails (fail-open).
+    """
+    now = time.time()
+    cached = _tenant_status_cache.get(tenant_id)
+    if cached and (now - cached[1]) < _TENANT_STATUS_TTL:
+        return cached[0] == "suspended"
+
+    # Refresh from DB
+    try:
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+        if not supabase_url or not supabase_key:
+            return False
+
+        from supabase import create_client
+        client = create_client(supabase_url, supabase_key)
+        result = client.table("tenants").select("status").eq(
+            "tenant_id", tenant_id
+        ).execute()
+
+        if result.data and result.data[0].get("status") == "suspended":
+            _tenant_status_cache[tenant_id] = ("suspended", now)
+            return True
+        else:
+            _tenant_status_cache[tenant_id] = ("active", now)
+            return False
+    except Exception as e:
+        logger.debug(f"Tenant status check failed (fail-open): {e}")
+        return False
+
+
+# ==================== Spoofing Rate Limiter ====================
+
+# Module-level spoofing attempt tracker
+_spoof_attempts: dict[str, list[float]] = defaultdict(list)
+_spoof_blocked: dict[str, float] = {}
+SPOOF_MAX_ATTEMPTS = 3
+SPOOF_WINDOW = 300      # 5 minutes
+SPOOF_BLOCK = 1800      # 30 minutes
+
+
+def _get_client_ip(scope: dict) -> str:
+    """Extract client IP from x-forwarded-for header or ASGI client."""
+    for key, value in scope.get("headers", []):
+        if key == b"x-forwarded-for":
+            # Take first IP (original client) from comma-separated list
+            return value.decode("latin-1").split(",")[0].strip()
+    client = scope.get("client")
+    if client:
+        return client[0]
+    return "unknown"
+
+
+def _is_spoof_blocked(key: str) -> bool:
+    """Check if a key (ip:tenant) is currently blocked."""
+    blocked_at = _spoof_blocked.get(key)
+    if blocked_at is None:
+        return False
+    if time.time() - blocked_at >= SPOOF_BLOCK:
+        del _spoof_blocked[key]
+        return False
+    return True
+
+
+def _record_spoof_attempt(key: str) -> bool:
+    """Record a spoofing attempt. Returns True if the key is now blocked."""
+    now = time.time()
+    # Prune old attempts outside the window
+    _spoof_attempts[key] = [t for t in _spoof_attempts[key] if now - t < SPOOF_WINDOW]
+    _spoof_attempts[key].append(now)
+    if len(_spoof_attempts[key]) >= SPOOF_MAX_ATTEMPTS:
+        _spoof_blocked[key] = now
+        _spoof_attempts[key] = []  # Reset counter after blocking
+        return True
+    return False
 
 
 # ==================== Public Paths ====================
@@ -65,6 +155,7 @@ PUBLIC_PREFIXES = [
     "/api/v1/travel/",  # Travel services endpoints (flights, transfers, activities)
     "/api/v1/knowledge/global",  # Global KB proxy (uses Travel Platform auth, not user auth)
     "/api/v1/agent/",  # Unified RAG for AI agents (uses X-Client-ID for tenant context)
+    "/api/v1/wb/",  # Website builder proxy — WB handles its own auth via X-Tenant-ID
 ]
 
 
@@ -232,11 +323,33 @@ class AuthMiddleware:
             # Validate X-Client-ID matches user's actual tenant
             header_tenant_id = headers_dict.get("x-client-id")
             if header_tenant_id and header_tenant_id != user["tenant_id"]:
+                client_ip = _get_client_ip(scope)
+                limiter_key = f"{client_ip}:{header_tenant_id}"
+
+                if _is_spoof_blocked(limiter_key):
+                    logger.warning(
+                        f"Blocked spoofing from {client_ip} "
+                        f"(JWT={user['tenant_id']}, header={header_tenant_id})"
+                    )
+                    await self._send_json_with_headers(
+                        send, 429, {"detail": "Too many requests"},
+                        extra_headers=[(b"retry-after", str(SPOOF_BLOCK).encode())]
+                    )
+                    return
+
+                now_blocked = _record_spoof_attempt(limiter_key)
                 logger.warning(
-                    f"Tenant spoofing attempt: header X-Client-ID={header_tenant_id}, "
-                    f"user tenant_id={user['tenant_id']}, auth_user_id={auth_user_id}"
+                    f"Tenant spoofing attempt from {client_ip}: "
+                    f"header={header_tenant_id}, user tenant={user['tenant_id']}, "
+                    f"auth_user_id={auth_user_id}"
+                    f"{' — NOW BLOCKED' if now_blocked else ''}"
                 )
                 await self._send_json(send, 403, {"detail": "Access denied: tenant mismatch"})
+                return
+
+            # Check if tenant is suspended
+            if _is_tenant_suspended(user["tenant_id"]):
+                await self._send_json(send, 403, {"detail": "Tenant account is suspended"})
                 return
 
             # Set tenant_id in contextvars for structured logging
@@ -254,7 +367,7 @@ class AuthMiddleware:
             )
 
         except Exception as e:
-            logger.error(f"Auth middleware error: {e}")
+            logger.error(f"Auth middleware error: {e}", exc_info=True)
             await self._send_json(send, 500, {"detail": "Authentication error"})
             return
 
@@ -262,15 +375,23 @@ class AuthMiddleware:
 
     async def _send_json(self, send, status_code: int, content: dict):
         """Send a JSON response directly."""
+        await self._send_json_with_headers(send, status_code, content)
+
+    async def _send_json_with_headers(self, send, status_code: int, content: dict,
+                                       extra_headers: list = None):
+        """Send a JSON response with optional extra headers."""
         import json
         body = json.dumps(content).encode()
+        headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ]
+        if extra_headers:
+            headers.extend(extra_headers)
         await send({
             "type": "http.response.start",
             "status": status_code,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(body)).encode()),
-            ],
+            "headers": headers,
         })
         await send({"type": "http.response.body", "body": body})
 

@@ -946,10 +946,9 @@ class TestBigQueryClientAsync:
 class TestDashboardStatsHandler:
     """Test dashboard stats handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
     @patch('src.services.crm_service.CRMService')
-    async def test_get_dashboard_stats_with_mock(self, mock_crm_class, mock_supabase_class):
+    def test_get_dashboard_stats_with_mock(self, mock_crm_class, mock_supabase_class):
         """Test get_dashboard_stats handler directly with mocked dependencies."""
         from src.api.analytics_routes import get_dashboard_stats
 
@@ -997,7 +996,7 @@ class TestDashboardStatsHandler:
         mock_crm_class.return_value = mock_crm
 
         # Call the handler directly
-        result = await get_dashboard_stats(period='30d', config=mock_config)
+        result = get_dashboard_stats(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1006,10 +1005,9 @@ class TestDashboardStatsHandler:
         assert 'clients' in result['data']
         assert 'calls' in result['data']
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
     @patch('src.services.crm_service.CRMService')
-    async def test_get_dashboard_stats_no_client(self, mock_crm_class, mock_supabase_class):
+    def test_get_dashboard_stats_no_client(self, mock_crm_class, mock_supabase_class):
         """Test get_dashboard_stats when Supabase client is None."""
         from src.api.analytics_routes import get_dashboard_stats
 
@@ -1023,7 +1021,7 @@ class TestDashboardStatsHandler:
         mock_crm = MagicMock()
         mock_crm_class.return_value = mock_crm
 
-        result = await get_dashboard_stats(period='30d', config=mock_config)
+        result = get_dashboard_stats(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert result['data']['quotes']['total'] == 0
@@ -1032,9 +1030,8 @@ class TestDashboardStatsHandler:
 class TestDashboardActivityHandler:
     """Test dashboard activity handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_recent_activity_with_mock(self, mock_supabase_class):
+    def test_get_recent_activity_with_mock(self, mock_supabase_class):
         """Test get_recent_activity handler directly."""
         from src.api.analytics_routes import get_recent_activity
 
@@ -1064,7 +1061,7 @@ class TestDashboardActivityHandler:
         mock_supabase.client.table.side_effect = table_mock
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_recent_activity(limit=10, config=mock_config)
+        result = get_recent_activity(limit=10, config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1122,9 +1119,8 @@ class TestDashboardAllHandler:
 class TestQuoteAnalyticsHandler:
     """Test quote analytics handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_quote_analytics_with_mock(self, mock_supabase_class):
+    def test_get_quote_analytics_with_mock(self, mock_supabase_class):
         """Test get_quote_analytics handler directly."""
         from src.api.analytics_routes import get_quote_analytics
 
@@ -1137,7 +1133,7 @@ class TestQuoteAnalyticsHandler:
         mock_supabase.client.table.return_value.select.return_value.eq.return_value.gte.return_value.order.return_value.execute.return_value = MagicMock(data=quotes_data)
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_quote_analytics(period='30d', config=mock_config)
+        result = get_quote_analytics(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1146,9 +1142,8 @@ class TestQuoteAnalyticsHandler:
         assert 'by_destination' in result['data']
         assert 'trend' in result['data']
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_quote_analytics_empty(self, mock_supabase_class):
+    def test_get_quote_analytics_empty(self, mock_supabase_class):
         """Test get_quote_analytics with no data."""
         from src.api.analytics_routes import get_quote_analytics
 
@@ -1159,7 +1154,7 @@ class TestQuoteAnalyticsHandler:
         mock_supabase.client.table.return_value.select.return_value.eq.return_value.gte.return_value.order.return_value.execute.return_value = MagicMock(data=[])
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_quote_analytics(period='30d', config=mock_config)
+        result = get_quote_analytics(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert result['data']['summary']['total'] == 0
@@ -1168,9 +1163,8 @@ class TestQuoteAnalyticsHandler:
 class TestInvoiceAnalyticsHandler:
     """Test invoice analytics handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_invoice_analytics_with_mock(self, mock_supabase_class):
+    def test_get_invoice_analytics_with_mock(self, mock_supabase_class):
         """Test get_invoice_analytics handler directly."""
         from src.api.analytics_routes import get_invoice_analytics
 
@@ -1183,7 +1177,7 @@ class TestInvoiceAnalyticsHandler:
         mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=invoices_data)
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_invoice_analytics(period='30d', config=mock_config)
+        result = get_invoice_analytics(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1191,9 +1185,8 @@ class TestInvoiceAnalyticsHandler:
         assert 'aging' in result['data']
         assert 'by_status' in result['data']
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_invoice_analytics_empty(self, mock_supabase_class):
+    def test_get_invoice_analytics_empty(self, mock_supabase_class):
         """Test get_invoice_analytics with no data."""
         from src.api.analytics_routes import get_invoice_analytics
 
@@ -1204,7 +1197,7 @@ class TestInvoiceAnalyticsHandler:
         mock_supabase.client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_invoice_analytics(period='30d', config=mock_config)
+        result = get_invoice_analytics(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert result['data']['summary']['total_invoices'] == 0
@@ -1213,9 +1206,8 @@ class TestInvoiceAnalyticsHandler:
 class TestCallAnalyticsHandler:
     """Test call analytics handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_get_call_analytics_with_mock(self, mock_supabase_class):
+    def test_get_call_analytics_with_mock(self, mock_supabase_class):
         """Test get_call_analytics handler directly."""
         from src.api.analytics_routes import get_call_analytics
 
@@ -1243,7 +1235,7 @@ class TestCallAnalyticsHandler:
         mock_supabase.client.table.side_effect = table_mock
         mock_supabase_class.return_value = mock_supabase
 
-        result = await get_call_analytics(period='30d', config=mock_config)
+        result = get_call_analytics(period='30d', config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1255,10 +1247,9 @@ class TestCallAnalyticsHandler:
 class TestPipelineAnalyticsHandler:
     """Test pipeline analytics handler directly."""
 
-    @pytest.mark.asyncio
     @patch('src.services.crm_service.CRMService')
     @patch('src.services.crm_service.PipelineStage')
-    async def test_get_pipeline_analytics_with_mock(self, mock_pipeline_stage, mock_crm_class):
+    def test_get_pipeline_analytics_with_mock(self, mock_pipeline_stage, mock_crm_class):
         """Test get_pipeline_analytics handler directly."""
         from src.api.analytics_routes import get_pipeline_analytics
 
@@ -1291,7 +1282,7 @@ class TestPipelineAnalyticsHandler:
             MagicMock(value='TRAVELLED'),
         ]))
 
-        result = await get_pipeline_analytics(config=mock_config)
+        result = get_pipeline_analytics(config=mock_config)
 
         assert result['success'] is True
         assert 'data' in result
@@ -1402,10 +1393,9 @@ class TestDateRangeHandling:
 class TestTenantAggregation:
     """Test tenant-specific data aggregation logic."""
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
     @patch('src.services.crm_service.CRMService')
-    async def test_dashboard_stats_filters_by_tenant(self, mock_crm_class, mock_supabase_class):
+    def test_dashboard_stats_filters_by_tenant(self, mock_crm_class, mock_supabase_class):
         """Dashboard stats should filter all queries by tenant_id."""
         from src.api.analytics_routes import get_dashboard_stats
 
@@ -1426,7 +1416,7 @@ class TestTenantAggregation:
         mock_crm.get_client_stats.return_value = {'total_clients': 0, 'by_stage': {}}
         mock_crm_class.return_value = mock_crm
 
-        result = await get_dashboard_stats(period='30d', config=mock_config)
+        result = get_dashboard_stats(period='30d', config=mock_config)
 
         assert result['success'] is True
         # Verify eq was called with tenant_id (one of the calls should be for tenant filtering)
@@ -1629,9 +1619,8 @@ class TestDashboardCacheEdgeCases:
         assert 'data' in result
         assert 'generated_at' in result['data']
 
-    @pytest.mark.asyncio
     @patch('src.tools.supabase_tool.SupabaseTool')
-    async def test_recent_activity_empty_tables(self, mock_sb_class):
+    def test_recent_activity_empty_tables(self, mock_sb_class):
         """Dashboard activity should return empty list when tables are empty."""
         from src.api.analytics_routes import get_recent_activity
 
@@ -1649,7 +1638,7 @@ class TestDashboardCacheEdgeCases:
         mock_supabase.client.table.return_value = mock_query
         mock_sb_class.return_value = mock_supabase
 
-        result = await get_recent_activity(limit=20, config=mock_config)
+        result = get_recent_activity(limit=20, config=mock_config)
 
         assert result['success'] is True
         assert isinstance(result['data'], list)

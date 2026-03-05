@@ -5,7 +5,7 @@ Tests for flights, transfers, and activities API endpoints.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 
 
@@ -382,30 +382,32 @@ class TestListDestinationsEndpoint:
 # ==================== Dependency Tests ====================
 
 class TestGetClientConfig:
-    """Tests for get_client_config dependency."""
+    """Tests for get_client_config dependency (centralized in dependencies)."""
 
     def test_get_client_config_with_header(self):
         """Should use X-Client-ID header when provided."""
-        from src.api.travel_services_routes import get_client_config
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.travel_services_routes.get_config') as mock_get_config:
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig') as mock_config_class:
             mock_config = MagicMock()
-            mock_get_config.return_value = mock_config
+            mock_config_class.return_value = mock_config
 
             result = get_client_config(x_client_id="my-tenant")
 
-            mock_get_config.assert_called_once_with("my-tenant")
+            mock_config_class.assert_called_once_with("my-tenant")
 
-    def test_get_client_config_raises_on_error(self):
-        """Should raise HTTPException on config error."""
-        from src.api.travel_services_routes import get_client_config
-        from fastapi import HTTPException
+    def test_get_client_config_returns_fallback_on_error(self):
+        """Should return FallbackClientConfig on config error."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-        with patch('src.api.travel_services_routes.get_config', side_effect=Exception("Not found")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="unknown")
+        _client_configs.clear()
 
-            assert exc_info.value.status_code == 400
+        with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Not found")):
+            result = get_client_config(x_client_id="unknown")
+
+            assert isinstance(result, FallbackClientConfig)
 
 
 # ==================== Include Router Tests ====================
@@ -619,60 +621,67 @@ class TestActivitySearchResponseModel:
 # ====================================================================
 
 class TestGetClientConfigExtended:
-    """Extended tests for get_client_config dependency."""
+    """Extended tests for get_client_config dependency (centralized in dependencies)."""
 
     def test_get_client_config_default_client_from_env(self):
         """Should use CLIENT_ID env var when no header provided."""
-        from src.api.travel_services_routes import get_client_config
+        from src.api.dependencies import get_client_config, _client_configs
         import os
 
+        _client_configs.clear()
+
         with patch.dict(os.environ, {'CLIENT_ID': 'env-tenant'}, clear=False):
-            with patch('src.api.travel_services_routes.get_config') as mock_get_config:
+            with patch('src.api.dependencies.ClientConfig') as mock_config_class:
                 mock_config = MagicMock()
-                mock_get_config.return_value = mock_config
+                mock_config_class.return_value = mock_config
 
                 result = get_client_config(x_client_id=None)
 
-                mock_get_config.assert_called_once_with("env-tenant")
+                mock_config_class.assert_called_once_with("env-tenant")
 
-    def test_get_client_config_default_africastay(self):
-        """Should fall back to 'africastay' when no header and no env var."""
-        from src.api.travel_services_routes import get_client_config
+    def test_get_client_config_default_example(self):
+        """Should fall back to 'example' when no header and no env var."""
+        from src.api.dependencies import get_client_config, _client_configs
         import os
+
+        _client_configs.clear()
 
         env = {k: v for k, v in os.environ.items() if k != 'CLIENT_ID'}
         with patch.dict(os.environ, env, clear=True):
-            with patch('src.api.travel_services_routes.get_config') as mock_get_config:
+            with patch('src.api.dependencies.ClientConfig') as mock_config_class:
                 mock_config = MagicMock()
-                mock_get_config.return_value = mock_config
+                mock_config_class.return_value = mock_config
 
                 result = get_client_config(x_client_id=None)
 
-                mock_get_config.assert_called_once_with("africastay")
+                mock_config_class.assert_called_once_with("example")
 
     def test_get_client_config_returns_client_config_object(self):
-        """Should return whatever get_config returns."""
-        from src.api.travel_services_routes import get_client_config
+        """Should return the ClientConfig object."""
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.travel_services_routes.get_config') as mock_get_config:
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig') as mock_config_class:
             mock_config = MagicMock()
             mock_config.client_id = "test-tenant"
-            mock_get_config.return_value = mock_config
+            mock_config_class.return_value = mock_config
 
             result = get_client_config(x_client_id="test-tenant")
 
             assert result is mock_config
 
-    def test_get_client_config_error_message_contains_client_id(self):
-        """Error message should contain the client_id for debugging."""
-        from src.api.travel_services_routes import get_client_config
-        from fastapi import HTTPException
+    def test_get_client_config_fallback_has_correct_client_id(self):
+        """FallbackClientConfig should have the correct client_id."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-        with patch('src.api.travel_services_routes.get_config', side_effect=Exception("Not found")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="bad-tenant")
+        _client_configs.clear()
 
-            assert "bad-tenant" in str(exc_info.value.detail)
+        with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Not found")):
+            result = get_client_config(x_client_id="bad-tenant")
+
+            assert isinstance(result, FallbackClientConfig)
+            assert result.client_id == "bad-tenant"
 
 
 # ====================================================================
@@ -680,11 +689,21 @@ class TestGetClientConfigExtended:
 # ====================================================================
 
 class TestListFlightsMockedBigQuery:
-    """Tests for list_flights with mocked BigQuery."""
+    """Tests for list_flights with mocked BigQuery (platform disabled)."""
+
+    def _mock_platform_fail(self):
+        """Helper: mock the platform client to fail so BigQuery fallback is tested."""
+        mock_client = MagicMock()
+        mock_client.list_flights = AsyncMock(side_effect=Exception("Platform unavailable"))
+        return patch(
+            'src.services.travel_platform_rates_client.get_travel_platform_rates_client',
+            return_value=mock_client,
+        )
 
     def test_list_flights_bigquery_not_configured(self, test_client):
-        """list_flights should return error when BigQuery not configured."""
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        """list_flights should return error when BigQuery not configured and platform down."""
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = None
             MockBQ.return_value = mock_bq
@@ -697,7 +716,7 @@ class TestListFlightsMockedBigQuery:
             assert "BigQuery not configured" in data.get("error", "")
 
     def test_list_flights_returns_flight_data(self, test_client):
-        """list_flights should return structured flight data from BigQuery."""
+        """list_flights should return structured flight data from BigQuery when platform down."""
         from datetime import date as d
 
         mock_row = MagicMock()
@@ -707,7 +726,8 @@ class TestListFlightsMockedBigQuery:
         mock_row.price_per_person = 5500.0
         mock_row.airline = "SAA"
 
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -725,10 +745,12 @@ class TestListFlightsMockedBigQuery:
             assert data["flights"][0]["price_per_person"] == 5500.0
             assert data["flights"][0]["airline"] == "SAA"
             assert data["flights"][0]["currency"] == "ZAR"
+            assert data["source"] == "bigquery"
 
     def test_list_flights_empty_result(self, test_client):
-        """list_flights should handle empty BigQuery results."""
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        """list_flights should handle empty BigQuery results when platform down."""
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -745,8 +767,9 @@ class TestListFlightsMockedBigQuery:
             assert data["flights"] == []
 
     def test_list_flights_bigquery_error(self, test_client):
-        """list_flights should handle BigQuery errors gracefully."""
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        """list_flights should handle BigQuery errors gracefully when platform down."""
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -761,16 +784,50 @@ class TestListFlightsMockedBigQuery:
             assert data["success"] is False
             assert "BigQuery timeout" in data["error"]
 
+    def test_list_flights_platform_success(self, test_client):
+        """list_flights should return platform data when platform is available."""
+        mock_client = MagicMock()
+        mock_client.list_flights = AsyncMock(return_value={
+            "success": True,
+            "flights": [
+                {"destination": "Zanzibar", "code": "ZNZ", "route": "JNB-ZNZ",
+                 "direction": "outbound", "date": "2026-06-01", "price_zar": 4500},
+                {"destination": "Zanzibar", "code": "ZNZ", "route": "ZNZ-JNB",
+                 "direction": "return", "date": "2026-06-08", "price_zar": 4200},
+            ],
+        })
+        with patch(
+            'src.services.travel_platform_rates_client.get_travel_platform_rates_client',
+            return_value=mock_client,
+        ):
+            response = test_client.get("/api/v1/travel/flights")
+            data = response.json()
+
+            assert response.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "platform"
+            assert data["total_flights"] > 0
+
 
 # ====================================================================
 # NEW TESTS: Search flights with mocked BigQuery
 # ====================================================================
 
 class TestSearchFlightsMockedBigQuery:
-    """Tests for search_flights with mocked BigQuery."""
+    """Tests for search_flights with mocked BigQuery (platform disabled)."""
+
+    def _mock_platform_fail(self):
+        """Helper: mock the platform client to fail so BigQuery fallback is tested."""
+        mock_client = MagicMock()
+        mock_client.get_flight_price = AsyncMock(side_effect=Exception("Platform unavailable"))
+        mock_client.list_flights = AsyncMock(side_effect=Exception("Platform unavailable"))
+        return patch(
+            'src.services.travel_platform_rates_client.get_travel_platform_rates_client',
+            return_value=mock_client,
+        )
 
     def test_search_flights_returns_data(self, test_client):
-        """search_flights should return flights for a given destination."""
+        """search_flights should return flights from BigQuery when platform down."""
         from datetime import date as d
 
         mock_row = MagicMock()
@@ -780,7 +837,8 @@ class TestSearchFlightsMockedBigQuery:
         mock_row.price_per_person = 8200.0
         mock_row.airline = "Air Mauritius"
 
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -796,10 +854,12 @@ class TestSearchFlightsMockedBigQuery:
             assert data["destination"] == "mauritius"
             assert data["total_flights"] == 1
             assert data["flights"][0]["airline"] == "Air Mauritius"
+            assert data["source"] == "bigquery"
 
     def test_search_flights_bigquery_not_configured(self, test_client):
-        """search_flights should return error when BigQuery not configured."""
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        """search_flights should return error when BigQuery not configured and platform down."""
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = None
             MockBQ.return_value = mock_bq
@@ -813,7 +873,8 @@ class TestSearchFlightsMockedBigQuery:
 
     def test_search_flights_empty_results(self, test_client):
         """search_flights should handle no matching flights."""
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -828,7 +889,7 @@ class TestSearchFlightsMockedBigQuery:
             assert data["total_flights"] == 0
 
     def test_search_flights_handles_null_fields(self, test_client):
-        """search_flights should handle null optional fields in rows."""
+        """search_flights should handle null optional fields in BigQuery rows."""
         mock_row = MagicMock()
         mock_row.destination = "zanzibar"
         mock_row.departure_date = None
@@ -836,7 +897,8 @@ class TestSearchFlightsMockedBigQuery:
         mock_row.price_per_person = None
         mock_row.airline = None
 
-        with patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
+        with self._mock_platform_fail(), \
+             patch('src.tools.bigquery_tool.BigQueryTool', autospec=False) as MockBQ:
             mock_bq = MagicMock()
             mock_bq.client = MagicMock()
             mock_bq.db = MagicMock()
@@ -850,6 +912,32 @@ class TestSearchFlightsMockedBigQuery:
             assert data["success"] is True
             assert data["flights"][0]["departure_date"] is None
             assert data["flights"][0]["price_per_person"] == 0
+
+    def test_search_flights_platform_with_price(self, test_client):
+        """search_flights should return matched round-trip from platform."""
+        mock_client = MagicMock()
+        mock_client.get_flight_price = AsyncMock(return_value={
+            "success": True,
+            "outbound": {"date": "2026-07-10", "route": "JNB-MRU", "price_zar": 4500},
+            "return": {"date": "2026-07-17", "route": "MRU-JNB", "price_zar": 4200},
+            "total_round_trip_zar": 8700,
+        })
+        with patch(
+            'src.services.travel_platform_rates_client.get_travel_platform_rates_client',
+            return_value=mock_client,
+        ):
+            response = test_client.get(
+                "/api/v1/travel/flights/search?destination=mauritius"
+                "&departure_date=2026-07-10&return_date=2026-07-17"
+            )
+            data = response.json()
+
+            assert response.status_code == 200
+            assert data["success"] is True
+            assert data["source"] == "platform"
+            assert data["flights"][0]["price_per_person"] == 8700
+            assert data["outbound"]["route"] == "JNB-MRU"
+            assert data["return_leg"]["route"] == "MRU-JNB"
 
 
 # ====================================================================

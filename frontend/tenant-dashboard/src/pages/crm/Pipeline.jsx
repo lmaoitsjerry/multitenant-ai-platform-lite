@@ -441,24 +441,29 @@ export default function Pipeline() {
         </div>
       </div>
 
-      {/* Circular Stats */}
-      <div className="flex justify-center gap-4 flex-wrap">
-        {STAGES.map((stage) => {
-          const count = clientsByStage[stage.id]?.length || 0;
-          const value = stageValues[stage.id] || 0;
-          return (
-            <div key={stage.id} className="flex flex-col items-center">
-              <div
-                className={`w-20 h-20 rounded-full flex flex-col items-center justify-center ${stage.color} text-white shadow-lg transition-transform hover:scale-105 cursor-pointer`}
-                title={`${stage.label}: ${formatCurrency(value)}`}
-              >
-                <span className="text-2xl font-bold">{count}</span>
+      {/* Pipeline Journey Stepper */}
+      <div className="relative">
+        {/* Connecting line through circle centers */}
+        <div className="absolute top-10 left-10 right-10 h-0.5 bg-gray-200 z-0" />
+        {/* Stage circles */}
+        <div className="relative z-10 flex justify-between">
+          {STAGES.map((stage) => {
+            const count = clientsByStage[stage.id]?.length || 0;
+            const value = stageValues[stage.id] || 0;
+            return (
+              <div key={stage.id} className="flex flex-col items-center">
+                <div
+                  className={`w-20 h-20 rounded-full flex flex-col items-center justify-center ${stage.color} text-white shadow-lg transition-transform hover:scale-105 cursor-pointer`}
+                  title={`${stage.label}: ${formatCurrency(value)}`}
+                >
+                  <span className="text-2xl font-bold">{count}</span>
+                </div>
+                <span className="text-sm text-theme-secondary mt-2 font-medium">{stage.label}</span>
+                <span className="text-xs text-theme-muted">{formatCurrency(value)}</span>
               </div>
-              <span className="text-sm text-theme-secondary mt-2 font-medium">{stage.label}</span>
-              <span className="text-xs text-theme-muted">{formatCurrency(value)}</span>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* Kanban Board */}

@@ -657,9 +657,7 @@ class TestQueryParameters:
 
 class TestGetRankingsEndpoint:
     """Unit tests for get_rankings endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_rankings_returns_rankings(self, sample_rankings):
+    def test_get_rankings_returns_rankings(self, sample_rankings):
         """get_rankings should return consultant rankings."""
         from src.api.leaderboard_routes import get_rankings
         from src.middleware.auth_middleware import UserContext
@@ -673,7 +671,7 @@ class TestGetRankingsEndpoint:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await get_rankings(
+        result = get_rankings(
             request=mock_request,
             period="month",
             metric="conversions",
@@ -687,9 +685,7 @@ class TestGetRankingsEndpoint:
         assert result.metric == "conversions"
         assert len(result.rankings) == 3
         assert result.total_consultants == 3
-
-    @pytest.mark.asyncio
-    async def test_get_rankings_normalizes_invalid_period(self, sample_rankings):
+    def test_get_rankings_normalizes_invalid_period(self, sample_rankings):
         """get_rankings should normalize invalid period to 'month'."""
         from src.api.leaderboard_routes import get_rankings
         from src.middleware.auth_middleware import UserContext
@@ -700,7 +696,7 @@ class TestGetRankingsEndpoint:
         mock_service.get_consultant_rankings.return_value = sample_rankings
         mock_request = MagicMock(spec=Request)
 
-        result = await get_rankings(
+        result = get_rankings(
             request=mock_request,
             period="invalid_period",
             metric="conversions",
@@ -710,9 +706,7 @@ class TestGetRankingsEndpoint:
         )
 
         assert result.period == "month"
-
-    @pytest.mark.asyncio
-    async def test_get_rankings_normalizes_invalid_metric(self, sample_rankings):
+    def test_get_rankings_normalizes_invalid_metric(self, sample_rankings):
         """get_rankings should normalize invalid metric to 'conversions'."""
         from src.api.leaderboard_routes import get_rankings
         from src.middleware.auth_middleware import UserContext
@@ -723,7 +717,7 @@ class TestGetRankingsEndpoint:
         mock_service.get_consultant_rankings.return_value = sample_rankings
         mock_request = MagicMock(spec=Request)
 
-        result = await get_rankings(
+        result = get_rankings(
             request=mock_request,
             period="month",
             metric="invalid_metric",
@@ -733,9 +727,7 @@ class TestGetRankingsEndpoint:
         )
 
         assert result.metric == "conversions"
-
-    @pytest.mark.asyncio
-    async def test_get_rankings_handles_service_error(self):
+    def test_get_rankings_handles_service_error(self):
         """get_rankings should raise 500 on service error."""
         from src.api.leaderboard_routes import get_rankings
         from src.middleware.auth_middleware import UserContext
@@ -747,7 +739,7 @@ class TestGetRankingsEndpoint:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_rankings(
+            get_rankings(
                 request=mock_request,
                 period="month",
                 metric="conversions",
@@ -761,9 +753,7 @@ class TestGetRankingsEndpoint:
 
 class TestGetMyPerformanceEndpoint:
     """Unit tests for get_my_performance endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_my_performance_user_in_rankings(self, sample_rankings):
+    def test_get_my_performance_user_in_rankings(self, sample_rankings):
         """get_my_performance should return user's performance."""
         from src.api.leaderboard_routes import get_my_performance
         from src.middleware.auth_middleware import UserContext
@@ -777,7 +767,7 @@ class TestGetMyPerformanceEndpoint:
         mock_service.get_consultant_rankings.return_value = sample_rankings
         mock_request = MagicMock(spec=Request)
 
-        result = await get_my_performance(
+        result = get_my_performance(
             request=mock_request,
             period="month",
             user=mock_user,
@@ -788,9 +778,7 @@ class TestGetMyPerformanceEndpoint:
         assert result.rank == 3
         assert result.conversions == 10
         assert result.total_consultants == 3
-
-    @pytest.mark.asyncio
-    async def test_get_my_performance_user_not_in_rankings(self, sample_rankings):
+    def test_get_my_performance_user_not_in_rankings(self, sample_rankings):
         """get_my_performance should return zero rank for unranked user."""
         from src.api.leaderboard_routes import get_my_performance
         from src.middleware.auth_middleware import UserContext
@@ -804,7 +792,7 @@ class TestGetMyPerformanceEndpoint:
         mock_service.get_consultant_rankings.return_value = sample_rankings
         mock_request = MagicMock(spec=Request)
 
-        result = await get_my_performance(
+        result = get_my_performance(
             request=mock_request,
             period="month",
             user=mock_user,
@@ -815,9 +803,7 @@ class TestGetMyPerformanceEndpoint:
         assert result.rank == 0
         assert result.conversions == 0
         assert result.name == "New User"
-
-    @pytest.mark.asyncio
-    async def test_get_my_performance_handles_error(self):
+    def test_get_my_performance_handles_error(self):
         """get_my_performance should raise 500 on error."""
         from src.api.leaderboard_routes import get_my_performance
         from src.middleware.auth_middleware import UserContext
@@ -829,7 +815,7 @@ class TestGetMyPerformanceEndpoint:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_my_performance(
+            get_my_performance(
                 request=mock_request,
                 period="month",
                 user=mock_user,
@@ -841,9 +827,7 @@ class TestGetMyPerformanceEndpoint:
 
 class TestGetPerformanceSummaryEndpoint:
     """Unit tests for get_performance_summary endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_summary_returns_summary(self, sample_summary):
+    def test_get_summary_returns_summary(self, sample_summary):
         """get_performance_summary should return organization summary."""
         from src.api.leaderboard_routes import get_performance_summary
         from src.middleware.auth_middleware import UserContext
@@ -854,7 +838,7 @@ class TestGetPerformanceSummaryEndpoint:
         mock_service.get_performance_summary.return_value = sample_summary
         mock_request = MagicMock(spec=Request)
 
-        result = await get_performance_summary(
+        result = get_performance_summary(
             request=mock_request,
             period="month",
             user=mock_user,
@@ -867,9 +851,7 @@ class TestGetPerformanceSummaryEndpoint:
         assert result.active_consultants == 3
         assert result.top_performer is not None
         assert result.top_performer.name == "Alice Johnson"
-
-    @pytest.mark.asyncio
-    async def test_get_summary_without_top_performer(self):
+    def test_get_summary_without_top_performer(self):
         """get_performance_summary handles no top performer."""
         from src.api.leaderboard_routes import get_performance_summary
         from src.middleware.auth_middleware import UserContext
@@ -888,7 +870,7 @@ class TestGetPerformanceSummaryEndpoint:
         }
         mock_request = MagicMock(spec=Request)
 
-        result = await get_performance_summary(
+        result = get_performance_summary(
             request=mock_request,
             period="month",
             user=mock_user,
@@ -897,9 +879,7 @@ class TestGetPerformanceSummaryEndpoint:
 
         assert result.success is True
         assert result.top_performer is None
-
-    @pytest.mark.asyncio
-    async def test_get_summary_handles_error(self):
+    def test_get_summary_handles_error(self):
         """get_performance_summary should raise 500 on error."""
         from src.api.leaderboard_routes import get_performance_summary
         from src.middleware.auth_middleware import UserContext
@@ -911,7 +891,7 @@ class TestGetPerformanceSummaryEndpoint:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_performance_summary(
+            get_performance_summary(
                 request=mock_request,
                 period="month",
                 user=mock_user,
@@ -923,9 +903,7 @@ class TestGetPerformanceSummaryEndpoint:
 
 class TestGetConsultantPerformanceEndpoint:
     """Unit tests for get_consultant_performance endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_consultant_performance_found(self, sample_rankings):
+    def test_get_consultant_performance_found(self, sample_rankings):
         """get_consultant_performance should return consultant data."""
         from src.api.leaderboard_routes import get_consultant_performance
         from src.middleware.auth_middleware import UserContext
@@ -936,7 +914,7 @@ class TestGetConsultantPerformanceEndpoint:
         mock_service.get_consultant_performance.return_value = sample_rankings[0]
         mock_request = MagicMock(spec=Request)
 
-        result = await get_consultant_performance(
+        result = get_consultant_performance(
             consultant_id="user_1",
             request=mock_request,
             period="month",
@@ -947,9 +925,7 @@ class TestGetConsultantPerformanceEndpoint:
         assert result["success"] is True
         assert result["consultant"].consultant_id == "user_1"
         assert result["consultant"].rank == 1
-
-    @pytest.mark.asyncio
-    async def test_get_consultant_performance_not_found(self):
+    def test_get_consultant_performance_not_found(self):
         """get_consultant_performance should raise 404 when not found."""
         from src.api.leaderboard_routes import get_consultant_performance
         from src.middleware.auth_middleware import UserContext
@@ -961,7 +937,7 @@ class TestGetConsultantPerformanceEndpoint:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_consultant_performance(
+            get_consultant_performance(
                 consultant_id="nonexistent",
                 request=mock_request,
                 period="month",
@@ -970,9 +946,7 @@ class TestGetConsultantPerformanceEndpoint:
             )
 
         assert exc_info.value.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_get_consultant_performance_handles_error(self):
+    def test_get_consultant_performance_handles_error(self):
         """get_consultant_performance should raise 500 on error."""
         from src.api.leaderboard_routes import get_consultant_performance
         from src.middleware.auth_middleware import UserContext
@@ -984,7 +958,7 @@ class TestGetConsultantPerformanceEndpoint:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_consultant_performance(
+            get_consultant_performance(
                 consultant_id="user_1",
                 request=mock_request,
                 period="month",
@@ -993,9 +967,7 @@ class TestGetConsultantPerformanceEndpoint:
             )
 
         assert exc_info.value.status_code == 500
-
-    @pytest.mark.asyncio
-    async def test_get_consultant_performance_normalizes_period(self, sample_rankings):
+    def test_get_consultant_performance_normalizes_period(self, sample_rankings):
         """get_consultant_performance should normalize invalid period."""
         from src.api.leaderboard_routes import get_consultant_performance
         from src.middleware.auth_middleware import UserContext
@@ -1006,7 +978,7 @@ class TestGetConsultantPerformanceEndpoint:
         mock_service.get_consultant_performance.return_value = sample_rankings[0]
         mock_request = MagicMock(spec=Request)
 
-        result = await get_consultant_performance(
+        result = get_consultant_performance(
             consultant_id="user_1",
             request=mock_request,
             period="invalid",

@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { crmApi, quotesApi } from '../../services/api';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import { useDeleteAction } from '../../hooks/useDeleteAction';
+import { serializeCrmActivity } from '../../utils/fieldTransformers';
 import {
   ArrowLeftIcon,
   EnvelopeIcon,
@@ -42,8 +45,32 @@ export default function ClientDetail() {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [newNote, setNewNote] = useState('');
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [activityType, setActivityType] = useState('note');
+  const [activityDescription, setActivityDescription] = useState('');
+  const [toast, setToast] = useState(null);
+  const [deleteActivityId, setDeleteActivityId] = useState(null);
+  const [deleteActivityLoading, setDeleteActivityLoading] = useState(false);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const {
+    showConfirm: showDeleteConfirm,
+    setShowConfirm: setShowDeleteConfirm,
+    loading: deleteLoading,
+    handleAction: handleDeleteConfirm,
+  } = useDeleteAction({
+    actionFn: () => crmApi.deleteClient(id),
+    onSuccess: () => {
+      navigate('/crm/clients');
+    },
+    onError: (err) => {
+      showToast(err.response?.data?.detail || 'Failed to delete client', 'error');
+    },
+  });
 
   useEffect(() => {
     loadClient();
@@ -67,7 +94,7 @@ export default function ClientDetail() {
         setQuotes(quotesRes.data?.data || []);
       }
     } catch (error) {
-      console.error('Failed to load client:', error);
+      showToast('Failed to load client details', 'error');
     } finally {
       setLoading(false);
     }
@@ -78,23 +105,41 @@ export default function ClientDetail() {
       await crmApi.updateClient(id, { pipeline_stage: newStage });
       setClient(prev => ({ ...prev, pipeline_stage: newStage }));
     } catch (error) {
-      console.error('Failed to update stage:', error);
+      showToast('Failed to update pipeline stage', 'error');
     }
   };
 
-  const handleAddNote = async () => {
-    if (!newNote.trim()) return;
-    
+  const handleAddActivity = async () => {
+    if (!activityDescription.trim()) return;
+
     try {
-      await crmApi.logActivity(id, {
-        type: 'note',
-        description: newNote,
+      const payload = serializeCrmActivity({
+        activity_type: activityType,
+        description: activityDescription,
       });
-      setNewNote('');
-      setShowNoteModal(false);
+      await crmApi.addActivity(id, payload);
+      setActivityDescription('');
+      setActivityType('note');
+      setShowActivityModal(false);
+      showToast('Activity logged');
       loadClient();
     } catch (error) {
-      console.error('Failed to add note:', error);
+      showToast(error.response?.data?.detail || 'Failed to log activity', 'error');
+    }
+  };
+
+  const handleDeleteActivity = async () => {
+    if (!deleteActivityId) return;
+    setDeleteActivityLoading(true);
+    try {
+      await crmApi.deleteActivity(id, deleteActivityId);
+      setDeleteActivityId(null);
+      showToast('Activity deleted');
+      loadClient();
+    } catch (error) {
+      showToast(error.response?.data?.detail || 'Failed to delete activity', 'error');
+    } finally {
+      setDeleteActivityLoading(false);
     }
   };
 
@@ -181,6 +226,13 @@ export default function ClientDetail() {
           <button className="btn-secondary flex items-center gap-2">
             <PencilIcon className="w-5 h-5" />
             Edit
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <TrashIcon className="w-5 h-5" />
+            Delete
           </button>
           <Link to="/quotes/new" className="btn-primary flex items-center gap-2">
             <PlusIcon className="w-5 h-5" />
@@ -273,7 +325,7 @@ export default function ClientDetail() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Notes</h3>
                 <button
-                  onClick={() => setShowNoteModal(true)}
+                  onClick={() => { setActivityType('note'); setShowActivityModal(true); }}
                   className="btn-secondary text-sm flex items-center gap-1"
                 >
                   <PlusIcon className="w-4 h-4" />
@@ -373,7 +425,7 @@ export default function ClientDetail() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Activity Timeline</h3>
             <button
-              onClick={() => setShowNoteModal(true)}
+              onClick={() => setShowActivityModal(true)}
               className="btn-secondary text-sm flex items-center gap-1"
             >
               <PlusIcon className="w-4 h-4" />
@@ -386,17 +438,24 @@ export default function ClientDetail() {
           ) : (
             <div className="space-y-4">
               {activities.map((activity, idx) => {
-                const Icon = activityIcons[activity.type] || ChatBubbleLeftIcon;
+                const Icon = activityIcons[activity.activity_type] || ChatBubbleLeftIcon;
                 return (
-                  <div key={idx} className="flex gap-4">
+                  <div key={activity.id || idx} className="flex gap-4 group">
                     <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <Icon className="w-5 h-5 text-purple-600" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900 capitalize">{activity.type}</p>
+                      <p className="font-medium text-gray-900 capitalize">{activity.activity_type}</p>
                       <p className="text-gray-600">{activity.description}</p>
                       <p className="text-sm text-gray-400 mt-1">{formatDateTime(activity.created_at)}</p>
                     </div>
+                    <button
+                      onClick={() => setDeleteActivityId(activity.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                      title="Delete activity"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
                   </div>
                 );
               })}
@@ -405,26 +464,77 @@ export default function ClientDetail() {
         </div>
       )}
 
-      {/* Add Note Modal */}
-      {showNoteModal && (
+      {/* Log Activity Modal */}
+      {showActivityModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Note</h3>
-            <textarea
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              className="input min-h-32"
-              placeholder="Enter your note..."
-            />
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Log Activity</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select
+                  value={activityType}
+                  onChange={(e) => setActivityType(e.target.value)}
+                  className="input"
+                >
+                  <option value="note">Note</option>
+                  <option value="call">Call</option>
+                  <option value="email">Email</option>
+                  <option value="meeting">Meeting</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={activityDescription}
+                  onChange={(e) => setActivityDescription(e.target.value)}
+                  className="input min-h-32"
+                  placeholder="Enter details..."
+                />
+              </div>
+            </div>
             <div className="flex justify-end gap-3 mt-4">
-              <button onClick={() => setShowNoteModal(false)} className="btn-secondary">
+              <button onClick={() => setShowActivityModal(false)} className="btn-secondary">
                 Cancel
               </button>
-              <button onClick={handleAddNote} className="btn-primary">
-                Save Note
+              <button onClick={handleAddActivity} className="btn-primary">
+                Save
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Client"
+        message={`Are you sure you want to delete ${client?.name || 'this client'}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setShowDeleteConfirm(false)}
+        loading={deleteLoading}
+      />
+
+      {/* Delete Activity Confirmation */}
+      <ConfirmDialog
+        open={!!deleteActivityId}
+        title="Delete Activity"
+        message="Are you sure you want to delete this activity? This action cannot be undone."
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={handleDeleteActivity}
+        onCancel={() => setDeleteActivityId(null)}
+        loading={deleteActivityLoading}
+      />
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 ${
+          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
+        }`}>
+          {toast.message}
         </div>
       )}
     </div>

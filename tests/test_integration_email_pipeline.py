@@ -205,8 +205,8 @@ class TestDraftQuoteApproveAndSend:
             agent = QuoteAgent.__new__(QuoteAgent)
             agent.config = mock_config
             agent.supabase = Mock()
-            agent.pdf_generator = Mock()
-            agent.email_sender = Mock()
+            agent._pdf_generator = Mock()
+            agent._email_sender = Mock()
 
             # Mock get_quote to return a draft quote
             agent.get_quote = Mock(return_value={
@@ -226,10 +226,10 @@ class TestDraftQuoteApproveAndSend:
             })
 
             # Mock PDF generation
-            agent.pdf_generator.generate_quote_pdf.return_value = b'PDF_CONTENT'
+            agent._pdf_generator.generate_quote_pdf.return_value = b'PDF_CONTENT'
 
             # Mock email sending success
-            agent.email_sender.send_quote_email.return_value = True
+            agent._email_sender.send_quote_email.return_value = True
 
             # Mock status update
             agent.update_quote_status = Mock(return_value=True)
@@ -248,10 +248,10 @@ class TestDraftQuoteApproveAndSend:
         assert result['customer_email'] == 'john@example.com'
 
         # Verify PDF was regenerated
-        agent.pdf_generator.generate_quote_pdf.assert_called_once()
+        agent._pdf_generator.generate_quote_pdf.assert_called_once()
 
         # Verify email was sent
-        agent.email_sender.send_quote_email.assert_called_once()
+        agent._email_sender.send_quote_email.assert_called_once()
 
         # Verify status was updated
         agent.update_quote_status.assert_called_with('QT-20250116-ABC123', 'sent')

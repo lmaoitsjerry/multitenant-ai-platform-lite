@@ -6,8 +6,8 @@ Tests for the performance timing middleware.
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from starlette.requests import Request
-from starlette.responses import Response
+
+from tests.conftest import call_asgi_middleware
 
 
 class TestTimingMiddleware:
@@ -41,17 +41,11 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
 
-        expected_response = Response(content="OK")
-        call_next = AsyncMock(return_value=expected_response)
+        response = await call_asgi_middleware(middleware, scope)
 
-        response = await middleware.dispatch(request, call_next)
-
-        # Should have called next without adding timing header
-        call_next.assert_called_once()
         # Health endpoints skip the timing logic
-        assert "X-Response-Time" not in response.headers
+        assert "x-response-time" not in response.headers
 
     @pytest.mark.asyncio
     async def test_skips_root_endpoint(self):
@@ -68,14 +62,11 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
 
-        expected_response = Response(content="OK")
-        call_next = AsyncMock(return_value=expected_response)
+        response = await call_asgi_middleware(middleware, scope)
 
-        response = await middleware.dispatch(request, call_next)
-
-        call_next.assert_called_once()
+        # Root endpoint skips timing logic - no timing header
+        assert "x-response-time" not in response.headers
 
     @pytest.mark.asyncio
     async def test_adds_response_time_header(self):
@@ -92,16 +83,12 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
 
-        expected_response = Response(content="OK")
-        call_next = AsyncMock(return_value=expected_response)
-
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
         # Should have timing header
-        assert "X-Response-Time" in response.headers
-        assert "ms" in response.headers["X-Response-Time"]
+        assert "x-response-time" in response.headers
+        assert "ms" in response.headers["x-response-time"]
 
     @pytest.mark.asyncio
     async def test_logs_request_duration(self):
@@ -118,13 +105,9 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-
-        expected_response = Response(content="OK", status_code=200)
-        call_next = AsyncMock(return_value=expected_response)
 
         with patch('src.middleware.timing_middleware.logger') as mock_logger:
-            response = await middleware.dispatch(request, call_next)
+            response = await call_asgi_middleware(middleware, scope)
 
             # Should have logged (info for fast requests)
             assert mock_logger.info.called or mock_logger.warning.called
@@ -133,7 +116,6 @@ class TestTimingMiddleware:
     async def test_logs_warning_for_slow_requests(self):
         """Middleware should log warning for slow requests."""
         from src.middleware.timing_middleware import TimingMiddleware
-        import time
 
         app = MagicMock()
         middleware = TimingMiddleware(app)
@@ -145,21 +127,14 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-
-        # Simulate slow response
-        async def slow_call_next(req):
-            time.sleep(0.01)  # Small delay, we'll mock the time
-            return Response(content="OK", status_code=200)
 
         # Mock time.perf_counter to simulate slow request
         with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
             # First call returns start time, second call returns start + 0.6s (600ms)
-            mock_time.side_effect = [0, 0.6]
+            mock_time.side_effect = [0, 0.6, 0.6]
 
             with patch('src.middleware.timing_middleware.logger') as mock_logger:
-                call_next = AsyncMock(return_value=Response(content="OK"))
-                response = await middleware.dispatch(request, call_next)
+                response = await call_asgi_middleware(middleware, scope)
 
                 # Should log warning for 600ms (> 500ms threshold)
                 mock_logger.warning.assert_called()
@@ -179,15 +154,13 @@ class TestTimingMiddleware:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
 
         # Mock time.perf_counter to simulate very slow request (3 seconds)
         with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
-            mock_time.side_effect = [0, 3.0]  # 3000ms
+            mock_time.side_effect = [0, 3.0, 3.0]  # 3000ms
 
             with patch('src.middleware.timing_middleware.logger') as mock_logger:
-                call_next = AsyncMock(return_value=Response(content="OK"))
-                response = await middleware.dispatch(request, call_next)
+                response = await call_asgi_middleware(middleware, scope)
 
                 # Should log warning with "critically slow" message
                 mock_logger.warning.assert_called()
@@ -220,11 +193,9 @@ class TestPrometheusIntegration:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
         # Should not raise
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
         assert response.status_code == 200
 
     @pytest.mark.asyncio
@@ -245,11 +216,9 @@ class TestPrometheusIntegration:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="Not Found", status_code=404))
 
         # Should not raise
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope, app_response_status=404)
         assert response.status_code == 404
 
 
@@ -283,16 +252,14 @@ class TestSkipPaths:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        assert "X-Response-Time" not in response.headers
+        assert "x-response-time" not in response.headers
 
     @pytest.mark.asyncio
-    async def test_skips_health_ready(self):
-        """Should skip /health/ready."""
+    async def test_does_not_skip_health_ready(self):
+        """Should NOT skip /health/ready (goes through timing)."""
         from src.middleware.timing_middleware import TimingMiddleware
 
         app = MagicMock()
@@ -305,16 +272,14 @@ class TestSkipPaths:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        assert "X-Response-Time" not in response.headers
+        assert "x-response-time" in response.headers
 
     @pytest.mark.asyncio
-    async def test_skips_metrics(self):
-        """Should skip /metrics."""
+    async def test_does_not_skip_metrics(self):
+        """Should NOT skip /metrics (goes through timing)."""
         from src.middleware.timing_middleware import TimingMiddleware
 
         app = MagicMock()
@@ -327,12 +292,10 @@ class TestSkipPaths:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        assert "X-Response-Time" not in response.headers
+        assert "x-response-time" in response.headers
 
     @pytest.mark.asyncio
     async def test_does_not_skip_api_endpoints(self):
@@ -349,12 +312,10 @@ class TestSkipPaths:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        assert "X-Response-Time" in response.headers
+        assert "x-response-time" in response.headers
 
 
 class TestResponseTimeHeader:
@@ -375,12 +336,10 @@ class TestResponseTimeHeader:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        header = response.headers["X-Response-Time"]
+        header = response.headers["x-response-time"]
         assert header.endswith("ms")
 
     @pytest.mark.asyncio
@@ -398,12 +357,10 @@ class TestResponseTimeHeader:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        header = response.headers["X-Response-Time"]
+        header = response.headers["x-response-time"]
         # Extract numeric part
         numeric_part = header.replace("ms", "").strip()
         float(numeric_part)  # Should not raise
@@ -423,12 +380,10 @@ class TestResponseTimeHeader:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
-        header = response.headers["X-Response-Time"]
+        header = response.headers["x-response-time"]
         numeric_part = float(header.replace("ms", "").strip())
         assert numeric_part >= 0
 
@@ -451,14 +406,12 @@ class TestThresholdLogging:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
         with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
-            mock_time.side_effect = [0, 0.1]  # 100ms (fast)
+            mock_time.side_effect = [0, 0.1, 0.1]  # 100ms (fast)
 
             with patch('src.middleware.timing_middleware.logger') as mock_logger:
-                await middleware.dispatch(request, call_next)
+                await call_asgi_middleware(middleware, scope)
 
                 # Fast request logs at info level
                 mock_logger.info.assert_called()
@@ -478,14 +431,12 @@ class TestThresholdLogging:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
         with patch('src.middleware.timing_middleware.time.perf_counter') as mock_time:
-            mock_time.side_effect = [0, 0.6]  # 600ms (slow)
+            mock_time.side_effect = [0, 0.6, 0.6]  # 600ms (slow)
 
             with patch('src.middleware.timing_middleware.logger') as mock_logger:
-                await middleware.dispatch(request, call_next)
+                await call_asgi_middleware(middleware, scope)
 
                 mock_logger.warning.assert_called()
 
@@ -508,10 +459,8 @@ class TestHTTPMethods:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
         assert response.status_code == 200
 
@@ -530,10 +479,8 @@ class TestHTTPMethods:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK", status_code=201))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope, app_response_status=201)
 
         assert response.status_code == 201
 
@@ -552,10 +499,8 @@ class TestHTTPMethods:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK"))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope)
 
         assert response.status_code == 200
 
@@ -574,10 +519,8 @@ class TestHTTPMethods:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="", status_code=204))
 
-        response = await middleware.dispatch(request, call_next)
+        response = await call_asgi_middleware(middleware, scope, app_response_status=204)
 
         assert response.status_code == 204
 
@@ -600,11 +543,9 @@ class TestStatusCodeTracking:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
         with patch('src.middleware.timing_middleware.logger') as mock_logger:
-            await middleware.dispatch(request, call_next)
+            await call_asgi_middleware(middleware, scope)
 
             # Check status code is in log
             call_args = str(mock_logger.info.call_args)
@@ -625,11 +566,9 @@ class TestStatusCodeTracking:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="Not Found", status_code=404))
 
         with patch('src.middleware.timing_middleware.logger') as mock_logger:
-            await middleware.dispatch(request, call_next)
+            await call_asgi_middleware(middleware, scope, app_response_status=404)
 
             # Check status code is in log
             assert mock_logger.info.called or mock_logger.warning.called
@@ -649,11 +588,9 @@ class TestStatusCodeTracking:
             "query_string": b"",
             "headers": [],
         }
-        request = Request(scope)
-        call_next = AsyncMock(return_value=Response(content="Error", status_code=500))
 
         with patch('src.middleware.timing_middleware.logger') as mock_logger:
-            await middleware.dispatch(request, call_next)
+            await call_asgi_middleware(middleware, scope, app_response_status=500)
 
             # 5xx errors should be logged
             assert mock_logger.info.called or mock_logger.warning.called

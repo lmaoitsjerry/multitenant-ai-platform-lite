@@ -287,18 +287,53 @@ class EmailSender:
         quote_pdf_data: bytes,
         destination: str,
         quote_id: str = "",
-        consultant_email: Optional[str] = None
+        consultant_email: Optional[str] = None,
+        quote_details: Optional[dict] = None
     ) -> bool:
         """
         Send quote email with PDF attachment
+
+        Args:
+            quote_details: Optional dict with check_in, check_out, adults, children,
+                          room_count, nights, total_price, currency
         """
         subject = f"Your {destination} Travel Quote from {self.from_name}"
-        
+
         primary_color = getattr(self.config, 'primary_color', '#FF6B6B')
         secondary_color = getattr(self.config, 'secondary_color', '#4ECDC4')
         company_name = getattr(self.config, 'company_name', 'Travel Agency')
         email_signature = getattr(self.config, 'email_signature', f'Best regards,\nThe {company_name} Team')
-        
+
+        # Build trip summary section if we have details
+        trip_summary_html = ""
+        if quote_details:
+            check_in = quote_details.get('check_in', '')
+            check_out = quote_details.get('check_out', '')
+            adults = quote_details.get('adults', 0)
+            children = quote_details.get('children', 0)
+            room_count = quote_details.get('room_count', 1)
+            nights = quote_details.get('nights', 0)
+
+            details_rows = []
+            if check_in and check_out:
+                details_rows.append(f"<tr><td style='padding:4px 8px;color:#666;'>Travel Dates</td><td style='padding:4px 8px;font-weight:600;'>{check_in} to {check_out}</td></tr>")
+            if nights:
+                details_rows.append(f"<tr><td style='padding:4px 8px;color:#666;'>Duration</td><td style='padding:4px 8px;font-weight:600;'>{nights} nights</td></tr>")
+            guests = f"{adults} adult{'s' if adults != 1 else ''}"
+            if children:
+                guests += f", {children} child{'ren' if children != 1 else ''}"
+            details_rows.append(f"<tr><td style='padding:4px 8px;color:#666;'>Guests</td><td style='padding:4px 8px;font-weight:600;'>{guests}</td></tr>")
+            if room_count > 1:
+                details_rows.append(f"<tr><td style='padding:4px 8px;color:#666;'>Rooms</td><td style='padding:4px 8px;font-weight:600;'>{room_count}</td></tr>")
+
+            if details_rows:
+                trip_summary_html = f"""
+                <div style="margin: 20px 0; padding: 15px; background-color: #f0f4ff; border-radius: 8px;">
+                    <p style="margin: 0 0 10px 0; font-weight: 600; color: {primary_color};">Trip Summary</p>
+                    <table style="width:100%;font-size:14px;">{''.join(details_rows)}</table>
+                </div>
+                """
+
         body_html = f"""
         <!DOCTYPE html>
         <html>
@@ -309,28 +344,30 @@ class EmailSender:
             <div style="background: linear-gradient(135deg, {primary_color}, {secondary_color}); color: white; padding: 30px; text-align: center;">
                 <h1 style="margin: 0;">Your {destination} Travel Quote</h1>
             </div>
-            
+
             <div style="padding: 30px;">
                 <p>Dear {customer_name},</p>
-                
+
                 <p>Thank you for your interest in traveling to <strong>{destination}</strong>!</p>
-                
-                <p>Please find attached your personalized travel quote. We've carefully selected the best 
+
+                {trip_summary_html}
+
+                <p>Please find attached your personalized travel quote. We've carefully selected the best
                 accommodation options based on your requirements.</p>
-                
+
                 <div style="margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid {primary_color};">
                     <p style="margin: 0;"><strong>Ready to book?</strong></p>
                     <p style="margin: 5px 0 0 0;">Simply reply to this email or call us to secure your dream vacation!</p>
                 </div>
-                
-                <p>If you have any questions or would like to make changes to your quote, 
+
+                <p>If you have any questions or would like to make changes to your quote,
                 please don't hesitate to reach out.</p>
-                
+
                 <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
                     {email_signature.replace(chr(10), '<br>')}
                 </div>
             </div>
-            
+
             <div style="background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #666;">
                 <p style="margin: 0;">&copy; {company_name}. All rights reserved.</p>
                 <p style="margin: 5px 0 0 0;">{self.from_email}</p>

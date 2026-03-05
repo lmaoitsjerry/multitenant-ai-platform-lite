@@ -10,33 +10,39 @@ import {
   CheckCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { activitiesApi, travelApi, hotelbedsApi } from '../../services/api';
+import { activitiesApi, travelApi } from '../../services/api';
 import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
+import { normalizeActivityPrice } from '../../utils/fieldTransformers';
 
-function ActivityDetailModal({ activity, onClose, formatCurrency, participants }) {
+function ActivityDetailModal({ activity, onClose, formatCurrency, participants, destinationName }) {
   if (!activity) return null;
+
+  const { pricePerPerson } = normalizeActivityPrice(activity);
+  const totalAdult = pricePerPerson ? pricePerPerson * participants : 0;
+  const totalChild = activity.price_child ? activity.price_child * participants : 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {activity.image_url && (
-          <img src={activity.image_url} alt={activity.name} className="w-full h-64 object-cover rounded-t-xl" />
+          <img
+            src={activity.image_url}
+            alt={activity.name}
+            className="w-full h-64 object-cover rounded-t-xl"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
         )}
         <div className="p-6">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">{activity.name}</h2>
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
                 {activity.category && (
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">{activity.category}</span>
                 )}
                 {activity.source && (
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${activity.source === 'hotelbeds' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {activity.source.toUpperCase()}
-                  </span>
-                )}
-                {activity.duration && (
-                  <span className="text-sm text-gray-500 flex items-center gap-1">
-                    <ClockIcon className="h-4 w-4" /> {activity.duration}
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${activity.source === 'hotelbeds' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {activity.source === 'hotelbeds' ? 'Live' : activity.source.toUpperCase()}
                   </span>
                 )}
               </div>
@@ -46,6 +52,35 @@ function ActivityDetailModal({ activity, onClose, formatCurrency, participants }
             </button>
           </div>
 
+          {/* Key details grid */}
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {activity.duration && (
+              <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                <ClockIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <div>
+                  <div className="text-xs text-gray-500">Duration</div>
+                  <div className="text-sm font-medium text-gray-900">{activity.duration}</div>
+                </div>
+              </div>
+            )}
+            {destinationName && (
+              <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                <MapPinIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <div>
+                  <div className="text-xs text-gray-500">Destination</div>
+                  <div className="text-sm font-medium text-gray-900">{destinationName}</div>
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+              <UserGroupIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <div>
+                <div className="text-xs text-gray-500">Participants</div>
+                <div className="text-sm font-medium text-gray-900">{participants} {participants === 1 ? 'person' : 'people'}</div>
+              </div>
+            </div>
+          </div>
+
           {activity.description && (
             <div className="mt-4">
               <h3 className="font-medium text-gray-900 mb-2">Description</h3>
@@ -53,19 +88,39 @@ function ActivityDetailModal({ activity, onClose, formatCurrency, participants }
             </div>
           )}
 
-          <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
-            <div>
-              {activity.price_adult && activity.price_adult > 0 ? (
-                <div>
-                  <span className="text-2xl font-bold text-theme-primary">{formatCurrency(activity.price_adult, activity.currency)}</span>
-                  <span className="text-gray-500 ml-1">per adult</span>
+          {/* Pricing breakdown */}
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            {activity.price_adult && activity.price_adult > 0 ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Adult x {participants}</span>
+                  <span className="font-medium text-gray-900">
+                    {formatCurrency(activity.price_adult, activity.currency)} each
+                  </span>
                 </div>
-              ) : (
+                {activity.price_child > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Child price</span>
+                    <span className="font-medium text-gray-700">
+                      {formatCurrency(activity.price_child, activity.currency)} each
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                  <span className="font-semibold text-gray-900">Estimated Total</span>
+                  <span className="text-xl font-bold text-theme-primary">
+                    {formatCurrency(activity.total_price || totalAdult, activity.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-end pt-2">
+                  <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: activity.total_price || totalAdult, currency: activity.currency || 'EUR', details: { category: activity.category, duration: activity.duration, participants, destination: destinationName || '' } }} size="md" />
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-2">
                 <span className="text-lg font-medium text-amber-600">Price on request</span>
-              )}
-            </div>
-            {activity.price_adult && activity.price_adult > 0 && (
-              <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: activity.total_price || activity.price_adult * participants, currency: activity.currency || 'EUR', details: { category: activity.category, duration: activity.duration, participants, destination: '' } }} size="md" />
+                <p className="text-sm text-gray-500 mt-1">Contact us for a customized quote</p>
+              </div>
             )}
           </div>
         </div>
@@ -87,6 +142,7 @@ export default function ActivitiesList() {
   const [dataSource, setDataSource] = useState('sample'); // 'hotelbeds' or 'sample'
   const [participants, setParticipants] = useState(2);
   const [selectedActivity, setSelectedActivity] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(12);
 
   // Load destinations and categories on mount
   useEffect(() => {
@@ -94,7 +150,7 @@ export default function ActivitiesList() {
     loadCategories();
   }, []);
 
-  // Load activities when destination changes
+  // Load activities when destination or category changes
   useEffect(() => {
     if (selectedDestination) {
       loadActivities();
@@ -131,85 +187,28 @@ export default function ActivitiesList() {
   const loadActivities = async () => {
     setLoading(true);
     setError(null);
+    setVisibleCount(12);
 
     try {
-      // Try HotelBeds API first for live data
-      const hbResponse = await hotelbedsApi.searchActivities(selectedDestination, participants);
-
-      if (hbResponse.data?.success && hbResponse.data?.activities?.length > 0) {
-        // Map HotelBeds response to our format
-        const HOTELBEDS_IMAGE_BASE = 'https://photos.hotelbeds.com/giata/';
-        const mappedActivities = hbResponse.data.activities.map(activity => {
-          // Resolve image URL — HotelBeds may return relative paths
-          let imageUrl = activity.image_url || activity.image || activity.media?.[0]?.url || null;
-          if (imageUrl && !imageUrl.startsWith('http')) {
-            imageUrl = HOTELBEDS_IMAGE_BASE + imageUrl;
-          }
-          return {
-            activity_id: activity.activity_id,
-            name: activity.name,
-            description: activity.description?.replace(/<[^>]*>/g, '') || '', // Strip HTML
-            duration: activity.duration_hours ? `${activity.duration_hours} hours` : null,
-            price_adult: activity.price_per_person,
-            price_child: null, // HotelBeds doesn't provide separate child pricing in basic search
-            currency: activity.currency || 'EUR',
-            category: activity.category,
-            image_url: imageUrl,
-            source: 'hotelbeds',
-            total_price: activity.total_price,
-          };
-        });
-
-        // Filter by category and search query if provided (client-side)
-        let filtered = mappedActivities;
-        if (selectedCategory) {
-          filtered = filtered.filter(a =>
-            a.category?.toLowerCase().includes(selectedCategory.toLowerCase())
-          );
-        }
-        if (searchQuery) {
-          const query = searchQuery.toLowerCase();
-          filtered = filtered.filter(a =>
-            a.name?.toLowerCase().includes(query) ||
-            a.description?.toLowerCase().includes(query)
-          );
-        }
-
-        setActivities(filtered);
-        setDataSource('hotelbeds');
-        setLoading(false);
-        return;
-      }
-
-      // Fallback to static sample data
-      const response = await activitiesApi.search(
-        selectedDestination,
-        selectedCategory || null,
-        searchQuery || null
-      );
+      const response = await activitiesApi.search({
+        destination: selectedDestination,
+        participants,
+        category: selectedCategory || undefined,
+        query: searchQuery || undefined,
+      });
 
       if (response.data?.success) {
-        setActivities(response.data.activities || []);
-        setDataSource('sample');
+        const results = response.data.activities || [];
+        setActivities(results);
+        // Detect source: if any activity has source 'hotelbeds', it's live Cloud Run data
+        const isLive = results.some(a => a.source === 'hotelbeds');
+        setDataSource(isLive ? 'hotelbeds' : 'sample');
       } else {
         setError(response.data?.error || 'Failed to load activities');
       }
     } catch (err) {
       console.error('Activities load error:', err);
-      // Try fallback to sample data
-      try {
-        const response = await activitiesApi.search(
-          selectedDestination,
-          selectedCategory || null,
-          searchQuery || null
-        );
-        if (response.data?.success) {
-          setActivities(response.data.activities || []);
-          setDataSource('sample');
-        }
-      } catch {
-        setError('Failed to load activities');
-      }
+      setError('Failed to load activities');
     } finally {
       setLoading(false);
     }
@@ -269,9 +268,9 @@ export default function ActivitiesList() {
           <div className="flex items-start gap-3">
             <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-medium text-green-800">Live Activities via HotelBeds</h4>
+              <h4 className="font-medium text-green-800">Live Activities</h4>
               <p className="text-sm text-green-700 mt-1">
-                Showing real-time activity availability and pricing from HotelBeds APItude. Prices are in EUR.
+                Showing real-time activity availability and pricing. Prices are in EUR.
               </p>
             </div>
           </div>
@@ -422,7 +421,7 @@ export default function ActivitiesList() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {activities.map((activity) => (
+            {activities.slice(0, visibleCount).map((activity) => (
               <div
                 key={activity.activity_id}
                 className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
@@ -463,9 +462,9 @@ export default function ActivitiesList() {
                     </h3>
                     {activity.source && (
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        activity.source === 'hotelbeds' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+                        activity.source === 'hotelbeds' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                       }`}>
-                        {activity.source.toUpperCase()}
+                        {activity.source === 'hotelbeds' ? 'Live' : activity.source.toUpperCase()}
                       </span>
                     )}
                   </div>
@@ -516,14 +515,14 @@ export default function ActivitiesList() {
                         </div>
                       )}
                     </div>
-                    {activity.price_adult && activity.price_adult > 0 ? (
+                    {normalizeActivityPrice(activity).pricePerPerson > 0 ? (
                       <div onClick={e => e.stopPropagation()}>
                         <AddToQuoteButton
                           item={{
                             id: activity.activity_id,
                             type: 'activity',
                             name: activity.name,
-                            price: activity.total_price || activity.price_adult * participants,
+                            price: activity.total_price || normalizeActivityPrice(activity).pricePerPerson * participants,
                             currency: activity.currency || 'EUR',
                             details: {
                               category: activity.category,
@@ -545,6 +544,16 @@ export default function ActivitiesList() {
               </div>
             ))}
           </div>
+          {activities.length > visibleCount && (
+            <div className="flex justify-center pt-6">
+              <button
+                onClick={() => setVisibleCount(prev => prev + 12)}
+                className="px-6 py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              >
+                Show more ({activities.length - visibleCount} remaining)
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
@@ -562,6 +571,7 @@ export default function ActivitiesList() {
           onClose={() => setSelectedActivity(null)}
           formatCurrency={formatCurrency}
           participants={participants}
+          destinationName={destinations.find(d => d.code === selectedDestination)?.name || selectedDestination}
         />
       )}
     </div>

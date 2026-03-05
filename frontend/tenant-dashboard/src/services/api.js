@@ -1,5 +1,6 @@
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
+import { API_BASE_URL, API_ABSOLUTE_URL, WEBSITE_BUILDER_URL, WEBSITE_BUILDER_API_BASE, DEFAULT_TENANT_ID } from '../config/environment';
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'access_token';
@@ -8,7 +9,7 @@ const TENANT_ID_KEY = 'tenant_id';
 
 // Get tenant ID - priority: localStorage (from onboarding) > env var > default
 export const getTenantId = () => {
-  return localStorage.getItem(TENANT_ID_KEY) || import.meta.env.VITE_CLIENT_ID || 'example';
+  return localStorage.getItem(TENANT_ID_KEY) || import.meta.env.VITE_CLIENT_ID || DEFAULT_TENANT_ID;
 };
 
 // Set tenant ID (called after onboarding)
@@ -25,9 +26,11 @@ export const clearTenantId = () => {
 
 // Create axios instance with default config
 // NOTE: Do NOT set default Content-Type here - let axios auto-detect for FormData uploads
+// Use empty baseURL in development so requests go through Vite proxy (avoids CORS issues)
+// In production, the full URL should be used
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-  timeout: 10000, // 10 second timeout - prevents infinite hangs
+  baseURL: API_BASE_URL,
+  timeout: 30000, // 30 second timeout - some operations take longer
 });
 
 // Automatic retry for transient failures
@@ -54,7 +57,7 @@ api.interceptors.request.use((config) => {
   if (!isLoginRequest) {
     // Add client ID for all non-login requests
     const clientId = getTenantId();
-    if (clientId && clientId !== 'example') {
+    if (clientId && clientId !== DEFAULT_TENANT_ID) {
       config.headers['X-Client-ID'] = clientId;
     }
   }
@@ -118,6 +121,7 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
 
       if (!refreshToken) {
+        processQueue(error, null);  // Reject any queued requests before resetting flag
         isRefreshing = false;
         // Clear auth and dispatch logout event (let React handle navigation)
         localStorage.removeItem(ACCESS_TOKEN_KEY);
@@ -129,12 +133,15 @@ api.interceptors.response.use(
       }
 
       try {
+        // Use absolute backend URL to ensure refresh always hits the API server,
+        // not the frontend origin (which would be GCS in production)
+        const refreshUrl = `${API_ABSOLUTE_URL}/api/v1/auth/refresh`;
         const response = await axios.post(
-          `${api.defaults.baseURL}/api/v1/auth/refresh`,
+          refreshUrl,
           { refresh_token: refreshToken },
           {
             headers: { 'X-Client-ID': getTenantId() },
-            timeout: 10000, // 10 second timeout
+            timeout: 15000, // 15 second timeout for refresh
           }
         );
 
@@ -151,6 +158,9 @@ api.interceptors.response.use(
           isRefreshing = false;
 
           return api(originalRequest);
+        } else {
+          // Refresh endpoint returned success: false (token invalid/expired on server)
+          throw new Error(response.data.error || 'Token refresh failed');
         }
       } catch (refreshError) {
         processQueue(refreshError, null);
@@ -191,7 +201,7 @@ try {
       }
     });
   }
-} catch (e) {
+} catch {
   // Ignore parse errors
 }
 
@@ -206,7 +216,7 @@ const persistCache = () => {
       }
     });
     sessionStorage.setItem('api_cache', JSON.stringify(cacheObj));
-  } catch (e) {
+  } catch {
     // Ignore quota errors
   }
 };
@@ -278,6 +288,13 @@ export const clearCache = (pattern) => {
   });
 };
 
+// Clear in-memory state on logout
+window.addEventListener('auth:logout', () => {
+  cache.clear();
+  delete api.defaults.headers.common['Authorization'];
+  try { sessionStorage.removeItem('api_cache'); } catch {}
+});
+
 // Cached GET helper - eliminates repetitive cache-check-fetch-cache pattern
 const cachedGet = async (key, url, { ttl = CACHE_TTL, params, timeout, cacheIf, fallback } = {}) => {
   const cached = getCached(key);
@@ -309,7 +326,7 @@ export const prefetch = async (key, fetcher, ttl = DETAIL_CACHE_TTL) => {
   try {
     const response = await fetcher();
     setCached(key, response.data, ttl);
-  } catch (e) {
+  } catch {
     // Silently fail - prefetch is best effort
     console.debug('Prefetch failed:', key);
   }
@@ -409,8 +426,10 @@ export const quotesApi = {
     return response;
   },
   get: (id) => cachedGet(`quote-${id}`, `/api/v1/quotes/${id}`, { ttl: DETAIL_CACHE_TTL }),
-  generate: (data) => api.post('/api/v1/quotes/generate', data, { timeout: 30000 }), // 30s for quote generation
+  generate: (data) => api.post('/api/v1/quotes/generate', data, { timeout: 90000 }), // 90s for quote generation (external API calls)
+  createWithItems: (data) => api.post('/api/v1/quotes/create-with-items', data, { timeout: 30000 }), // Create quote from shopping cart items
   resend: (id) => api.post(`/api/v1/quotes/${id}/resend`),
+  sendDraft: (id) => api.post(`/api/v1/quotes/${id}/send`),
   update: (id, data) => api.patch(`/api/v1/quotes/${id}`, data),
   delete: (id) => api.delete(`/api/v1/quotes/${id}`),
   download: (id) => api.get(`/api/v1/quotes/${id}/pdf`, { responseType: 'blob' }),
@@ -487,6 +506,7 @@ export const crmApi = {
   // Activities
   getActivities: (clientId) => api.get(`/api/v1/crm/clients/${clientId}/activities`),
   addActivity: (clientId, data) => api.post(`/api/v1/crm/clients/${clientId}/activities`, data),
+  deleteActivity: (clientId, activityId) => api.delete(`/api/v1/crm/clients/${clientId}/activities/${activityId}`),
 
   getStats: () => cachedGet('crm-stats', '/api/v1/crm/stats', { ttl: STATS_CACHE_TTL }),
   prefetch: (id) => prefetch(`client-${id}`, () => api.get(`/api/v1/crm/clients/${id}`)),
@@ -577,9 +597,12 @@ export const inboundApi = {
   listTickets: (params = {}) => api.get('/api/v1/inbound/tickets', { params }),
   getTicket: (id) => api.get(`/api/v1/inbound/tickets/${id}`),
   updateTicket: (id, data) => api.patch(`/api/v1/inbound/tickets/${id}`, data),
-  
+
   // Chat with customer
   sendReply: (ticketId, message) => api.post(`/api/v1/inbound/tickets/${ticketId}/reply`, { message }),
+
+  // Seed sample data for testing
+  seedSampleTickets: () => api.post('/api/v1/inbound/tickets/seed'),
 };
 
 // ==================== Usage/Rate Limits API ====================
@@ -621,19 +644,32 @@ export const analyticsApi = {
 };
 
 // ==================== Client Info API ====================
+// In-flight request deduplication: prevents multiple concurrent calls to the same endpoint
+let _clientInfoPromise = null;
+
 export const clientApi = {
   getInfo: async () => {
     const cacheKey = 'client-info';
     const cached = getCached(cacheKey);
     if (cached) return { data: { success: true, data: cached } };
 
-    const response = await api.get('/api/v1/client/info');
-    // Cache the actual data object, not the wrapper
-    const actualData = response.data?.data;
-    if (actualData) {
-      setCached(cacheKey, actualData, STATIC_CACHE_TTL);
-    }
-    return response;
+    // Deduplicate: if a request is already in-flight, wait for it instead of making a new one
+    if (_clientInfoPromise) return _clientInfoPromise;
+
+    _clientInfoPromise = api.get('/api/v1/client/info')
+      .then(response => {
+        // Cache the actual data object, not the wrapper
+        const actualData = response.data?.data;
+        if (actualData) {
+          setCached(cacheKey, actualData, STATIC_CACHE_TTL);
+        }
+        return response;
+      })
+      .finally(() => {
+        _clientInfoPromise = null;
+      });
+
+    return _clientInfoPromise;
   },
   // Update local cache with new client info (for immediate UI updates)
   updateInfoCache: (updates) => {
@@ -803,7 +839,7 @@ export const helpdeskApi = {
     try {
       const response = await api.get('/api/v1/helpdesk/search', { params: { q: query } });
       return response;
-    } catch (error) {
+    } catch {
       return { data: { success: false, results: [] } };
     }
   },
@@ -827,7 +863,7 @@ export const notificationsApi = {
     try {
       const response = await api.get('/api/v1/notifications/unread-count');
       return response;
-    } catch (error) {
+    } catch {
       return { data: { success: false, unread_count: 0 } };
     }
   },
@@ -859,7 +895,7 @@ export const notificationsApi = {
     try {
       const response = await api.get('/api/v1/notifications/preferences');
       return response;
-    } catch (error) {
+    } catch {
       return { data: { success: false, data: {} } };
     }
   },
@@ -969,27 +1005,51 @@ export const privacyApi = {
 
 // ==================== Travel Services API ====================
 
-// Hotels API (Live rates via Juniper)
+// Hotels API (Live rates via Juniper + aggregated multi-provider)
 export const hotelsApi = {
   health: () =>
     cachedGet('rates-health', '/api/v1/rates/health', { fallback: { success: false, available: false } }),
   search: (params) =>
     api.post('/api/v1/rates/hotels/search', params, { timeout: 180000 }),
+  searchAggregated: (params) =>
+    api.get('/api/v1/rates/hotels/search/aggregated', { params, timeout: 180000 }),
   destinations: () =>
     cachedGet('rates-destinations', '/api/v1/rates/destinations', { ttl: STATIC_CACHE_TTL, fallback: { success: false, destinations: [] } }),
 };
 
-// Flights API
+// Flights API (RTTC platform data with BigQuery fallback)
 export const flightsApi = {
   list: (params = {}) =>
     cachedGet(`flights-${JSON.stringify(params)}`, '/api/v1/travel/flights', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, flights: [] } }),
-  search: async (destination, departureDate = null) => {
-    const params = { destination };
-    if (departureDate) params.departure_date = departureDate;
+  search: async (params = {}) => {
+    // params: { destination, origin, departure_date, return_date, adults, cabin_class }
     try {
-      return await api.get('/api/v1/travel/flights/search', { params });
+      return await api.get('/api/v1/travel/flights/search', { params, timeout: 60000 });
     } catch {
       return { data: { success: false, flights: [] } };
+    }
+  },
+  destinations: () =>
+    cachedGet('flight-destinations', '/api/v1/travel/flights/destinations', {
+      ttl: STATIC_CACHE_TTL, fallback: { success: false, destinations: [] }
+    }),
+  price: async (destination, departureDate, returnDate) => {
+    try {
+      return await api.get('/api/v1/travel/flights/price', {
+        params: { destination, departure_date: departureDate, return_date: returnDate }
+      });
+    } catch {
+      return { data: { success: false } };
+    }
+  },
+  searchRttc: async (origin, destination, departureDate, returnDate = null, adults = 2, cabinClass = null) => {
+    const params = { origin, destination, departure_date: departureDate, adults };
+    if (returnDate) params.return_date = returnDate;
+    if (cabinClass) params.cabin_class = cabinClass;
+    try {
+      return await api.get('/api/v1/travel/flights/rttc', { params, timeout: 60000 });
+    } catch {
+      return { data: { success: false, flights: [], outbound_flights: [], return_flights: [] } };
     }
   },
 };
@@ -998,11 +1058,10 @@ export const flightsApi = {
 export const transfersApi = {
   list: (params = {}) =>
     cachedGet(`transfers-${JSON.stringify(params)}`, '/api/v1/travel/transfers', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, transfers: [] } }),
-  search: async (destination, hotelName = null) => {
-    const params = { destination };
-    if (hotelName) params.hotel_name = hotelName;
+  search: async (params = {}) => {
+    // params: { from_code, to_code, date, passengers, from_type, to_type, destination }
     try {
-      return await api.get('/api/v1/travel/transfers/search', { params });
+      return await api.get('/api/v1/travel/transfers/search', { params, timeout: 60000 });
     } catch {
       return { data: { success: false, transfers: [] } };
     }
@@ -1013,12 +1072,10 @@ export const transfersApi = {
 export const activitiesApi = {
   list: (params = {}) =>
     cachedGet(`activities-${JSON.stringify(params)}`, '/api/v1/travel/activities', { ttl: LIST_CACHE_TTL, params, fallback: { success: false, activities: [] } }),
-  search: async (destination, category = null, query = null) => {
-    const params = { destination };
-    if (category) params.category = category;
-    if (query) params.query = query;
+  search: async (params = {}) => {
+    // params: { destination, participants, activity_date, category, query }
     try {
-      return await api.get('/api/v1/travel/activities/search', { params });
+      return await api.get('/api/v1/travel/activities/search', { params, timeout: 60000 });
     } catch {
       return { data: { success: false, activities: [] } };
     }
@@ -1033,7 +1090,115 @@ export const travelApi = {
     cachedGet('travel-destinations', '/api/v1/travel/destinations', { ttl: STATIC_CACHE_TTL, fallback: { success: false, destinations: [] } }),
 };
 
-// ==================== Travel Platform Global Knowledge Base ====================
+// Car Rentals API (RTTC GDS)
+export const carRentalsApi = {
+  search: async (params) => {
+    // params: { city, pickup_date, dropoff_date, pickup_time, dropoff_time }
+    try {
+      return await api.get('/api/v1/travel/car-rentals/search', { params, timeout: 60000 });
+    } catch {
+      return { data: { success: false, car_rentals: [] } };
+    }
+  },
+};
+
+// Buses API (RTTC GDS)
+export const busesApi = {
+  search: async (params) => {
+    // params: { from_city, to_city, travel_date, adults, children }
+    try {
+      return await api.get('/api/v1/travel/buses/search', { params, timeout: 60000 });
+    } catch {
+      return { data: { success: false, buses: [] } };
+    }
+  },
+  departurePoints: () =>
+    cachedGet('bus-departure-points', '/api/v1/travel/buses/departure-points', {
+      ttl: STATIC_CACHE_TTL, fallback: { success: false, departure_points: [] }
+    }),
+};
+
+// ==================== HotelBeds API (Live Global Data) ====================
+// Provides live hotels, activities, and transfers data via HotelBeds/APItude
+
+export const hotelbedsApi = {
+  // Health check
+  health: () =>
+    cachedGet('hotelbeds-health', '/api/v1/hotelbeds/health', {
+      ttl: 60000, // 1 minute
+      fallback: { success: false, available: false }
+    }),
+
+  // Get detailed status
+  status: () => api.get('/api/v1/hotelbeds/status'),
+
+  // Search hotels via HotelBeds
+  searchHotels: async (params) => {
+    try {
+      const response = await api.get('/api/v1/hotelbeds/hotels/search', {
+        params: {
+          destination: params.destination,
+          check_in: params.check_in || params.checkIn,
+          check_out: params.check_out || params.checkOut,
+          adults: params.adults || 2,
+          max_hotels: params.max_hotels || params.maxHotels || 50
+        },
+        timeout: 90000 // 90 seconds
+      });
+      return response;
+    } catch (error) {
+      console.error('HotelBeds hotel search failed:', error);
+      return { data: { success: false, hotels: [], count: 0, error: error.message } };
+    }
+  },
+
+  // Search hotels with children (POST)
+  searchHotelsWithChildren: async (params) => {
+    try {
+      const response = await api.post('/api/v1/hotelbeds/hotels/search', params, {
+        timeout: 90000
+      });
+      return response;
+    } catch (error) {
+      console.error('HotelBeds hotel search failed:', error);
+      return { data: { success: false, hotels: [], count: 0, error: error.message } };
+    }
+  },
+
+  // Search activities via HotelBeds (LIVE DATA)
+  searchActivities: async (destination, participants = 2) => {
+    try {
+      const response = await api.get('/api/v1/hotelbeds/activities/search', {
+        params: { destination, participants },
+        timeout: 60000 // 60 seconds
+      });
+      return response;
+    } catch (error) {
+      console.error('HotelBeds activities search failed:', error);
+      return { data: { success: false, activities: [], count: 0, error: error.message } };
+    }
+  },
+
+  // Search transfers via HotelBeds (LIVE DATA)
+  searchTransfers: async (route, transferDate, passengers = 2) => {
+    try {
+      const response = await api.get('/api/v1/hotelbeds/transfers/search', {
+        params: {
+          route,
+          date: transferDate,
+          passengers
+        },
+        timeout: 60000 // 60 seconds
+      });
+      return response;
+    } catch (error) {
+      console.error('HotelBeds transfers search failed:', error);
+      return { data: { success: false, transfers: [], count: 0, error: error.message } };
+    }
+  },
+};
+
+// ==================== HT-ITC-Lite Global Knowledge Base ====================
 // All requests proxied through our backend to handle CORS and auth
 
 export const globalKnowledgeApi = {
@@ -1057,24 +1222,32 @@ export const globalKnowledgeApi = {
     }
   },
 
-  // View document content in new tab (proxied through backend)
-  viewDocument: (documentId) => {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    window.open(`${baseUrl}/api/v1/knowledge/global/${documentId}/content`, '_blank');
+  // View document details (proxied through backend)
+  viewDocument: async (documentId) => {
+    try {
+      const response = await api.get(`/api/v1/knowledge/global/${documentId}/view`, { timeout: 120000 });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch document details:', error);
+      throw error;
+    }
   },
 
-  // Download document - uses original file URL if available, otherwise falls back to extracted text
-  downloadDocument: async (documentId, filename, originalFileUrl) => {
-    // If original file is available, download directly from Travel Platform (public endpoint)
-    if (originalFileUrl) {
-      window.open(`${originalFileUrl}?download=true`, '_blank');
-      return;
-    }
+  // Get original file URL (through our proxy to avoid CORS)
+  // Use relative URL so it works with Vite proxy in development
+  getOriginalFileUrl: (documentId) => {
+    return `/api/v1/knowledge/global/${documentId}/original`;
+  },
 
-    // Fallback: download extracted text via backend proxy
+  // Download document - always use our proxy to avoid CORS issues
+  downloadDocument: async (documentId, filename, hasOriginalFile = false) => {
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${baseUrl}/api/v1/knowledge/global/${documentId}/download`);
+      // Use relative endpoint for PDFs, download endpoint for extracted text
+      const endpoint = hasOriginalFile
+        ? `/api/v1/knowledge/global/${documentId}/original`
+        : `/api/v1/knowledge/global/${documentId}/download`;
+
+      const response = await fetch(endpoint);
 
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
@@ -1082,16 +1255,172 @@ export const globalKnowledgeApi = {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      // Ensure .txt extension since content is extracted text
-      const baseName = (filename || 'document').replace(/\.[^.]+$/, '');
-      link.download = `${baseName}.txt`;
+      // Use original filename if available
+      const downloadName = filename || 'document.pdf';
+      link.download = downloadName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Download failed. Please try again.');
+      throw new Error('Download failed. Please try again.');
+    }
+  },
+};
+
+// ==================== Website Builder API ====================
+// Integration with ITC Website Builder for website management
+// Docs: See .planning/ITC-PLATFORM-QUICKSTART.md and INTEGRATION-DOCS.md
+
+// Create a separate axios instance for Website Builder API calls (proxied to avoid CORS)
+const websiteBuilderClient = axios.create({
+  baseURL: WEBSITE_BUILDER_API_BASE,
+  timeout: 30000,
+});
+
+// Add tenant ID header to all Website Builder requests
+websiteBuilderClient.interceptors.request.use((config) => {
+  const tenantId = getTenantId();
+  if (tenantId) {
+    config.headers['X-Tenant-ID'] = tenantId;
+  }
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (!(config.data instanceof FormData)) {
+    config.headers['Content-Type'] = 'application/json';
+  }
+  return config;
+});
+
+export const websiteBuilderApi = {
+  // ==================== Analytics ====================
+  getAnalyticsSummary: (range = '30d') =>
+    websiteBuilderClient.get(`/api/analytics/summary`, { params: { tenantId: getTenantId(), range } }),
+
+  getVisitors: (range = '30d', granularity = 'day') =>
+    websiteBuilderClient.get(`/api/analytics/visitors`, { params: { tenantId: getTenantId(), range, granularity } }),
+
+  getTopPages: (range = '30d', limit = 10) =>
+    websiteBuilderClient.get(`/api/analytics/pages`, { params: { tenantId: getTenantId(), range, limit } }),
+
+  // ==================== Website Configuration ====================
+  getWebsiteConfig: () =>
+    websiteBuilderClient.get('/api/admin/website', { params: { tenantId: getTenantId() } }),
+
+  updateWebsiteConfig: (data) =>
+    websiteBuilderClient.patch('/api/admin/website', { ...data, tenant_id: getTenantId() }),
+
+  // ==================== Templates ====================
+  getTemplates: () =>
+    websiteBuilderClient.get('/api/admin/templates'),
+
+  getTemplate: (templateId) =>
+    websiteBuilderClient.get('/api/admin/templates', { params: { id: templateId } }),
+
+  selectTemplate: (templateId) =>
+    websiteBuilderClient.patch('/api/admin/website', { template: templateId, tenant_id: getTenantId() }),
+
+  // ==================== Branding ====================
+  updateBranding: (branding) =>
+    websiteBuilderClient.patch('/api/admin/website', { branding, tenant_id: getTenantId() }),
+
+  // ==================== Media Library ====================
+  listMedia: (category = null) => {
+    const params = category ? { category } : {};
+    return websiteBuilderClient.get('/api/admin/media', { params });
+  },
+
+  uploadMedia: async (file, category) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', category);
+    return websiteBuilderClient.post('/api/admin/media', formData);
+  },
+
+  deleteMedia: (path) =>
+    websiteBuilderClient.delete('/api/admin/media', { params: { path } }),
+
+  // ==================== Products Configuration ====================
+  updateProductConfig: (productConfig) =>
+    websiteBuilderClient.patch('/api/admin/website', { settings: { productConfig }, tenant_id: getTenantId() }),
+
+  updateMarkupRules: (markupRules) =>
+    websiteBuilderClient.patch('/api/admin/website', { settings: { markupRules }, tenant_id: getTenantId() }),
+
+  updateProductSettings: (productConfig, markupRules) =>
+    websiteBuilderClient.patch('/api/admin/website', { settings: { productConfig, markupRules }, tenant_id: getTenantId() }),
+
+  getAvailableHotels: () =>
+    websiteBuilderClient.get('/api/admin/hotels'),
+
+  // ==================== Bookings ====================
+  getBookings: (filters = {}) => {
+    const params = { tenantId: getTenantId(), ...filters };
+    return websiteBuilderClient.get('/api/admin/booking-requests', { params });
+  },
+
+  getBooking: (bookingId) =>
+    websiteBuilderClient.get(`/api/admin/booking-requests/${bookingId}`),
+
+  updateBookingStatus: (bookingId, status, note = null) => {
+    const data = { status };
+    if (note) data.note = note;
+    return websiteBuilderClient.patch(`/api/admin/booking-requests/${bookingId}`, data);
+  },
+
+  // ==================== Preview ====================
+  getPreview: () =>
+    websiteBuilderClient.get('/api/admin/preview'),
+
+  // ==================== Publishing ====================
+  publishWebsite: () =>
+    websiteBuilderClient.post('/api/admin/website/publish', { action: 'publish', tenantId: getTenantId() }),
+
+  unpublishWebsite: () =>
+    websiteBuilderClient.post('/api/admin/website/publish', { action: 'unpublish', tenantId: getTenantId() }),
+
+  // ==================== Domain Management ====================
+  getDomain: () =>
+    websiteBuilderClient.get('/api/admin/domain', { params: { tenantId: getTenantId() } }),
+
+  setCustomDomain: (customDomain) =>
+    websiteBuilderClient.put('/api/admin/domain', { tenantId: getTenantId(), customDomain }),
+
+  // ==================== Editor Link ====================
+  getEditorUrl: (page = 'home') => {
+    const tenantId = getTenantId();
+    const darkMode = localStorage.getItem('darkMode') === 'true';
+    const params = new URLSearchParams({
+      page,
+      tenantId,
+      darkMode: String(darkMode),
+      returnUrl: window.location.origin,
+    });
+    return `${WEBSITE_BUILDER_URL}/admin/editor?${params.toString()}`;
+  },
+
+  // ==================== Embed Preview URL ====================
+  // Returns a URL for embedding the website preview in an iframe without admin chrome
+  getEmbedPreviewUrl: () => {
+    return `${WEBSITE_BUILDER_URL}/embed/preview?tenantId=${getTenantId()}`;
+  },
+
+  // ==================== Live Site URL ====================
+  getLiveSiteUrl: () => {
+    const tenantId = getTenantId();
+    return `${WEBSITE_BUILDER_URL}/${tenantId}/`;
+  },
+
+  // ==================== Health Check ====================
+  health: async () => {
+    try {
+      const response = await websiteBuilderClient.get('/api/health', { timeout: 5000 });
+      return { data: { success: true, available: true, ...response.data } };
+    } catch {
+      return { data: { success: false, available: false } };
     }
   },
 };

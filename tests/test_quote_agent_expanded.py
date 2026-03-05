@@ -47,9 +47,9 @@ def mock_quote_agent(mock_config):
         agent = QuoteAgent.__new__(QuoteAgent)
         agent.config = mock_config
         agent.db = Mock()
-        agent.bq_tool = Mock()
-        agent.pdf_generator = Mock()
-        agent.email_sender = Mock()
+        agent._bq_tool = Mock()
+        agent._pdf_generator = Mock()
+        agent._email_sender = Mock()
         agent.supabase = Mock()
         agent.supabase.client = Mock()
         agent.crm = Mock()
@@ -634,8 +634,8 @@ class TestGetQuote:
     def test_get_quote_success(self, mock_quote_agent, sample_quote):
         """Successfully retrieve a quote."""
         agent = mock_quote_agent
-        agent.supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = Mock(
-            data=sample_quote
+        agent.supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = Mock(
+            data=[sample_quote]
         )
 
         result = agent.get_quote('QT-20260121-ABC123')
@@ -645,8 +645,8 @@ class TestGetQuote:
     def test_get_quote_not_found(self, mock_quote_agent):
         """Get non-existent quote should return None."""
         agent = mock_quote_agent
-        agent.supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = Mock(
-            data=None
+        agent.supabase.client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = Mock(
+            data=[]
         )
 
         result = agent.get_quote('NONEXISTENT')

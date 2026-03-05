@@ -325,9 +325,9 @@ class RateLimiter:
 
 # ==================== Middleware ====================
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware for rate limiting"""
-    
+class RateLimitMiddleware:
+    """Pure ASGI middleware for rate limiting"""
+
     # Paths to skip rate limiting
     SKIP_PATHS = {
         '/health',
@@ -338,55 +338,77 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         '/redoc',
         '/',
     }
-    
-    async def dispatch(self, request: Request, call_next) -> Response:
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
         # Skip certain paths
-        path = request.url.path
         if path in self.SKIP_PATHS:
-            return await call_next(request)
-        
-        # Get tenant ID
-        tenant_id = request.headers.get('X-Client-ID')
+            await self.app(scope, receive, send)
+            return
+
+        # Get tenant ID from headers
+        import os
+        tenant_id = None
+        for key, value in scope.get("headers", []):
+            if key == b"x-client-id":
+                tenant_id = value.decode("utf-8", errors="replace")
+                break
         if not tenant_id:
-            import os
             tenant_id = os.getenv('CLIENT_ID', 'default')
-        
+
         # Get rate limit for this endpoint
         max_requests, window_seconds = RateLimitConfig.get_limit(path)
-        
+
         # Check rate limit
         limiter = RateLimiter()
         allowed, current, limit, reset = limiter.check_rate_limit(
             tenant_id, path, max_requests, window_seconds
         )
-        
-        # Add rate limit headers
-        headers = {
-            'X-RateLimit-Limit': str(limit),
-            'X-RateLimit-Remaining': str(max(0, limit - current)),
-            'X-RateLimit-Reset': str(reset),
-        }
-        
+
+        # Rate limit headers to add
+        rl_headers = [
+            (b"x-ratelimit-limit", str(limit).encode()),
+            (b"x-ratelimit-remaining", str(max(0, limit - current)).encode()),
+            (b"x-ratelimit-reset", str(reset).encode()),
+        ]
+
         if not allowed:
             logger.warning(f"Rate limit exceeded for {tenant_id} on {path}")
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'error': 'Rate limit exceeded',
-                    'message': f'Too many requests. Limit: {limit} per {window_seconds}s',
-                    'retry_after': reset
-                },
-                headers=headers
-            )
-        
-        # Process request
-        response = await call_next(request)
-        
-        # Add headers to response
-        for key, value in headers.items():
-            response.headers[key] = value
-        
-        return response
+            import json
+            body = json.dumps({
+                'error': 'Rate limit exceeded',
+                'message': f'Too many requests. Limit: {limit} per {window_seconds}s',
+                'retry_after': reset
+            }).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ] + rl_headers,
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        # Pass through and add rate limit headers to response
+        async def send_with_rl_headers(message):
+            if message["type"] == "http.response.start":
+                message = {
+                    **message,
+                    "headers": list(message.get("headers", [])) + rl_headers,
+                }
+            await send(message)
+
+        await self.app(scope, receive, send_with_rl_headers)
 
 
 # ==================== Decorator ====================

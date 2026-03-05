@@ -253,11 +253,11 @@ class TestNormalizeCustomerData:
         assert result['nights'] == 7
 
     def test_string_dates_preserved(self, quote_agent):
-        """String dates are kept as-is."""
-        data = {'check_in': '2026-03-01', 'check_out': '2026-03-05'}
+        """String dates in the future are kept as-is."""
+        data = {'check_in': '2026-12-01', 'check_out': '2026-12-05'}
         result = quote_agent._normalize_customer_data(data)
-        assert result['check_in'] == '2026-03-01'
-        assert result['check_out'] == '2026-03-05'
+        assert result['check_in'] == '2026-12-01'
+        assert result['check_out'] == '2026-12-05'
         assert result['nights'] == 4
 
     def test_date_objects_converted_to_strings(self, quote_agent):
@@ -789,12 +789,12 @@ class TestGetQuote:
         """Returns quote data when found."""
         expected = {'quote_id': 'QT-001', 'status': 'sent'}
         mock_result = MagicMock()
-        mock_result.data = expected
+        mock_result.data = [expected]
         quote_agent.supabase.client.table.return_value \
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.return_value = mock_result
 
         result = quote_agent.get_quote('QT-001')
@@ -803,12 +803,12 @@ class TestGetQuote:
     def test_returns_none_when_not_found(self, quote_agent):
         """Returns None when quote not in database."""
         mock_result = MagicMock()
-        mock_result.data = None
+        mock_result.data = []
         quote_agent.supabase.client.table.return_value \
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.return_value = mock_result
 
         result = quote_agent.get_quote('QT-NONEXISTENT')
@@ -820,7 +820,7 @@ class TestGetQuote:
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.side_effect = Exception("timeout")
 
         assert quote_agent.get_quote('QT-001') is None
@@ -1242,8 +1242,8 @@ class TestGenerateQuote:
         assert result['email_sent'] is False
         mocks['email_sender'].send_quote_email.assert_not_called()
 
-    def test_email_failure_returns_generated_status(self, mock_config, sample_customer_data):
-        """When email fails, status stays 'generated'."""
+    def test_email_failure_returns_quoted_status(self, mock_config, sample_customer_data):
+        """When email fails, status stays 'quoted' (canonical value for generated)."""
         agent, mocks = _build_quote_agent(mock_config)
         self._setup_successful_flow(agent, mocks)
         mocks['email_sender'].send_quote_email.return_value = False
@@ -1252,7 +1252,7 @@ class TestGenerateQuote:
             result = agent.generate_quote(sample_customer_data, use_live_rates=False)
 
         assert result['success'] is True
-        assert result['status'] == 'generated'
+        assert result['status'] == 'quoted'
         assert result['email_sent'] is False
 
     def test_email_exception_captured(self, mock_config, sample_customer_data):
@@ -1434,22 +1434,22 @@ class TestSendDraftQuote:
             'customer_name': 'John',
             'customer_phone': phone,
             'destination': 'Zanzibar',
-            'check_in_date': '2026-06-15',
-            'check_out_date': '2026-06-22',
+            'check_in': '2026-06-15',
+            'check_out': '2026-06-22',
             'nights': 7,
             'adults': 2,
             'children': 0,
             'children_ages': [],
             'hotels': [{'hotel_name': 'Beach Hotel', 'total_price': 5000}],
         }
-        # Mock get_quote
+        # Mock get_quote (uses .limit(1) not .single())
         mock_result = MagicMock()
-        mock_result.data = quote_data
+        mock_result.data = [quote_data]
         quote_agent.supabase.client.table.return_value \
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.return_value = mock_result
 
         return quote_data
@@ -1478,12 +1478,12 @@ class TestSendDraftQuote:
     def test_not_found_returns_error(self, quote_agent):
         """Returns error when quote not found."""
         mock_result = MagicMock()
-        mock_result.data = None
+        mock_result.data = []
         quote_agent.supabase.client.table.return_value \
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.return_value = mock_result
 
         result = quote_agent.send_draft_quote('QT-MISSING')
@@ -1590,8 +1590,8 @@ class TestResendQuote:
             'customer_name': 'John',
             'customer_phone': '+27800000000',
             'destination': 'Zanzibar',
-            'check_in_date': '2026-06-15',
-            'check_out_date': '2026-06-22',
+            'check_in': '2026-06-15',
+            'check_out': '2026-06-22',
             'nights': 7,
             'adults': 2,
             'children': 0,
@@ -1599,12 +1599,12 @@ class TestResendQuote:
             'hotels': [{'hotel_name': 'Hotel X', 'total_price': 4000}],
         }
         mock_result = MagicMock()
-        mock_result.data = quote_data
+        mock_result.data = [quote_data]
         quote_agent.supabase.client.table.return_value \
             .select.return_value \
             .eq.return_value \
             .eq.return_value \
-            .single.return_value \
+            .limit.return_value \
             .execute.return_value = mock_result
         return quote_data
 

@@ -11,7 +11,10 @@ from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 import jwt
 from supabase import create_client, Client
-from gotrue.errors import AuthApiError
+try:
+    from gotrue.errors import AuthApiError
+except ImportError:
+    from supabase_auth.errors import AuthApiError
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +105,14 @@ class AuthService:
         """
         try:
             # Authenticate with Supabase Auth (tenant-agnostic)
-            auth_response = self.client.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
+            # Run sync Supabase call in thread pool to avoid blocking event loop
+            def _sign_in():
+                return self.client.auth.sign_in_with_password({
+                    "email": email,
+                    "password": password
+                })
+
+            auth_response = await asyncio.to_thread(_sign_in)
 
             if not auth_response.user:
                 return False, {"error": "Invalid credentials"}
@@ -113,33 +120,36 @@ class AuthService:
             auth_user_id = auth_response.user.id
 
             # Look up user in organization_users
-            # If tenant_id provided, filter by it; otherwise get any active membership
-            query = self.client.table("organization_users").select("*").eq(
-                "auth_user_id", auth_user_id
-            ).eq(
-                "is_active", True
-            )
+            # Run sync DB call in thread pool to avoid blocking event loop
+            def _lookup_user():
+                query = self.client.table("organization_users").select("*").eq(
+                    "auth_user_id", auth_user_id
+                ).eq(
+                    "is_active", True
+                )
 
-            if tenant_id:
-                # Specific tenant requested - verify membership
-                query = query.eq("tenant_id", tenant_id)
-                user_record = query.single().execute()
-                org_user = user_record.data
-            else:
-                # No tenant specified - get first active membership (tenant-agnostic login)
-                user_record = query.limit(1).execute()
-                # .limit() returns a list, get first item
-                org_user = user_record.data[0] if user_record.data else None
+                if tenant_id:
+                    query = query.eq("tenant_id", tenant_id)
+                    user_record = query.single().execute()
+                    return user_record.data
+                else:
+                    user_record = query.limit(1).execute()
+                    return user_record.data[0] if user_record.data else None
+
+            org_user = await asyncio.to_thread(_lookup_user)
 
             if not org_user:
                 # User exists in auth but not in any organization
                 await self.logout()
                 return False, {"error": "User not found in any organization"}
 
-            # Update last login
-            self.client.table("organization_users").update({
-                "last_login_at": datetime.utcnow().isoformat()
-            }).eq("id", org_user["id"]).execute()
+            # Update last login (non-blocking)
+            def _update_last_login():
+                self.client.table("organization_users").update({
+                    "last_login_at": datetime.utcnow().isoformat()
+                }).eq("id", org_user["id"]).execute()
+
+            await asyncio.to_thread(_update_last_login)
 
             return True, {
                 "access_token": auth_response.session.access_token,

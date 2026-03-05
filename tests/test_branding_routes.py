@@ -783,22 +783,28 @@ class TestGetBrandingMocked:
             assert "colors" in data
             assert "fonts" in data
 
-    @patch("src.api.branding_routes.get_client_config")
     @patch("src.api.branding_routes.SupabaseTool")
     def test_get_branding_includes_logos_from_config(
-        self, mock_supabase, mock_get_config, test_client, mock_config
+        self, mock_supabase, test_client, mock_config
     ):
         """GET /branding includes logo_url from config when no DB record."""
-        mock_get_config.return_value = mock_config
+        from main import app
+        from src.api.dependencies import get_client_config
+
         mock_db = MagicMock()
         mock_db.get_branding.return_value = None
         mock_supabase.return_value = mock_db
 
-        response = test_client.get("/api/v1/branding", headers={"X-Client-ID": "test_tenant"})
+        # Use FastAPI dependency override to inject mock config
+        app.dependency_overrides[get_client_config] = lambda: mock_config
+        try:
+            response = test_client.get("/api/v1/branding", headers={"X-Client-ID": "test_tenant"})
 
-        if response.status_code == 200:
-            logos = response.json()["data"]["logos"]
-            assert logos["primary"] == mock_config.logo_url
+            if response.status_code == 200:
+                logos = response.json()["data"]["logos"]
+                assert logos["primary"] == mock_config.logo_url
+        finally:
+            app.dependency_overrides.pop(get_client_config, None)
 
     @patch("src.api.branding_routes.get_client_config")
     @patch("src.api.branding_routes.SupabaseTool")
@@ -1197,16 +1203,17 @@ class TestDependencyInjection:
     """Tests for get_client_config dependency."""
 
     def test_get_client_config_uses_header(self):
-        """get_client_config reads X-Client-ID header."""
-        from src.api.dependencies import get_client_config
+        """get_client_config reads X-Client-ID header and falls back gracefully."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-        # When config fails for unknown client, it raises HTTPException
-        from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
-            get_client_config(x_client_id="nonexistent_client_xyz_999")
+        _client_configs.pop("nonexistent_client_xyz_999", None)
 
-        assert exc_info.value.status_code == 400
-        assert "Invalid client" in str(exc_info.value.detail)
+        # When config fails for unknown client, it returns FallbackClientConfig
+        result = get_client_config(x_client_id="nonexistent_client_xyz_999")
+        assert isinstance(result, FallbackClientConfig)
+        assert result.client_id == "nonexistent_client_xyz_999"
+
+        _client_configs.pop("nonexistent_client_xyz_999", None)
 
 
 # ==================== NEW TESTS: Error handling ====================
@@ -1473,3 +1480,287 @@ class TestGetFontsExtended:
         data = response.json()
         assert data["count"] == len(data["data"])
         assert data["count"] >= 10  # We know there are at least 13 fonts
+
+
+# ==================== Theme Pack Tests ====================
+
+class TestThemePackEndpoint:
+    """Test GET /api/v1/branding/theme-pack endpoint."""
+
+    def test_theme_pack_missing_tenant_id_returns_422(self, test_client):
+        """GET /theme-pack without tenantId returns 422."""
+        response = test_client.get("/api/v1/branding/theme-pack")
+        assert response.status_code == 422
+
+    def test_theme_pack_empty_tenant_id_returns_422(self, test_client):
+        """GET /theme-pack with empty tenantId returns 422."""
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=")
+        # FastAPI treats empty string as falsy in our check
+        assert response.status_code == 422
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_valid_response_structure(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """GET /theme-pack returns expected top-level structure."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["success"] is True
+        pack = data["data"]
+        assert pack["version"] == 1
+        assert pack["tenantId"] == "test_tenant"
+        assert "generatedAt" in pack
+        assert "darkMode" in pack
+        assert "lightMode" in pack
+        assert "fonts" in pack
+        assert "logos" in pack
+        assert "meta" in pack
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_light_mode_has_colors(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Light mode section contains CSS variable colors."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        light_colors = response.json()["data"]["lightMode"]["colors"]
+
+        assert "--color-primary" in light_colors
+        assert "--color-background" in light_colors
+        assert "--color-surface" in light_colors
+        assert "--color-primary-rgb" in light_colors
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_dark_mode_has_colors(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Dark mode section contains CSS variable colors."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        dark = response.json()["data"]["darkMode"]
+
+        assert "enabled" in dark
+        assert "--color-primary" in dark["colors"]
+        assert "--color-background" in dark["colors"]
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_uses_builder_variable_names(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Theme-pack uses Builder convention: --color-text not --color-text-primary."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        light_colors = response.json()["data"]["lightMode"]["colors"]
+
+        # Renamed variables use Builder convention
+        assert "--color-text" in light_colors
+        assert "--color-text-primary" not in light_colors
+        assert "--color-muted" in light_colors
+        assert "--color-text-muted" not in light_colors
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_font_variable_names(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Fonts use Builder convention: --font-heading not --font-family-heading."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        fonts = response.json()["data"]["fonts"]
+
+        assert "--font-heading" in fonts
+        assert "--font-body" in fonts
+        assert "--font-family-heading" not in fonts
+        assert "--font-family-body" not in fonts
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_cache_control_header(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Response includes Cache-Control: public, max-age=300."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        assert response.status_code == 200
+        assert response.headers.get("cache-control") == "public, max-age=300"
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_primary_rgb_format(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """--color-primary-rgb is formatted as 'R, G, B'."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        rgb = response.json()["data"]["lightMode"]["colors"]["--color-primary-rgb"]
+        # Should be comma-separated integers
+        parts = [p.strip() for p in rgb.split(",")]
+        assert len(parts) == 3
+        for part in parts:
+            assert part.isdigit()
+            assert 0 <= int(part) <= 255
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_logos_included(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Theme-pack includes logos section."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        logos = response.json()["data"]["logos"]
+        assert "primary" in logos
+        assert "dark" in logos
+        assert "favicon" in logos
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_meta_includes_preset_and_name(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Meta section includes presetTheme and tenantName."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = None
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        meta = response.json()["data"]["meta"]
+        assert "presetTheme" in meta
+        assert "tenantName" in meta
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_with_db_branding(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Theme-pack uses DB branding when available."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.return_value = {
+            "tenant_id": "test_tenant",
+            "preset_theme": "elegant_purple",
+            "dark_mode_enabled": True,
+            "color_primary": "#7C3AED",
+            "logo_url": "https://example.com/custom-logo.png",
+        }
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        data = response.json()["data"]
+
+        assert data["darkMode"]["enabled"] is True
+        assert data["lightMode"]["colors"]["--color-primary"] == "#7C3AED"
+        assert data["logos"]["primary"] == "https://example.com/custom-logo.png"
+        assert data["meta"]["presetTheme"] == "elegant_purple"
+
+    @patch("src.api.branding_routes.get_client_config")
+    @patch("src.api.branding_routes.SupabaseTool")
+    def test_theme_pack_db_failure_returns_defaults(
+        self, mock_supabase, mock_get_config, test_client, mock_config
+    ):
+        """Theme-pack gracefully falls back to defaults on DB error."""
+        mock_get_config.return_value = mock_config
+        mock_db = MagicMock()
+        mock_db.get_branding.side_effect = Exception("DB connection failed")
+        mock_supabase.return_value = mock_db
+
+        response = test_client.get("/api/v1/branding/theme-pack?tenantId=test_tenant")
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert "--color-primary" in data["lightMode"]["colors"]
+
+
+# ==================== Theme Pack Helper Tests ====================
+
+class TestThemePackHelpers:
+    """Tests for theme-pack helper functions."""
+
+    def test_hex_to_rgb_basic(self):
+        """_hex_to_rgb converts hex to RGB string."""
+        from src.api.branding_routes import _hex_to_rgb
+        assert _hex_to_rgb("#7C3AED") == "124, 58, 237"
+
+    def test_hex_to_rgb_black(self):
+        """_hex_to_rgb handles black."""
+        from src.api.branding_routes import _hex_to_rgb
+        assert _hex_to_rgb("#000000") == "0, 0, 0"
+
+    def test_hex_to_rgb_white(self):
+        """_hex_to_rgb handles white."""
+        from src.api.branding_routes import _hex_to_rgb
+        assert _hex_to_rgb("#FFFFFF") == "255, 255, 255"
+
+    def test_map_colors_renames_text_primary(self):
+        """_map_colors_to_css_vars renames text_primary to --color-text."""
+        from src.api.branding_routes import _map_colors_to_css_vars
+        result = _map_colors_to_css_vars({"text_primary": "#1E293B"})
+        assert "--color-text" in result
+        assert "--color-text-primary" not in result
+        assert result["--color-text"] == "#1E293B"
+
+    def test_map_colors_renames_text_muted(self):
+        """_map_colors_to_css_vars renames text_muted to --color-muted."""
+        from src.api.branding_routes import _map_colors_to_css_vars
+        result = _map_colors_to_css_vars({"text_muted": "#94A3B8"})
+        assert "--color-muted" in result
+        assert "--color-text-muted" not in result
+
+    def test_map_colors_passes_through_sidebar_vars(self):
+        """_map_colors_to_css_vars passes sidebar colors through as-is."""
+        from src.api.branding_routes import _map_colors_to_css_vars
+        result = _map_colors_to_css_vars({
+            "sidebar_bg": "#FFFFFF",
+            "sidebar_text": "#1E293B",
+            "sidebar_active_bg": "#EDE9FE",
+            "sidebar_active_text": "#6D28D9",
+        })
+        assert result["--color-sidebar-bg"] == "#FFFFFF"
+        assert result["--color-sidebar-text"] == "#1E293B"
+        assert result["--color-sidebar-active-bg"] == "#EDE9FE"
+        assert result["--color-sidebar-active-text"] == "#6D28D9"
+
+    def test_map_colors_skips_unknown_keys(self):
+        """_map_colors_to_css_vars ignores keys not in the mapping."""
+        from src.api.branding_routes import _map_colors_to_css_vars
+        result = _map_colors_to_css_vars({"unknown_color": "#FF0000"})
+        assert len(result) == 0

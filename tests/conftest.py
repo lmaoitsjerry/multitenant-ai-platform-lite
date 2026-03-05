@@ -19,9 +19,63 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import os
 import sys
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 # Ensure src is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# ==================== ASGI Middleware Test Helper ====================
+
+async def call_asgi_middleware(middleware, scope, app_response_status=200, app_response_body=b'OK'):
+    """Call raw ASGI middleware and capture the response.
+
+    Returns a Response-like object with .status_code, .body, and .headers attributes.
+    """
+    if 'state' not in scope:
+        scope['state'] = {}
+
+    captured = {'status': None, 'headers': [], 'body': b''}
+
+    async def receive():
+        return {'type': 'http.request', 'body': b''}
+
+    async def send(message):
+        if message['type'] == 'http.response.start':
+            captured['status'] = message['status']
+            captured['headers'] = message.get('headers', [])
+        elif message['type'] == 'http.response.body':
+            captured['body'] += message.get('body', b'')
+
+    # For middleware that calls self.app(scope, receive, send) on success,
+    # we need the inner app to send a response
+    original_app = middleware.app
+
+    async def mock_app(s, r, snd):
+        # Store the scope state for assertions (e.g., user context)
+        scope.update(s)
+        await snd({'type': 'http.response.start', 'status': app_response_status, 'headers': []})
+        await snd({'type': 'http.response.body', 'body': app_response_body})
+
+    middleware.app = mock_app
+    try:
+        await middleware(scope, receive, send)
+    finally:
+        middleware.app = original_app
+
+    # Build headers dict from raw ASGI headers
+    headers_dict = {}
+    for h in captured['headers']:
+        if isinstance(h, (list, tuple)) and len(h) == 2:
+            key = h[0].decode('latin-1') if isinstance(h[0], bytes) else h[0]
+            val = h[1].decode('latin-1') if isinstance(h[1], bytes) else h[1]
+            headers_dict[key] = val
+
+    return SimpleNamespace(
+        status_code=captured['status'],
+        body=captured['body'],
+        headers=headers_dict
+    )
 
 
 # ==================== Configuration Fixtures ====================
@@ -426,35 +480,16 @@ def mock_analytics_config():
 
 @pytest.fixture
 def test_client():
-    """Create a FastAPI TestClient with FAISS service mocked.
-
-    This fixture mocks the FAISS service initialization to prevent
-    GCS network calls that would slow down or hang tests.
+    """Create a FastAPI TestClient with external services mocked.
 
     Returns:
         TestClient: A test client for the application.
     """
-    # Create a mock FAISS service
-    mock_faiss = MagicMock()
-    mock_faiss.initialize.return_value = False
-    mock_faiss.get_status.return_value = {
-        "initialized": False,
-        "error": "Mocked for tests",
-        "vector_count": 0,
-        "document_count": 0
-    }
-    mock_faiss.search.return_value = []
-    mock_faiss._initialized = False
-
-    # Mock the singleton and GCS client at multiple levels
-    with patch('src.services.faiss_helpdesk_service.FAISSHelpdeskService._instance', None):
-        with patch('src.services.faiss_helpdesk_service.FAISSHelpdeskService.__new__', return_value=mock_faiss):
-            with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service', return_value=mock_faiss):
-                # Also mock GCS storage to prevent network calls
-                with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
-                    from fastapi.testclient import TestClient
-                    from main import app
-                    yield TestClient(app)
+    # Mock GCS storage to prevent network calls
+    with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
+        from fastapi.testclient import TestClient
+        from main import app
+        yield TestClient(app)
 
 
 @pytest.fixture
@@ -586,21 +621,13 @@ def reset_caches():
 def fast_test_client():
     """Create a FastAPI TestClient with mocked external services.
 
-    This fixture mocks FAISS and GCS services to prevent slow initialization
-    during tests. Use this for tests that don't need real external services.
+    Use this for tests that don't need real external services.
     """
-    # Mock FAISS service before app import
-    with patch('src.services.faiss_helpdesk_service.get_faiss_helpdesk_service') as mock_faiss:
-        mock_service = MagicMock()
-        mock_service.initialize.return_value = False
-        mock_service.get_status.return_value = {"initialized": False, "error": "Mocked for tests"}
-        mock_faiss.return_value = mock_service
-
-        # Mock GCS storage
-        with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
-            from fastapi.testclient import TestClient
-            from main import app
-            yield TestClient(app)
+    # Mock GCS storage
+    with patch.dict('sys.modules', {'google.cloud.storage': MagicMock()}):
+        from fastapi.testclient import TestClient
+        from main import app
+        yield TestClient(app)
 
 
 # ==================== Pytest Configuration ====================

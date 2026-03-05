@@ -373,7 +373,7 @@ async def create_tenant(
 
 
 @admin_tenants_router.get("/{tenant_id}")
-async def get_tenant_details(
+def get_tenant_details(
     tenant_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):

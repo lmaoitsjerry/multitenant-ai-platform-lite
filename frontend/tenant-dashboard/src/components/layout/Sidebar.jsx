@@ -2,17 +2,29 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
-import { quotesApi, invoicesApi, crmApi, pricingApi, dashboardApi, analyticsApi, brandingApi } from '../../services/api';
+import { quotesApi, invoicesApi, crmApi, dashboardApi, analyticsApi, brandingApi, hotelsApi, activitiesApi, flightsApi, transfersApi, inboundApi } from '../../services/api';
 import {
   HomeIcon,
   DocumentTextIcon,
   UsersIcon,
   DocumentDuplicateIcon,
-  CurrencyDollarIcon,
-  QuestionMarkCircleIcon,
   ChartBarIcon,
   Cog6ToothIcon,
   ChevronDownIcon,
+  GlobeAltIcon,
+  BuildingOfficeIcon,
+  SparklesIcon,
+  PaperAirplaneIcon,
+  TruckIcon,
+  BookOpenIcon,
+  InboxIcon,
+  ComputerDesktopIcon,
+  SwatchIcon,
+  PhotoIcon,
+  CubeIcon,
+  ClipboardDocumentListIcon,
+  EyeIcon,
+  PresentationChartLineIcon,
 } from '@heroicons/react/24/outline';
 import { MapPinIcon } from '@heroicons/react/24/solid';
 
@@ -24,21 +36,39 @@ const navigation = [
     href: '/crm',
     icon: UsersIcon,
     children: [
+      { name: 'Enquiry Triage', href: '/crm/triage', icon: InboxIcon },
       { name: 'Pipeline', href: '/crm/pipeline' },
       { name: 'All Clients', href: '/crm/clients' },
     ]
   },
   { name: 'Invoices', href: '/invoices', icon: DocumentDuplicateIcon },
   {
-    name: 'Pricing Guide',
-    href: '/pricing',
-    icon: CurrencyDollarIcon,
+    name: 'Travel Services',
+    href: '/travel',
+    icon: GlobeAltIcon,
     children: [
-      { name: 'Rates', href: '/pricing/rates' },
-      { name: 'Hotels', href: '/pricing/hotels' },
+      { name: 'Holiday Packages', href: '/travel/packages', icon: GlobeAltIcon },
+      { name: 'Hotels', href: '/travel/hotels', icon: BuildingOfficeIcon },
+      { name: 'Activities', href: '/travel/activities', icon: SparklesIcon },
+      { name: 'Flights', href: '/travel/flights', icon: PaperAirplaneIcon },
+      { name: 'Transfers', href: '/travel/transfers', icon: TruckIcon },
     ]
   },
-  { name: 'Helpdesk', href: '/helpdesk', icon: QuestionMarkCircleIcon },
+  {
+    name: 'Website',
+    href: '/website',
+    icon: ComputerDesktopIcon,
+    children: [
+      { name: 'Overview', href: '/website', icon: PresentationChartLineIcon },
+      { name: 'Templates', href: '/website/templates', icon: SwatchIcon },
+      { name: 'Branding', href: '/website/branding', icon: SwatchIcon },
+      { name: 'Media Library', href: '/website/media', icon: PhotoIcon },
+      { name: 'Products', href: '/website/products', icon: CubeIcon },
+      { name: 'Bookings', href: '/website/bookings', icon: ClipboardDocumentListIcon },
+      { name: 'Preview', href: '/website/preview', icon: EyeIcon },
+    ]
+  },
+  { name: 'Knowledge Base', href: '/knowledge', icon: BookOpenIcon },
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ];
@@ -50,8 +80,13 @@ const prefetchHandlers = {
   '/invoices': () => invoicesApi.list({ limit: 10 }),
   '/crm/clients': () => crmApi.listClients({ limit: 20 }),
   '/crm/pipeline': () => crmApi.getPipeline(),
-  '/pricing/rates': () => pricingApi.listRates(),
-  '/pricing/hotels': () => pricingApi.listHotels(),
+  '/crm/triage': () => inboundApi.listTickets({ status: 'open', limit: 20 }),
+  '/travel/packages': () => hotelsApi.destinations(),
+  '/travel/hotels': () => hotelsApi.destinations(),
+  '/travel/activities': () => activitiesApi.list({ limit: 20 }),
+  '/travel/flights': () => flightsApi.list({ limit: 20 }),
+  '/travel/transfers': () => transfersApi.list({ limit: 20 }),
+  '/knowledge': () => import('../../services/api').then(m => m.knowledgeApi.listDocuments()),
   '/analytics': () => analyticsApi.getQuoteAnalytics('30d'),
   '/settings': () => brandingApi.get(),
 };
@@ -61,9 +96,17 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
   const hasChildren = item.children && item.children.length > 0;
 
   // Check if any child route is active
-  const isChildActive = hasChildren && item.children.some(child =>
-    location.pathname === child.href || location.pathname.startsWith(child.href + '/')
-  );
+  // Special case: when child.href === item.href (e.g., Overview at /website),
+  // use exact matching only to prevent it from matching all sub-routes
+  const isChildActive = hasChildren && item.children.some(child => {
+    const isOverviewItem = child.href === item.href;
+    if (isOverviewItem) {
+      // Exact match only for "Overview" type items
+      return location.pathname === child.href;
+    }
+    // For other items, allow sub-route matching
+    return location.pathname === child.href || location.pathname.startsWith(child.href + '/');
+  });
 
   // Check if this item or its children are active
   const isActive = location.pathname === item.href || isChildActive;
@@ -143,17 +186,21 @@ function NavItem({ item, collapsed, isExpanded, onToggle }) {
         <div
           className="ml-8 mt-1 space-y-1 overflow-hidden"
           style={{
-            maxHeight: (!collapsed && isExpanded) ? '200px' : '0px',
+            maxHeight: (!collapsed && isExpanded) ? '400px' : '0px',
             opacity: (!collapsed && isExpanded) ? 1 : 0,
             transition: 'max-height 300ms ease, opacity 300ms ease',
           }}
         >
           {item.children.map((child) => {
             const childPrefetch = prefetchHandlers[child.href];
+            // Use exact matching (end) when child href equals parent href
+            // This prevents Overview from staying active when on sub-pages
+            const useExactMatch = child.href === item.href;
             return (
               <NavLink
                 key={child.href}
                 to={child.href}
+                end={useExactMatch}
                 onMouseEnter={childPrefetch ? () => childPrefetch().catch(() => {}) : undefined}
                 className={({ isActive }) =>
                   `block px-3 py-1.5 rounded-lg text-sm transition-colors ${
@@ -216,10 +263,10 @@ export default function Sidebar() {
         width: isExpanded ? '16rem' : '4rem',
         transition: 'width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
-      className="fixed left-0 top-0 h-full bg-sidebar border-r border-theme z-40"
+      className="fixed left-0 top-0 h-full bg-sidebar border-r border-theme z-40 flex flex-col"
     >
-      {/* Logo / Company Name */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-theme overflow-hidden">
+      {/* Logo / Company Name - Fixed header */}
+      <div className="h-16 flex items-center justify-between px-4 border-b border-theme overflow-hidden flex-shrink-0">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {logoUrl ? (
             <img
@@ -248,7 +295,7 @@ export default function Sidebar() {
               transitionDelay: isExpanded ? '100ms' : '0ms',
             }}
           >
-            {clientInfo?.client_name || 'Travel Platform'}
+            {clientInfo?.client_name || 'HT-ITC-Lite'}
           </span>
         </div>
 
@@ -279,8 +326,8 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="p-3 space-y-1 overflow-y-auto h-[calc(100vh-4rem)]">
+      {/* Navigation - Scrollable section */}
+      <nav className="p-3 space-y-1 overflow-y-auto flex-1 min-h-0 custom-scrollbar">
         {navigation.map((item) => (
           <NavItem
             key={item.name}

@@ -4,8 +4,8 @@ import { useApp } from '../context/AppContext';
 import {
   DocumentTextIcon,
   UsersIcon,
-  BuildingOffice2Icon,
-  MapPinIcon,
+  ClockIcon,
+  ChartBarIcon,
   ArrowTrendingUpIcon,
   PlusIcon,
   ArrowPathIcon,
@@ -14,7 +14,7 @@ import {
   SunIcon,
   MoonIcon,
 } from '@heroicons/react/24/outline';
-import { dashboardApi, quotesApi, pricingApi } from '../services/api';
+import { dashboardApi, quotesApi } from '../services/api';
 
 // Dynamic welcome messages
 const WELCOME_MESSAGES = [
@@ -40,6 +40,31 @@ const getTimeGreeting = () => {
 const CACHE_KEY = 'dashboard_data_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - show cached data immediately
 const STALE_TTL = 30 * 60 * 1000; // 30 minutes - data is still usable but refresh in background
+
+const DEFAULT_DASHBOARD_DATA = {
+  stats: { total_quotes: 0, active_clients: 0, pending_quotes: 0, conversion_rate: 0 },
+  recent_quotes: [],
+  usage: {},
+};
+
+// LocalStorage cache helpers (stateless, defined outside component)
+function getCachedData() {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch {
+    // Ignore localStorage errors
+  }
+  return null;
+}
+
+function setCachedData(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch {
+    // Ignore localStorage errors
+  }
+}
 
 function StatCard({ title, value, icon: Icon, href, loading, notice, isStale }) {
   return (
@@ -126,48 +151,6 @@ export default function Dashboard() {
     loadDashboard(false);
   }, []);
 
-  // Get cached data from localStorage
-  const getCachedData = () => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (e) {
-      // Ignore localStorage errors
-    }
-    return null;
-  };
-
-  // Save data to localStorage cache
-  const setCachedData = (data) => {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({
-        data,
-        timestamp: Date.now()
-      }));
-    } catch (e) {
-      // Ignore localStorage errors
-    }
-  };
-
-  // Fetch pricing stats as fallback when dashboard returns 0
-  const fetchPricingStats = async () => {
-    try {
-      const [hotelsRes, destinationsRes] = await Promise.all([
-        pricingApi.listHotels(),
-        pricingApi.listDestinations()
-      ]);
-
-      return {
-        hotels: hotelsRes.data?.count || hotelsRes.data?.data?.length || 0,
-        destinations: destinationsRes.data?.count || destinationsRes.data?.data?.length || 0
-      };
-    } catch {
-      return { hotels: 0, destinations: 0 };
-    }
-  };
-
   // Fetch dashboard data from API
   const loadDashboard = useCallback(async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) {
@@ -179,42 +162,18 @@ export default function Dashboard() {
     try {
       const response = await dashboardApi.getAll();
       if (response.data?.success && response.data?.data) {
-        let data = response.data.data;
-
-        // Fallback: If hotels/destinations are 0, try fetching from pricing API directly
-        if (data.stats?.total_hotels === 0 || data.stats?.total_destinations === 0) {
-          const pricingStats = await fetchPricingStats();
-          if (pricingStats.hotels > 0 || pricingStats.destinations > 0) {
-            data = {
-              ...data,
-              stats: {
-                ...data.stats,
-                total_hotels: pricingStats.hotels || data.stats.total_hotels,
-                total_destinations: pricingStats.destinations || data.stats.total_destinations
-              }
-            };
-          }
-        }
-
+        const data = response.data.data;
         setDashboardData(data);
         setCachedData(data);
         setIsStale(false);
       } else if (!dashboardData) {
         // Only set defaults if we don't already have data
-        setDashboardData({
-          stats: { total_quotes: 0, active_clients: 0, total_hotels: 0, total_destinations: 0 },
-          recent_quotes: [],
-          usage: {}
-        });
+        setDashboardData(DEFAULT_DASHBOARD_DATA);
       }
     } catch (error) {
       // On error, only set defaults if we don't have any data
       if (!dashboardData) {
-        setDashboardData({
-          stats: { total_quotes: 0, active_clients: 0, total_hotels: 0, total_destinations: 0 },
-          recent_quotes: [],
-          usage: {}
-        });
+        setDashboardData(DEFAULT_DASHBOARD_DATA);
       }
     } finally {
       setLoading(false);
@@ -279,6 +238,10 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-lg font-semibold text-theme">Overview</h3>
+        <span className="text-xs text-theme-muted bg-theme-surface-elevated px-2 py-1 rounded-full">All-Time</span>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Total Quotes"
@@ -297,22 +260,21 @@ export default function Dashboard() {
           isStale={isStale || refreshing}
         />
         <StatCard
-          title="Hotels"
-          value={stats?.total_hotels ?? 0}
-          icon={BuildingOffice2Icon}
-          href="/pricing/hotels"
+          title="Pending Quotes"
+          value={stats?.pending_quotes ?? 0}
+          icon={ClockIcon}
+          href="/quotes?status=pending"
           loading={loading}
           isStale={isStale || refreshing}
-          notice={!loading && stats?.total_hotels === 0 ? "View pricing guide →" : null}
+          notice={!loading && stats?.pending_quotes > 0 ? "Awaiting response" : null}
         />
         <StatCard
-          title="Destinations"
-          value={stats?.total_destinations ?? 0}
-          icon={MapPinIcon}
-          href="/pricing/rates"
+          title="Conversion Rate"
+          value={`${stats?.conversion_rate ?? 0}%`}
+          icon={ChartBarIcon}
+          href="/analytics"
           loading={loading}
           isStale={isStale || refreshing}
-          notice={!loading && stats?.total_destinations === 0 ? "View pricing guide →" : null}
         />
       </div>
 

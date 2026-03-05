@@ -9,15 +9,15 @@ Implements data subject rights:
 - Audit log access
 """
 
-import os
 import json
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, EmailStr
 
-from config.loader import ClientConfig, get_config
+from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.middleware.auth_middleware import get_current_user, require_admin
 from src.tools.supabase_tool import SupabaseTool
 from src.utils.error_handler import log_and_raise
@@ -25,25 +25,6 @@ from src.utils.error_handler import log_and_raise
 logger = logging.getLogger(__name__)
 
 privacy_router = APIRouter(prefix="/privacy", tags=["Privacy & Compliance"])
-
-
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = get_config(client_id)
-        except Exception as e:
-            logger.error(f"Failed to load config for {client_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to load tenant configuration")
-
-    return _client_configs[client_id]
 
 
 # ============================================================
@@ -779,24 +760,26 @@ def _generate_data_export(
         ).eq("email", email).execute()
         export_data["consents"] = consents.data or []
 
-        # TODO: Upload to Supabase Storage and generate download link
-        # For now, we'll store in the DSAR record
+        # Store export data as JSON in the DSAR record
+        import json as _json
+        export_json = _json.dumps(export_data, default=str, indent=2)
 
         # Update DSAR with export data
         supabase.client.table("data_subject_requests").update({
             "status": "completed",
             "completed_at": datetime.utcnow().isoformat(),
+            "export_data": export_json,
             "notes": f"Export generated with {len(export_data.get('quotes', []))} quotes, {len(export_data.get('invoices', []))} invoices"
         }).eq("id", dsar_id).execute()
 
-        # Send email with export (in production, this would be a secure download link)
+        # Send email with export summary and retrieval instructions
         from src.utils.email_sender import EmailSender
         sender = EmailSender(config)
         sender.send_email(
             to_email=email,
             subject="Your Data Export is Ready",
             body=f"""
-Your data export has been generated.
+Your data export has been generated (Request ID: {dsar_id}).
 
 Summary:
 - Profile information: {'Yes' if export_data.get('profile') else 'No'}
@@ -804,7 +787,8 @@ Summary:
 - Invoices: {len(export_data.get('invoices', []))}
 - Consent records: {len(export_data.get('consents', []))}
 
-For security reasons, please contact our privacy team to receive your full export file.
+To retrieve your full data export, please reply to this email with your request ID above.
+Your data will be retained for 30 days before being automatically deleted.
             """
         )
 

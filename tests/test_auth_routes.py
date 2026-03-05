@@ -182,14 +182,15 @@ class TestGetAuthService:
                 mock_get_config.assert_called_once_with("my-tenant")
 
     def test_get_auth_service_raises_on_invalid_client(self):
-        """Should raise HTTPException for unknown client."""
+        """Should raise HTTPException for unknown client when env vars also missing."""
         from src.api.auth_routes import get_auth_service
 
         with patch('src.api.auth_routes.get_config', side_effect=FileNotFoundError()):
-            with pytest.raises(HTTPException) as exc_info:
-                get_auth_service(x_client_id="unknown-client")
+            with patch.dict('os.environ', {'SUPABASE_URL': '', 'SUPABASE_SERVICE_KEY': ''}, clear=False):
+                with pytest.raises(HTTPException) as exc_info:
+                    get_auth_service(x_client_id="unknown-client")
 
-            assert exc_info.value.status_code == 400
+                assert exc_info.value.status_code == 400
 
 
 class TestGetPlatformAuthService:
@@ -754,3 +755,119 @@ class TestModelEdgeCases:
         request = ProfileUpdateRequest(name="", phone="")
         assert request.name == ""
         assert request.phone == ""
+
+
+# ==================== Profile Update Tenant Isolation Tests ====================
+
+class TestProfileUpdateTenantIsolation:
+    """Tests proving profile update endpoint enforces tenant isolation.
+
+    The endpoint is already secure via 3 layers:
+    1. ProfileUpdateRequest Pydantic model only allows name/phone (no tenant_id)
+    2. update_organization_user filters by user's own ID (from JWT)
+    3. Middleware blocks X-Client-ID spoofing before request reaches handler
+
+    These tests document and verify that behaviour.
+    """
+
+    @pytest.mark.asyncio
+    async def test_profile_update_strips_tenant_id(self, mock_auth_service):
+        """Profile update should only pass name/phone to the DB, ignoring any extra fields."""
+        from src.api.auth_routes import update_profile, ProfileUpdateRequest
+        from fastapi import Request
+
+        mock_request = MagicMock(spec=Request)
+
+        # Simulate valid JWT + user lookup
+        mock_auth_service.verify_jwt.return_value = (True, {"sub": "auth-user-123"})
+        mock_auth_service.get_user_by_auth_id.return_value = {
+            "id": "user-123",
+            "email": "test@tenant-a.com",
+            "name": "Old Name",
+            "role": "consultant",
+            "tenant_id": "tenant-a",
+            "is_active": True,
+        }
+
+        # ProfileUpdateRequest only allows name/phone — extra fields are stripped by Pydantic
+        request_body = ProfileUpdateRequest(name="New Name", phone="+1234567890")
+
+        mock_db = MagicMock()
+        mock_db.update_organization_user.return_value = {
+            "id": "user-123",
+            "email": "test@tenant-a.com",
+            "name": "New Name",
+            "role": "consultant",
+            "tenant_id": "tenant-a",
+            "is_active": True,
+        }
+
+        with patch('src.api.auth_routes.get_config') as mock_gc, \
+             patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_db):
+            mock_gc.return_value = MagicMock()
+
+            result = await update_profile(
+                request_body=request_body,
+                request=mock_request,
+                authorization="Bearer valid-token",
+                auth_service=mock_auth_service,
+                tenant_id="tenant-a",
+            )
+
+        # Verify only name and phone were passed to the DB update
+        call_args = mock_db.update_organization_user.call_args
+        update_data = call_args[0][1]  # Second positional arg
+        assert "name" in update_data
+        assert "phone" in update_data
+        assert "tenant_id" not in update_data
+        assert "role" not in update_data
+        assert "email" not in update_data
+        assert "is_active" not in update_data
+
+    @pytest.mark.asyncio
+    async def test_profile_update_uses_auth_token_tenant(self, mock_auth_service):
+        """SupabaseTool should be constructed with config from auth token's tenant_id, not request body."""
+        from src.api.auth_routes import update_profile, ProfileUpdateRequest
+        from fastapi import Request
+
+        mock_request = MagicMock(spec=Request)
+
+        mock_auth_service.verify_jwt.return_value = (True, {"sub": "auth-user-456"})
+        mock_auth_service.get_user_by_auth_id.return_value = {
+            "id": "user-456",
+            "email": "user@real-tenant.com",
+            "name": "User",
+            "role": "admin",
+            "tenant_id": "real-tenant",
+            "is_active": True,
+        }
+
+        request_body = ProfileUpdateRequest(name="Updated Name")
+
+        mock_db = MagicMock()
+        mock_db.update_organization_user.return_value = {
+            "id": "user-456",
+            "email": "user@real-tenant.com",
+            "name": "Updated Name",
+            "role": "admin",
+            "tenant_id": "real-tenant",
+            "is_active": True,
+        }
+
+        with patch('src.api.auth_routes.get_config') as mock_gc, \
+             patch('src.tools.supabase_tool.SupabaseTool', return_value=mock_db) as mock_st:
+            mock_gc.return_value = MagicMock()
+
+            result = await update_profile(
+                request_body=request_body,
+                request=mock_request,
+                authorization="Bearer valid-token",
+                auth_service=mock_auth_service,
+                tenant_id="real-tenant",  # This comes from get_tenant_id dependency (JWT/header)
+            )
+
+        # Verify get_config was called with the tenant_id from the dependency (auth token),
+        # not with any attacker-supplied value
+        mock_gc.assert_called_once_with("real-tenant")
+        assert result["success"] is True
+        assert result["user"]["tenant_id"] == "real-tenant"

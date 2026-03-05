@@ -23,6 +23,7 @@ from src.api.dependencies import get_client_config
 from src.middleware.auth_middleware import get_current_user, get_current_user_optional, UserContext
 
 from src.utils.error_handler import log_and_raise
+from src.utils.field_normalizers import normalize_quote_status, normalize_quote_dates, normalize_email_timestamp
 from src.webhooks.email_webhook import router as email_webhook_router
 from src.services.crm_service import CRMService, PipelineStage
 
@@ -50,6 +51,8 @@ class TravelInquiry(BaseModel):
     adults: int = Field(default=2, ge=1, le=20)
     children: int = Field(default=0, ge=0, le=10)
     children_ages: Optional[List[int]] = None
+    rooms: Optional[List[Dict[str, Any]]] = None  # Per-room occupancy breakdown
+    room_count: int = Field(default=1, ge=1, le=10)
     budget: Optional[float] = None
     message: Optional[str] = None
     requested_hotel: Optional[str] = None
@@ -62,6 +65,7 @@ class QuoteGenerateRequest(BaseModel):
     assign_consultant: bool = True
     selected_hotels: Optional[List[str]] = None  # Manually selected hotel names
     ticket_id: Optional[str] = None  # Link to enquiry ticket from triage
+    save_as_draft: bool = False  # Create as draft without sending email
 
 
 class QuoteLineItem(BaseModel):
@@ -126,6 +130,7 @@ class InvoiceCreate(BaseModel):
     items: Optional[List[Dict[str, Any]]] = None
     notes: Optional[str] = None
     due_days: int = 7
+    travelers: Optional[List[Dict[str, Any]]] = None
 
 
 class ManualInvoiceCreate(BaseModel):
@@ -144,6 +149,19 @@ class InvoiceStatusUpdate(BaseModel):
     status: str
     payment_date: Optional[str] = None
     payment_reference: Optional[str] = None
+
+
+class InvoiceUpdate(BaseModel):
+    """Fields that can be updated on an existing invoice."""
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    items: Optional[List[Dict[str, Any]]] = None
+    notes: Optional[str] = None
+    due_days: Optional[int] = None
+    discount_percent: Optional[float] = None
+    tax_percent: Optional[float] = None
+    travelers: Optional[List[Dict[str, Any]]] = None
 
 
 class InvoiceSendRequest(BaseModel):
@@ -226,9 +244,10 @@ def generate_quote(
         # Pass selected hotels if provided
         result = agent.generate_quote(
             customer_data=inquiry_data,
-            send_email=request.send_email,
+            send_email=False if request.save_as_draft else request.send_email,
             assign_consultant=request.assign_consultant,
-            selected_hotels=request.selected_hotels
+            selected_hotels=request.selected_hotels,
+            initial_status='draft' if request.save_as_draft else 'quoted',
         )
 
         # If quote was generated from an enquiry ticket, resolve the ticket
@@ -266,7 +285,7 @@ def create_quote_with_items(
     from the shopping cart to create a quote directly.
     """
     from src.tools.supabase_tool import SupabaseTool
-    from src.services.email_sender import EmailSender
+    from src.utils.email_sender import EmailSender
     import secrets
     from datetime import datetime
 
@@ -300,23 +319,45 @@ def create_quote_with_items(
                 totals_by_currency[currency] = 0
             totals_by_currency[currency] += item.price * item.quantity
 
-        # Format line items for storage
-        formatted_items = []
+        # Format line items into the `hotels` JSONB format that QuoteDetail reads.
+        # QuoteDetail expects: name/hotel_name, room_type, meal_plan, total_price.
+        hotels_data = []
         for item in request.line_items:
-            formatted_items.append({
-                "type": item.type,
+            raw = item.raw_data or {}
+            hotels_data.append({
                 "name": item.name,
-                "description": item.description,
-                "price": item.price,
-                "currency": item.currency,
-                "quantity": item.quantity,
+                "hotel_name": item.name,
+                "room_type": raw.get("room_type") or item.description or item.type.title(),
+                "meal_plan": raw.get("meal_plan", ""),
+                "hotel_rating": raw.get("stars") or raw.get("star_rating", ""),
+                "total_price": item.price * item.quantity,
+                "price_per_person": item.price,
+                "currency": item.currency or "ZAR",
+                "type": item.type,
                 "nights": item.nights,
                 "check_in": item.check_in,
                 "check_out": item.check_out,
+                "quantity": item.quantity,
+                "destination": raw.get("destination", inquiry.destination),
                 "raw_data": item.raw_data,
             })
 
-        # Build quote record
+        total_amount = sum(totals_by_currency.values())
+
+        # Calculate nights from check_in/check_out
+        nights = 0
+        if inquiry.check_in and inquiry.check_out:
+            try:
+                ci = datetime.strptime(inquiry.check_in, "%Y-%m-%d")
+                co = datetime.strptime(inquiry.check_out, "%Y-%m-%d")
+                nights = (co - ci).days
+            except (ValueError, TypeError):
+                nights = 0
+
+        # Build quote record using ONLY columns that exist in the quotes table.
+        # Source of truth: _save_quote_to_supabase() in quote_agent.py.
+        # NEVER add columns here without confirming they exist in the DB.
+        # Extra data (rooms, room_count) lives in the hotels JSONB via raw_data.
         quote_data = {
             "tenant_id": config.client_id,
             "quote_id": quote_id,
@@ -326,19 +367,18 @@ def create_quote_with_items(
             "destination": inquiry.destination,
             "check_in": inquiry.check_in,
             "check_out": inquiry.check_out,
+            "nights": nights,
             "adults": inquiry.adults,
             "children": inquiry.children,
-            "children_ages": inquiry.children_ages,
-            "budget": inquiry.budget,
-            "message": inquiry.message,
-            "status": "Draft" if request.save_as_draft else "Quoted",
-            "line_items": formatted_items,
-            "totals_by_currency": totals_by_currency,
-            "total_amount": sum(totals_by_currency.values()),  # For backwards compatibility
-            "currency": list(totals_by_currency.keys())[0] if totals_by_currency else 'ZAR',
-            "source": "shopping_cart",
+            "children_ages": inquiry.children_ages or [],
+            "hotels": hotels_data,
+            "total_price": total_amount,
+            "status": normalize_quote_status("Draft" if request.save_as_draft else "Quoted"),
+            "email_sent": False,
+            "pdf_generated": False,
+            "consultant_id": user.user_id if user else None,
             "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "sent_at": None,
         }
 
         # Save to database with retry for transient errors
@@ -350,13 +390,12 @@ def create_quote_with_items(
                         logger.warning(f"Quote insert returned no data for {quote_id}")
                     break
                 except Exception as db_err:
+                    logger.error(f"Quote DB insert attempt {attempt+1} failed: {db_err}")
                     if attempt == 0:
-                        logger.warning(f"Quote DB insert failed, retrying: {db_err}")
                         continue
-                    logger.error(f"Failed to save quote to database after retry: {db_err}")
                     raise HTTPException(
                         status_code=500,
-                        detail="Failed to save quote to database. Please try again."
+                        detail=f"Failed to save quote to database: {db_err}"
                     )
         else:
             raise HTTPException(
@@ -364,46 +403,106 @@ def create_quote_with_items(
                 detail="Database unavailable. Please try again."
             )
 
+        # Generate PDF for professional output
+        pdf_generated = False
+        pdf_bytes = None
+        try:
+            from src.utils.pdf_generator import PDFGenerator
+            pdf_generator = PDFGenerator(config)
+            customer_data = {
+                'name': inquiry.name,
+                'email': inquiry.email,
+                'phone': inquiry.phone,
+                'destination': inquiry.destination,
+                'check_in': inquiry.check_in,
+                'check_out': inquiry.check_out,
+                'nights': nights,
+                'adults': inquiry.adults,
+                'children': inquiry.children,
+                'children_ages': inquiry.children_ages or [],
+                'rooms': inquiry.rooms or [],
+                'room_count': inquiry.room_count,
+            }
+            pdf_bytes = pdf_generator.generate_quote_pdf(quote_data, hotels_data, customer_data)
+            if pdf_bytes:
+                pdf_generated = True
+                # Update quote record with pdf_generated flag
+                try:
+                    supabase.client.table("quotes").update(
+                        {"pdf_generated": True}
+                    ).eq("quote_id", quote_id).eq("tenant_id", config.client_id).execute()
+                except Exception:
+                    pass  # Non-critical
+        except Exception as pdf_err:
+            logger.error(f"PDF generation failed for {quote_id}: {pdf_err}")
+
         # Send email if requested and not a draft
         email_sent = False
         if request.send_email and not request.save_as_draft:
             try:
                 email_sender = EmailSender(config)
-                # Build email content with line items
-                items_html = "".join([
-                    f"<tr><td>{item.name}</td><td>{item.type.title()}</td>"
-                    f"<td>{item.currency} {item.price:,.0f}</td></tr>"
-                    for item in request.line_items
-                ])
 
-                totals_html = "<br>".join([
-                    f"<strong>{curr}:</strong> {amt:,.0f}"
-                    for curr, amt in totals_by_currency.items()
-                ])
+                if pdf_bytes:
+                    # Professional email with PDF attachment (same as QuoteAgent)
+                    email_sent = email_sender.send_quote_email(
+                        customer_email=inquiry.email,
+                        customer_name=inquiry.name,
+                        quote_pdf_data=pdf_bytes,
+                        destination=inquiry.destination,
+                        quote_id=quote_id,
+                        quote_details={
+                            'check_in': inquiry.check_in,
+                            'check_out': inquiry.check_out,
+                            'adults': inquiry.adults,
+                            'children': inquiry.children,
+                            'room_count': inquiry.room_count,
+                            'nights': nights,
+                        },
+                    )
+                else:
+                    # Fallback to inline HTML if PDF generation failed
+                    items_html = "".join([
+                        f"<tr><td>{item.name}</td><td>{item.type.title()}</td>"
+                        f"<td>{item.currency} {item.price:,.0f}</td></tr>"
+                        for item in request.line_items
+                    ])
 
-                email_content = f"""
-                <h2>Your Travel Quote</h2>
-                <p>Dear {inquiry.name},</p>
-                <p>Thank you for your interest! Here's your personalized quote:</p>
+                    totals_html = "<br>".join([
+                        f"<strong>{curr}:</strong> {amt:,.0f}"
+                        for curr, amt in totals_by_currency.items()
+                    ])
 
-                <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
-                    <tr style="background: #f3f4f6;">
-                        <th>Item</th><th>Type</th><th>Price</th>
-                    </tr>
-                    {items_html}
-                </table>
+                    email_content = f"""
+                    <h2>Your Travel Quote</h2>
+                    <p>Dear {inquiry.name},</p>
+                    <p>Thank you for your interest! Here's your personalized quote:</p>
 
-                <p style="margin-top: 20px;"><strong>Totals:</strong><br>{totals_html}</p>
+                    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+                        <tr style="background: #f3f4f6;">
+                            <th>Item</th><th>Type</th><th>Price</th>
+                        </tr>
+                        {items_html}
+                    </table>
 
-                <p>Quote Reference: {quote_id}</p>
-                <p>Please reply to this email if you have any questions or would like to proceed with booking.</p>
-                """
+                    <p style="margin-top: 20px;"><strong>Totals:</strong><br>{totals_html}</p>
 
-                email_sent = email_sender.send_email(
-                    to=inquiry.email,
-                    subject=f"Your Travel Quote - {inquiry.destination}",
-                    body_html=email_content,
-                )
+                    <p>Quote Reference: {quote_id}</p>
+                    <p>Please reply to this email if you have any questions or would like to proceed with booking.</p>
+                    """
+
+                    email_sent = email_sender.send_email(
+                        to=inquiry.email,
+                        subject=f"Your Travel Quote - {inquiry.destination}",
+                        body_html=email_content,
+                    )
+
+                if email_sent:
+                    try:
+                        supabase.client.table("quotes").update(
+                            {"email_sent": True, "status": "Sent", "sent_at": datetime.utcnow().isoformat()}
+                        ).eq("quote_id", quote_id).eq("tenant_id", config.client_id).execute()
+                    except Exception:
+                        pass  # Non-critical
             except Exception as email_err:
                 logger.error(f"Failed to send quote email: {email_err}")
 
@@ -493,7 +592,7 @@ def get_quote(
 
         return {
             "success": True,
-            "data": quote
+            "data": normalize_email_timestamp(quote)
         }
 
     except HTTPException:
@@ -518,14 +617,15 @@ def download_quote_pdf(
         if not quote:
             raise HTTPException(status_code=404, detail="Quote not found")
 
-        # Build customer data
+        # Build customer data (normalize date field names)
+        quote = normalize_quote_dates(quote)
         customer_data = {
             'name': quote.get('customer_name', ''),
             'email': quote.get('customer_email', ''),
             'phone': quote.get('customer_phone', ''),
             'destination': quote.get('destination', ''),
-            'check_in': quote.get('check_in_date', ''),
-            'check_out': quote.get('check_out_date', ''),
+            'check_in': quote.get('check_in', ''),
+            'check_out': quote.get('check_out', ''),
             'nights': quote.get('nights', 7),
             'adults': quote.get('adults', 2),
             'children': quote.get('children', 0),
@@ -571,12 +671,12 @@ def resend_quote(
         result = agent.resend_quote(quote_id)
 
         if result.get('success'):
-            return {
+            return normalize_email_timestamp({
                 'success': True,
                 'quote_id': quote_id,
                 'sent_at': result.get('sent_at'),
                 'message': result.get('message', 'Quote resent successfully')
-            }
+            })
         else:
             raise HTTPException(
                 status_code=400,
@@ -625,13 +725,13 @@ def send_quote(
         result = quote_agent.send_draft_quote(quote_id)
 
         if result.get('success'):
-            return {
+            return normalize_email_timestamp({
                 'success': True,
                 'quote_id': quote_id,
                 'status': 'sent',
                 'sent_at': result.get('sent_at'),
                 'message': f"Quote sent to {result.get('customer_email')}"
-            }
+            })
         else:
             raise HTTPException(
                 status_code=400,
@@ -874,6 +974,31 @@ def log_activity(
         log_and_raise(500, "logging activity", e, logger)
 
 
+@crm_router.delete("/clients/{client_id}/activities/{activity_id}")
+def delete_activity(
+    client_id: str,
+    activity_id: str,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """Delete an activity from a client's timeline."""
+    from src.tools.supabase_tool import SupabaseTool
+
+    try:
+        supabase = SupabaseTool(config)
+        deleted = supabase.delete_activity(activity_id, client_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Activity not found")
+
+        return {"success": True, "message": "Activity deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "deleting activity", e, logger)
+
+
 @crm_router.get("/pipeline")
 def get_pipeline(
     config: ClientConfig = Depends(get_client_config),
@@ -931,6 +1056,49 @@ def get_crm_stats(
         log_and_raise(500, "retrieving CRM stats", e, logger)
 
 
+@crm_router.delete("/clients/{client_id}")
+def delete_client(
+    client_id: str,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """Delete a CRM client record."""
+    try:
+        crm = get_crm_service(config)
+
+        # Verify client exists and belongs to tenant
+        client = crm.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # Hard delete — no deleted_at column exists on clients table
+        from src.tools.supabase_tool import SupabaseTool
+        supabase = SupabaseTool(config)
+
+        # Determine the correct ID column (supports both CLI-XXXXXXXX and UUID formats)
+        if client_id.startswith('CLI-'):
+            supabase.client.table('clients') \
+                .delete() \
+                .eq('client_id', client_id) \
+                .eq('tenant_id', config.client_id) \
+                .execute()
+        else:
+            supabase.client.table('clients') \
+                .delete() \
+                .eq('id', client_id) \
+                .eq('tenant_id', config.client_id) \
+                .execute()
+
+        logger.info(f"Client {client_id} deleted by user {user.user_id}")
+
+        return {"success": True, "message": "Client deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "deleting client", e, logger)
+
+
 # ==================== Invoice Endpoints ====================
 
 @invoices_router.post("/convert-quote")
@@ -957,10 +1125,11 @@ def convert_quote_to_invoice(
         total = 0
         items = request.items or []
 
-        # Extract trip details from quote
+        # Extract trip details from quote (normalize date field names)
+        quote = normalize_quote_dates(quote)
         destination = quote.get('destination', '')
-        check_in = quote.get('check_in_date', '')
-        check_out = quote.get('check_out_date', '')
+        check_in = quote.get('check_in', '')
+        check_out = quote.get('check_out', '')
         nights = quote.get('nights', 7)
 
         if not items:
@@ -1015,7 +1184,8 @@ def convert_quote_to_invoice(
             destination=destination,
             check_in=check_in,
             check_out=check_out,
-            nights=nights
+            nights=nights,
+            travelers=request.travelers
         )
 
         if not invoice:
@@ -1173,11 +1343,24 @@ def update_invoice_status(
     config: ClientConfig = Depends(get_client_config),
     user: UserContext = Depends(get_current_user),
 ):
-    """Update invoice status"""
+    """Update invoice status with transition validation"""
     from src.tools.supabase_tool import SupabaseTool
+    from src.utils.status_transitions import validate_transition, INVOICE_STATUS_TRANSITIONS
 
     try:
         supabase = SupabaseTool(config)
+
+        # Validate status transition
+        invoice_current = supabase.get_invoice(invoice_id)
+        if not invoice_current:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        validate_transition(
+            current_status=invoice_current.get("status", "draft"),
+            target_status=update.status,
+            transitions=INVOICE_STATUS_TRANSITIONS,
+            entity_name="invoice",
+        )
 
         payment_date = None
         if update.payment_date:
@@ -1232,6 +1415,129 @@ def update_invoice_status(
         log_and_raise(500, "updating invoice status", e, logger)
 
 
+@invoices_router.delete("/{invoice_id}")
+def delete_invoice(
+    invoice_id: str,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """Delete an invoice. Only draft or cancelled invoices can be deleted."""
+    from src.tools.supabase_tool import SupabaseTool
+
+    try:
+        supabase = SupabaseTool(config)
+
+        # Fetch invoice and verify tenant ownership
+        invoice = supabase.get_invoice(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        # Status guard — only draft/cancelled can be deleted
+        DELETABLE_STATUSES = {"draft", "cancelled"}
+        current_status = (invoice.get("status") or "").lower()
+        if current_status not in DELETABLE_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete invoice with status '{current_status}'. "
+                       f"Only draft or cancelled invoices can be deleted."
+            )
+
+        supabase.client.table(SupabaseTool.TABLE_INVOICES) \
+            .delete() \
+            .eq('invoice_id', invoice_id) \
+            .eq('tenant_id', config.client_id) \
+            .execute()
+
+        logger.info(f"Invoice {invoice_id} deleted by user {user.user_id}")
+
+        return {"success": True, "message": "Invoice deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "deleting invoice", e, logger)
+
+
+@invoices_router.patch("/{invoice_id}")
+def update_invoice(
+    invoice_id: str,
+    update_data: InvoiceUpdate,
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
+    """General-purpose invoice update. Only draft invoices can be edited."""
+    from src.tools.supabase_tool import SupabaseTool
+
+    try:
+        supabase = SupabaseTool(config)
+
+        # Fetch and verify
+        invoice = supabase.get_invoice(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        # Edit guard — only draft invoices can be edited
+        current_status = (invoice.get("status") or "").lower()
+        if current_status != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot edit invoice with status '{current_status}'. "
+                       f"Only draft invoices can be edited."
+            )
+
+        # Build update dict (only non-None fields)
+        update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+
+        if not update_dict:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Recalculate totals if financial fields changed
+        if any(k in update_dict for k in ("items", "discount_percent", "tax_percent")):
+            items = update_dict.get("items") or invoice.get("items", [])
+            discount_pct = update_dict.get("discount_percent", invoice.get("discount_percent", 0)) or 0
+            tax_pct = update_dict.get("tax_percent", invoice.get("tax_percent", 0)) or 0
+
+            subtotal = sum(
+                (item.get("quantity", 1) * item.get("unit_price", item.get("amount", 0)))
+                for item in items
+            )
+            discount_amount = subtotal * (discount_pct / 100)
+            after_discount = subtotal - discount_amount
+            tax_amount = after_discount * (tax_pct / 100)
+
+            update_dict["subtotal"] = round(subtotal, 2)
+            update_dict["discount_amount"] = round(discount_amount, 2)
+            update_dict["tax_amount"] = round(tax_amount, 2)
+            update_dict["total_amount"] = round(after_discount + tax_amount, 2)
+
+        # Recalculate due_date if due_days changed
+        if "due_days" in update_dict:
+            from datetime import timedelta
+            created = invoice.get("created_at", datetime.utcnow().isoformat())
+            try:
+                created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                created_dt = datetime.utcnow()
+            update_dict["due_date"] = (created_dt + timedelta(days=update_dict.pop("due_days"))).isoformat()
+
+        update_dict["updated_at"] = datetime.utcnow().isoformat()
+
+        result = supabase.client.table(SupabaseTool.TABLE_INVOICES) \
+            .update(update_dict) \
+            .eq('invoice_id', invoice_id) \
+            .eq('tenant_id', config.client_id) \
+            .execute()
+
+        updated_invoice = result.data[0] if result.data else supabase.get_invoice(invoice_id)
+
+        return {"success": True, "data": updated_invoice}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_and_raise(500, "updating invoice", e, logger)
+
+
 class PaymentRecordRequest(BaseModel):
     """Request model for recording a payment"""
     amount: float
@@ -1273,7 +1579,7 @@ def record_payment(
         if new_total_paid >= total_amount:
             new_status = 'paid'
         else:
-            new_status = 'partial'
+            new_status = 'partially_paid'
 
         # Parse payment date
         payment_date = None
@@ -1360,16 +1666,17 @@ def send_invoice_email(
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
 
-        # Get trip details from quote
+        # Get trip details from quote (normalize date field names)
         trip_details = {}
         if invoice.get('quote_id'):
             quote_agent = get_quote_agent(config)
             quote = quote_agent.get_quote(invoice['quote_id'])
             if quote:
+                quote = normalize_quote_dates(quote)
                 trip_details = {
                     'destination': quote.get('destination'),
-                    'check_in': quote.get('check_in_date'),
-                    'check_out': quote.get('check_out_date'),
+                    'check_in': quote.get('check_in'),
+                    'check_out': quote.get('check_out'),
                     'nights': quote.get('nights')
                 }
 
@@ -1456,10 +1763,11 @@ def download_invoice_pdf(
             quote_agent = get_quote_agent(config)
             quote = quote_agent.get_quote(invoice['quote_id'])
             if quote:
+                quote = normalize_quote_dates(quote)
                 trip_details = {
                     'destination': quote.get('destination'),
-                    'check_in': quote.get('check_in_date'),
-                    'check_out': quote.get('check_out_date'),
+                    'check_in': quote.get('check_in'),
+                    'check_out': quote.get('check_out'),
                     'nights': quote.get('nights')
                 }
 
@@ -1623,16 +1931,17 @@ def public_invoice_pdf(
             # Fallback to default config
             config = ClientConfig('example')
 
-        # Get trip details if linked to a quote
+        # Get trip details if linked to a quote (normalize date field names)
         trip_details = {}
         if invoice.get('quote_id'):
             quote_agent = get_quote_agent(config)
             quote = quote_agent.get_quote(invoice['quote_id'])
             if quote:
+                quote = normalize_quote_dates(quote)
                 trip_details = {
                     'destination': quote.get('destination'),
-                    'check_in': quote.get('check_in_date'),
-                    'check_out': quote.get('check_out_date'),
+                    'check_in': quote.get('check_in'),
+                    'check_out': quote.get('check_out'),
                     'nights': quote.get('nights')
                 }
 
@@ -1680,9 +1989,9 @@ def get_quote_public(quote_id: str):
     import re
 
     # Validate quote_id format to prevent injection
-    # Supports: QT-YYYYMMDD-XXXXXX format (e.g., QT-20260210-A80413)
+    # Supports: QT-YYYYMMDD-XXXXXX and QUO-YYYYMMDD-XXXXXX formats
     # Also supports UUID format for backwards compatibility
-    quote_pattern = r'^QT-\d{8}-[A-F0-9]{6}$'
+    quote_pattern = r'^(?:QT|QUO)-\d{8}-[A-F0-9]{6}$'
     uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
     if not (re.match(quote_pattern, quote_id, re.I) or re.match(uuid_pattern, quote_id, re.I)):
@@ -1745,14 +2054,15 @@ def public_quote_pdf(quote_id: str):
         except Exception:
             config = ClientConfig('example')
 
-        # Build customer data
+        # Build customer data (normalize date field names)
+        quote = normalize_quote_dates(quote)
         customer_data = {
             'name': quote.get('customer_name', ''),
             'email': quote.get('customer_email', ''),
             'phone': quote.get('customer_phone', ''),
             'destination': quote.get('destination', ''),
-            'check_in': quote.get('check_in_date', ''),
-            'check_out': quote.get('check_out_date', ''),
+            'check_in': quote.get('check_in', ''),
+            'check_out': quote.get('check_out', ''),
             'nights': quote.get('nights', 7),
             'adults': quote.get('adults', 2),
             'children': quote.get('children', 0),
@@ -1880,6 +2190,10 @@ def include_routers(app):
     # Unified RAG for AI Agents (Local + Global Knowledge)
     from src.api.unified_rag_routes import unified_rag_router
     app.include_router(unified_rag_router)
+
+    # Website Builder Proxy (avoids CORS in production)
+    from src.api.website_proxy_routes import website_proxy_router
+    app.include_router(website_proxy_router)
 
     # Prometheus Metrics - DISABLED (prometheus_client import hangs on some systems)
     # TODO: Investigate prometheus_client hanging issue and re-enable

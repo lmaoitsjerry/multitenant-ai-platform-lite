@@ -174,9 +174,19 @@ class PDFGenerator:
             pdf.set_xy(10, 76)
             pdf.cell(190, 7, f"Destination: {quote_data.get('destination', 'N/A')}")
             pdf.set_xy(10, 83)
-            pdf.cell(190, 7, f"Dates: {quote_data.get('check_in_date', 'N/A')} to {quote_data.get('check_out_date', 'N/A')}")
+            check_in = quote_data.get('check_in') or quote_data.get('check_in_date', 'N/A')
+            check_out = quote_data.get('check_out') or quote_data.get('check_out_date', 'N/A')
+            pdf.cell(190, 7, f"Dates: {check_in} to {check_out}")
             pdf.set_xy(10, 90)
-            pdf.cell(190, 7, f"Guests: {quote_data.get('adults', 0)} Adults, {quote_data.get('children', 0)} Children")
+            adults = quote_data.get('adults', 0)
+            children = quote_data.get('children', 0)
+            room_count = quote_data.get('room_count', 1)
+            guests_text = f"{adults} Adults"
+            if children:
+                guests_text += f", {children} Children"
+            if room_count > 1:
+                guests_text += f" ({room_count} rooms)"
+            pdf.cell(190, 7, f"Guests: {guests_text}")
             
             # Hotels section
             pdf.set_xy(10, 105)
@@ -191,43 +201,81 @@ class PDFGenerator:
                 if y_position > 250:
                     pdf.add_page()
                     y_position = 20
-                
+
+                item_type = hotel.get('type', 'hotel')
+                hotel_name = hotel.get('hotel_name') or hotel.get('name', 'Item')
+                total_price = hotel.get('total_price', 0)
+                currency = hotel.get('currency', self.currency)
+
                 # Hotel box
                 pdf.set_fill_color(248, 249, 250)
-                pdf.rect(10, y_position - 3, 190, 45, 'F')
-                
-                # Hotel name
+                box_height = 35
+                pdf.rect(10, y_position - 3, 190, box_height, 'F')
+
+                # Item title with type-appropriate label
                 pdf.set_font('Helvetica', 'B', 12)
                 pdf.set_xy(15, y_position)
-                hotel_name = hotel.get('hotel_name', 'Hotel')
+
+                type_labels = {
+                    'hotel': 'Accommodation',
+                    'flight': 'Flight',
+                    'transfer': 'Transfer',
+                    'activity': 'Activity',
+                    'package': 'Package',
+                }
+                type_label = type_labels.get(item_type, 'Item')
+
+                # Only show rating if it exists and is meaningful
                 rating = hotel.get('hotel_rating', '')
-                pdf.cell(180, 7, f"Option {i}: {hotel_name} ({rating})")
-                
-                # Details
+                title = f"Option {i}: {hotel_name}"
+                if rating and item_type == 'hotel':
+                    title += f" ({rating} star)"
+                pdf.cell(180, 7, title)
+
+                # Type-specific details
                 pdf.set_font('Helvetica', '', 10)
                 pdf.set_xy(15, y_position + 8)
-                pdf.cell(90, 6, f"Room: {hotel.get('room_type', 'Standard')}")
-                pdf.set_xy(105, y_position + 8)
-                pdf.cell(90, 6, f"Meal Plan: {hotel.get('meal_plan', 'N/A')}")
-                
+
+                if item_type == 'hotel':
+                    room_type = hotel.get('room_type', 'Standard')
+                    pdf.cell(90, 6, f"Room: {room_type}")
+                    meal_plan = hotel.get('meal_plan', '')
+                    if meal_plan:
+                        pdf.set_xy(105, y_position + 8)
+                        pdf.cell(90, 6, f"Meal Plan: {meal_plan}")
+                elif item_type == 'flight':
+                    pdf.cell(90, 6, f"Type: {type_label}")
+                    nights = hotel.get('nights', '')
+                    if nights:
+                        pdf.set_xy(105, y_position + 8)
+                        pdf.cell(90, 6, f"Duration: {nights} days")
+                elif item_type == 'activity':
+                    category = hotel.get('room_type', 'Activity')
+                    if category and category != 'Activity':
+                        pdf.cell(90, 6, f"Category: {category}")
+                    else:
+                        pdf.cell(90, 6, f"Type: {type_label}")
+                elif item_type == 'transfer':
+                    pdf.cell(90, 6, f"Type: {type_label}")
+                else:
+                    pdf.cell(90, 6, f"Type: {type_label}")
+
                 # Pricing
                 pdf.set_xy(15, y_position + 16)
-                total_price = hotel.get('total_price', 0)
-                pdf.cell(90, 6, f"Per Person: {self.currency} {hotel.get('price_per_person', 0):,.0f}")
-                
+                per_person = hotel.get('price_per_person', 0)
+                quantity = hotel.get('quantity', 1)
+                if per_person:
+                    pdf.cell(90, 6, f"Per Person: {currency} {per_person:,.0f}")
+                elif quantity > 1:
+                    pdf.cell(90, 6, f"Unit Price: {currency} {total_price / quantity:,.0f} x {quantity}")
+
                 pdf.set_font('Helvetica', 'B', 11)
                 pdf.set_xy(15, y_position + 24)
                 pdf.set_text_color(*primary_rgb)
-                pdf.cell(90, 6, f"Total: {self.currency} {total_price:,.0f}")
+                pdf.cell(90, 6, f"Total: {currency} {total_price:,.0f}")
                 pdf.set_text_color(0, 0, 0)
-                
-                # Transfers
-                pdf.set_font('Helvetica', '', 9)
-                pdf.set_xy(15, y_position + 32)
-                transfers = hotel.get('transfers_total', 0)
-                pdf.cell(180, 5, f"(Includes transfers: {self.currency} {transfers:,.0f})")
-                
-                y_position += 52
+
+                y_position += box_height + 8
             
             # Footer
             pdf.set_y(-30)

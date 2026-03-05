@@ -325,16 +325,14 @@ class TestGetAllQuotesStats:
 
 class TestGetAllInvoicesStats:
     """Tests for get_all_invoices_stats helper."""
-
-    @pytest.mark.asyncio
-    async def test_returns_zeros_without_client(self):
+    def test_returns_zeros_without_client(self):
         """Should return zeros when no Supabase client."""
         from src.api.admin_analytics_routes import get_all_invoices_stats
 
         with patch('src.api.admin_analytics_routes.get_supabase_admin_client') as mock:
             mock.return_value = None
 
-            result = await get_all_invoices_stats()
+            result = get_all_invoices_stats()
 
             assert result["total"] == 0
             assert result["paid"] == 0
@@ -343,16 +341,14 @@ class TestGetAllInvoicesStats:
 
 class TestGetUserAndClientCounts:
     """Tests for get_user_and_client_counts helper."""
-
-    @pytest.mark.asyncio
-    async def test_returns_zeros_without_client(self):
+    def test_returns_zeros_without_client(self):
         """Should return zeros when no Supabase client."""
         from src.api.admin_analytics_routes import get_user_and_client_counts
 
         with patch('src.api.admin_analytics_routes.get_supabase_admin_client') as mock:
             mock.return_value = None
 
-            result = await get_user_and_client_counts()
+            result = get_user_and_client_counts()
 
             assert result == {"users": 0, "clients": 0}
 

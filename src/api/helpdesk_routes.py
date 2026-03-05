@@ -2,7 +2,7 @@
 Helpdesk API Routes - Internal Support (Lite Version)
 
 Provides AI-powered helpdesk support for travel agents.
-Connects to local FAISS knowledge base for contextual answers.
+Uses Travel Platform RAG API for knowledge base queries.
 Falls back to helpful static responses when no knowledge base results.
 
 Key features:
@@ -13,42 +13,23 @@ Key features:
 """
 
 import logging
-import os
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.middleware.auth_middleware import get_current_user_optional
 from src.services.rag_response_service import generate_rag_response, get_rag_service
 from src.services.query_classifier import get_query_classifier, QueryType
 from src.services.reranker_service import get_reranker
 from src.services.travel_platform_rag_client import get_travel_platform_rag_client
+from src.api.knowledge_routes import get_index_manager
 
 logger = logging.getLogger(__name__)
 
 helpdesk_router = APIRouter(prefix="/api/v1/helpdesk", tags=["Helpdesk"])
-
-
-# ============================================================
-# CLIENT CONFIG HELPER
-# ============================================================
-
-_client_configs = {}
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            logger.warning(f"Could not load config for {client_id}: {e}")
-            return None
-
-    return _client_configs[client_id]
 
 
 # ============================================================
@@ -182,26 +163,169 @@ Just ask me anything - like "How do I create a quote?" or "What are the pipeline
 
 
 # ============================================================
-# KNOWLEDGE BASE SEARCH HELPER
+# KNOWLEDGE BASE SEARCH HELPER (Two-Tier: Global + Private)
 # ============================================================
 
-def search_travel_platform_rag(
+def search_private_knowledge_base(
+    config: ClientConfig,
+    query: str,
+    top_k: int = 5
+) -> List[Dict[str, Any]]:
+    """
+    Search the tenant's private knowledge base.
+
+    This searches documents uploaded by the tenant with visibility="private".
+
+    Args:
+        config: Client configuration for tenant isolation
+        query: Search query
+        top_k: Number of results
+
+    Returns:
+        List of results with 'content', 'score', 'source', 'visibility'
+    """
+    try:
+        if not config:
+            logger.warning("No client config for private KB search")
+            return []
+
+        logger.info(f"[Private KB] Searching for tenant {config.client_id}: '{query[:50]}...'")
+
+        manager = get_index_manager(config)
+
+        # Search private documents only
+        # Using very low threshold (0.05) because the improved search algorithm
+        # uses keyword overlap ratio which naturally produces lower but meaningful scores
+        results = manager.search(
+            query=query,
+            top_k=top_k,
+            visibility="private",  # Only search tenant's private docs
+            min_score=0.05  # Low threshold - let the LLM decide relevance
+        )
+
+        # Transform to standard format with source marker
+        transformed = []
+        for r in results:
+            transformed.append({
+                "content": r.get("content", ""),
+                "score": r.get("score", 0.0),
+                "source": r.get("source", "Private Knowledge Base"),
+                "source_type": "private_kb",
+                "visibility": "private",
+                "document_id": r.get("document_id", ""),
+                "chunk_index": r.get("chunk_index", 0),
+                "match_details": r.get("match_details")  # Pass through debug info
+            })
+
+        if transformed:
+            logger.info(
+                f"[Private KB] Found {len(transformed)} results for tenant {config.client_id}, "
+                f"top score: {transformed[0]['score']:.3f}"
+            )
+        else:
+            logger.info(f"[Private KB] No results found for tenant {config.client_id}")
+
+        return transformed
+
+    except Exception as e:
+        logger.warning(f"Private KB search failed: {e}", exc_info=True)
+        return []
+
+
+def search_dual_knowledge_base(
+    config: ClientConfig,
     query: str,
     top_k: int = 10,
     use_rerank: bool = True
 ) -> Dict[str, Any]:
     """
-    Search the Travel Platform RAG API for knowledge base queries.
+    Search BOTH global (Travel Platform RAG) and private knowledge bases.
 
-    This replaces local FAISS with the centralized RAG service.
+    Merges results from both sources and ranks by relevance score.
 
     Args:
+        config: Client configuration for tenant isolation
         query: Search query
-        top_k: Number of results (default 10)
+        top_k: Total number of results to return
         use_rerank: Whether to use re-ranking (default True)
 
     Returns:
-        Dict with 'success', 'answer', 'citations', 'confidence'
+        Dict with 'success', 'answer', 'citations', 'sources_breakdown'
+    """
+    # Search both knowledge bases in parallel concept (sequential for simplicity)
+
+    # 1. Search Global KB (Travel Platform RAG)
+    global_result = search_travel_platform_rag(query, top_k=top_k, use_rerank=use_rerank)
+    global_citations = []
+    global_answer = ""
+
+    if global_result.get("success"):
+        global_answer = global_result.get("answer", "")
+        global_citations = [
+            {
+                "content": c.get("content", ""),
+                "score": c.get("relevance_score", c.get("score", 0.0)),
+                "source": c.get("source_title", "Global Knowledge Base"),
+                "source_type": "global_kb",
+                "visibility": "public"
+            }
+            for c in global_result.get("citations", [])
+        ]
+
+    # 2. Search Private KB
+    private_results = search_private_knowledge_base(config, query, top_k=top_k)
+
+    # 3. Merge and rank results
+    # Note: global_citations have visibility="public", private_results have visibility="private".
+    # Each source is pre-filtered by its respective search function.
+    all_citations = global_citations + private_results
+
+    # Sort by score descending
+    all_citations.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    # Take top results
+    merged_citations = all_citations[:top_k]
+
+    # Count sources for breakdown
+    global_count = sum(1 for c in merged_citations if c.get("source_type") == "global_kb")
+    private_count = sum(1 for c in merged_citations if c.get("source_type") == "private_kb")
+
+    logger.info(
+        f"Dual KB search: {len(global_citations)} global + {len(private_results)} private "
+        f"= {len(merged_citations)} merged results"
+    )
+
+    return {
+        "success": len(merged_citations) > 0 or bool(global_answer),
+        "answer": global_answer,  # Use global RAG answer if available
+        "citations": merged_citations,
+        "confidence": global_result.get("confidence", 0) if global_result.get("success") else 0,
+        "latency_ms": global_result.get("latency_ms", 0),
+        "sources_breakdown": {
+            "global": global_count,
+            "private": private_count,
+            "total": len(merged_citations)
+        }
+    }
+
+
+def search_travel_platform_rag(
+    query: str,
+    top_k: int = 5,
+    use_rerank: bool = True
+) -> Dict[str, Any]:
+    """
+    Search the Travel Platform RAG API for knowledge base queries.
+
+    This uses the centralized Travel Platform RAG service.
+
+    Args:
+        query: Search query
+        top_k: Number of results (default 5)
+        use_rerank: Whether to use re-ranking (default True)
+
+    Returns:
+        Dict with 'success', 'answer', 'citations', 'confidence', 'latency_ms', 'query_id'
     """
     try:
         client = get_travel_platform_rag_client()
@@ -213,7 +337,8 @@ def search_travel_platform_rag(
         result = client.search(
             query=query,
             top_k=top_k,
-            use_rerank=use_rerank
+            include_shared=True,
+            use_rerank=use_rerank,
         )
 
         if result.get("success"):
@@ -227,8 +352,8 @@ def search_travel_platform_rag(
         return result
 
     except Exception as e:
-        logger.error(f"Travel Platform RAG search error: {e}")
-        return {"success": False, "answer": "", "citations": [], "error": str(e)}
+        logger.error(f"Travel Platform RAG search error: {e}", exc_info=True)
+        return {"success": False, "answer": "", "citations": [], "error": "Knowledge search temporarily unavailable"}
 
 
 def search_knowledge_base(
@@ -243,7 +368,7 @@ def search_knowledge_base(
     """
     Search knowledge base via Travel Platform RAG.
 
-    This uses the centralized Travel Platform RAG API instead of local FAISS.
+    This uses the centralized Travel Platform RAG API.
     The use_mmr, lambda_mmr, and fetch_k params are kept for API compatibility
     but are handled by the Travel Platform service.
 
@@ -259,7 +384,7 @@ def search_knowledge_base(
     Returns:
         List of search results with 'content', 'score', 'source'
     """
-    result = search_travel_platform_rag(query, top_k=top_k, use_rerank=use_rerank)
+    result = search_travel_platform_rag(query, top_k=top_k)
 
     if not result.get("success"):
         logger.warning(f"Travel Platform RAG failed, returning empty: {result.get('error')}")
@@ -272,7 +397,7 @@ def search_knowledge_base(
     for cite in citations:
         transformed.append({
             "content": cite.get("content", ""),
-            "score": cite.get("relevance_score", 0.0),
+            "score": cite.get("relevance_score", cite.get("score", 0.0)),
             "source": cite.get("source_title", "Knowledge Base"),
             "source_url": cite.get("source_url", ""),
             "doc_id": cite.get("doc_id", ""),
@@ -350,12 +475,103 @@ def get_smart_response(question: str) -> tuple:
     return HELP_RESPONSES["default"], "general", []
 
 
+# Travel-related query types that benefit from web search supplementation
+_WEB_SEARCH_QUERY_TYPES = {
+    QueryType.DESTINATION_INFO,
+    QueryType.HOTEL_INFO,
+    QueryType.GENERAL,
+}
+
+
+def _web_search_supplement(question: str, query_type: QueryType, max_results: int = 3) -> List[Dict[str, Any]]:
+    """
+    Perform a web search to supplement KB results for travel queries.
+
+    Uses DuckDuckGo HTML search (no API key needed).
+    Returns list of citation-like dicts with 'content', 'source', 'score', 'source_type'.
+    """
+    if query_type not in _WEB_SEARCH_QUERY_TYPES:
+        return []
+
+    import httpx
+    import re as _re
+
+    search_query = question
+
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=True) as client:
+            r = client.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": search_query},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                },
+            )
+            r.raise_for_status()
+
+        html = r.text
+        results = []
+
+        # Parse result snippets and titles from DDG HTML
+        # Primary selectors
+        snippets = _re.findall(r'result__snippet[^>]*>(.*?)</[^>]+>', html, _re.DOTALL)
+        titles = _re.findall(r'result__a[^>]*>(.*?)</a>', html, _re.DOTALL)
+        urls = _re.findall(r'result__url[^>]*href="([^"]*)"', html, _re.DOTALL)
+        # Fallback URL extraction
+        if not urls:
+            urls = _re.findall(r'result__url[^>]*>(.*?)</a>', html, _re.DOTALL)
+
+        # Fallback: if primary selectors fail, try broader patterns
+        if not snippets:
+            snippets = _re.findall(r'class="[^"]*snippet[^"]*"[^>]*>(.*?)</[^>]+>', html, _re.DOTALL)
+        if not titles and not snippets:
+            logger.debug("DDG HTML parsing: primary selectors matched nothing, HTML may have changed")
+            return []
+
+        for i in range(min(max_results, len(snippets))):
+            try:
+                title = _re.sub(r'<[^>]+>', '', titles[i]).strip() if i < len(titles) else ''
+                snippet = _re.sub(r'<[^>]+>', '', snippets[i]).strip()
+                url = urls[i].strip() if i < len(urls) else 'Web Search'
+                url = _re.sub(r'<[^>]+>', '', url).strip()
+
+                if snippet and len(snippet) > 20:
+                    content = f"{title}: {snippet}" if title else snippet
+                    results.append({
+                        "content": content,
+                        "source": title or url or "Web Search",
+                        "source_url": url,
+                        "score": 0.6 - (i * 0.05),
+                        "source_type": "web_search",
+                    })
+            except (IndexError, AttributeError) as parse_err:
+                logger.debug(f"DDG parse error for result {i}: {parse_err}")
+                continue
+
+        logger.info(f"Web search supplement: {len(results)} results for '{search_query[:50]}'")
+        return results[:max_results]
+
+    except Exception as e:
+        logger.debug(f"Web search supplement failed (non-critical): {e}")
+        return []
+
+
+# Keywords that indicate a question the KB probably can't answer well
+_WEB_SEARCH_KEYWORDS = {
+    "weather", "climate", "temperature", "rain", "season", "best time",
+    "visa", "passport", "currency", "exchange rate", "safety", "vaccine",
+    "vaccination", "malaria", "covid", "transport", "airport", "getting there",
+    "getting around", "language", "time zone", "plug", "electricity",
+    "tipping", "customs", "dress code", "what to pack", "cost of living",
+}
+
+
 # ============================================================
 # ENDPOINTS
 # ============================================================
 
 @helpdesk_router.post("/ask")
-async def ask_helpdesk(
+def ask_helpdesk(
     request: AskQuestion,
     user: Optional[dict] = Depends(get_current_user_optional),
     config: ClientConfig = Depends(get_client_config)
@@ -386,66 +602,242 @@ async def ask_helpdesk(
 
         logger.info(f"Query classified as {query_type.value} (confidence: {confidence:.2f})")
 
-        # Step 2: Search Travel Platform RAG
+        # Step 2: Search BOTH knowledge bases (Global + Private)
         search_start = time.time()
-        rag_result = search_travel_platform_rag(
+        dual_result = search_dual_knowledge_base(
+            config,
             question,
             top_k=search_params.get('k', 10),
             use_rerank=search_params.get('use_rerank', True)
         )
         search_time = time.time() - search_start
 
-        if rag_result.get("success") and rag_result.get("answer"):
-            # Travel Platform RAG returned an answer - use it directly
+        # Check if we have ANY results from the dual-KB search
+        citations = dual_result.get("citations", [])
+        global_answer = dual_result.get("answer", "")
+        sources_breakdown = dual_result.get("sources_breakdown", {})
+
+        # Check if this is a practical travel question that the KB can't answer well.
+        # For questions about weather, visas, currency etc., the KB only has hotel
+        # fact sheets — web search will give a MUCH better answer.
+        q_lower = question.lower()
+        needs_web_search = any(kw in q_lower for kw in _WEB_SEARCH_KEYWORDS)
+
+        if dual_result.get("success") and global_answer and not needs_web_search:
+            # Got a synthesized answer from global KB (Travel Platform RAG)
+            # AND the question is about something the KB can actually answer (hotels, destinations)
             total_time = time.time() - start_time
-            logger.info(f"Helpdesk RAG: search={search_time:.2f}s, total={total_time:.2f}s, confidence={rag_result.get('confidence', 0):.2f}")
+            logger.info(
+                f"Helpdesk dual-KB: search={search_time:.2f}s, total={total_time:.2f}s, "
+                f"global={sources_breakdown.get('global', 0)}, private={sources_breakdown.get('private', 0)}"
+            )
 
             if total_time > 3.0:
                 logger.warning(f"Helpdesk response exceeded 3s target: {total_time:.2f}s")
 
-            # Format citations as sources
-            sources = [
-                {
-                    "filename": cite.get("source_title", "Knowledge Base"),
-                    "score": cite.get("relevance_score", 0),
-                    "type": "travel_platform_rag"
-                }
-                for cite in rag_result.get("citations", [])[:5]
-            ]
+            # Format citations as sources, marking their origin
+            sources = []
+            for cite in citations[:5]:
+                source_type = cite.get("source_type", "global_kb")
+                sources.append({
+                    "filename": cite.get("source", "Knowledge Base"),
+                    "score": cite.get("score", 0),
+                    "type": source_type,
+                    "is_private": source_type == "private_kb"
+                })
 
             return {
                 "success": True,
-                "answer": rag_result["answer"],
+                "answer": global_answer,
                 "sources": sources,
-                "method": "travel_platform_rag",
-                "query_type": query_type.value,
-                "confidence": rag_result.get("confidence", 0),
+                "method": "dual_kb",
+                "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                "confidence": dual_result.get("confidence", 0),
+                "sources_breakdown": sources_breakdown,
                 "timing": {
                     "search_ms": int(search_time * 1000),
                     "synthesis_ms": 0,  # Synthesis done by Travel Platform
                     "total_ms": int(total_time * 1000),
-                    "rag_latency_ms": rag_result.get("latency_ms", 0)
+                    "rag_latency_ms": dual_result.get("latency_ms", 0)
                 }
             }
 
-        # Step 3: Fall back to smart static responses
-        logger.info(f"Travel Platform RAG unavailable or no answer, using static fallback")
-        answer, topic, sources = get_smart_response(question)
-        total_time = time.time() - start_time
-        logger.info(f"Helpdesk fallback: search={search_time:.2f}s, total={total_time:.2f}s")
+        if needs_web_search:
+            logger.info(f"Question matches web search keywords, will supplement KB with web search")
 
-        return {
-            "success": True,
-            "answer": answer,
-            "sources": sources,
-            "method": "static",
-            "query_type": query_type.value,
-            "timing": {
-                "search_ms": int(search_time * 1000),
-                "synthesis_ms": 0,
-                "total_ms": int(total_time * 1000)
+        # Step 3: Check if we have private KB results that need LLM synthesis
+        # Filter out low-relevance results (score < 0.4) to avoid citing irrelevant documents
+        private_results = [
+            c for c in citations
+            if c.get("source_type") == "private_kb" and c.get("score", 0) >= 0.4
+        ]
+
+        if private_results:
+            # We have relevant private KB results - synthesize an answer using LLM
+            # If needs_web_search is True, also run web search and combine both
+            # sources so the LLM gets KB context AND external info (weather, visa, etc.)
+            web_supplement = []
+            web_supplement_sources = []
+            if needs_web_search:
+                logger.info(f"Running web search to supplement {len(private_results)} KB results")
+                web_supplement = _web_search_supplement(question, query_type)
+                web_supplement_sources = [
+                    {"filename": r.get("source", "Web Search"), "score": r.get("score", 0.5), "type": "web_search"}
+                    for r in web_supplement
+                ]
+            else:
+                logger.info(f"Found {len(private_results)} relevant private KB results (score >= 0.4), using LLM synthesis")
+
+            # Combine KB results + web search results for richer LLM context
+            combined_results = private_results + web_supplement
+
+            synthesis_start = time.time()
+            try:
+                rag_service = get_rag_service()
+                llm_response = rag_service.generate_response(
+                    question=question,
+                    search_results=combined_results,
+                    query_type=query_type.value if hasattr(query_type, 'value') else str(query_type)
+                )
+                synthesis_time = time.time() - synthesis_start
+                total_time = time.time() - start_time
+
+                method = "private_kb_synthesis" if not web_supplement else "combined_kb_web_synthesis"
+                logger.info(
+                    f"Helpdesk {method}: search={search_time:.2f}s, "
+                    f"synthesis={synthesis_time:.2f}s, total={total_time:.2f}s, "
+                    f"kb={len(private_results)}, web={len(web_supplement)}"
+                )
+
+                # Format sources — KB sources first, then web sources
+                sources = []
+                for r in private_results[:5]:
+                    sources.append({
+                        "filename": r.get("source", "Private Knowledge Base"),
+                        "score": r.get("score", 0),
+                        "type": "private_kb",
+                        "is_private": True
+                    })
+                sources.extend(web_supplement_sources)
+
+                return {
+                    "success": True,
+                    "answer": llm_response.get("answer", ""),
+                    "sources": sources,
+                    "method": method,
+                    "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                    "sources_breakdown": {
+                        "global": 0,
+                        "private": len(private_results),
+                        "web": len(web_supplement),
+                        "total": len(combined_results)
+                    },
+                    "timing": {
+                        "search_ms": int(search_time * 1000),
+                        "synthesis_ms": int(synthesis_time * 1000),
+                        "total_ms": int(total_time * 1000)
+                    }
+                }
+            except Exception as synth_error:
+                logger.warning(f"Private KB synthesis failed: {synth_error}")
+                # Fall through to static responses
+
+        # Step 4: Try smart static responses (faster, no LLM cost)
+        # These are high-quality pre-written responses for common questions
+        static_answer, topic, static_sources = get_smart_response(question)
+
+        # If we got a non-default static response, use it
+        if topic != "general" or "quote" in question.lower() or "invoice" in question.lower():
+            total_time = time.time() - start_time
+            logger.info(f"Helpdesk using smart static response: topic={topic}")
+
+            return {
+                "success": True,
+                "answer": static_answer,
+                "sources": static_sources,
+                "method": "smart_static",
+                "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                "note": "Knowledge base is being configured. This response is from our curated help content.",
+                "timing": {
+                    "search_ms": int(search_time * 1000),
+                    "synthesis_ms": 0,
+                    "total_ms": int(total_time * 1000)
+                }
             }
-        }
+
+        # Step 5: For unknown topics or practical travel questions, use LLM with web search.
+        # Web search is triggered when:
+        #   - needs_web_search is True (weather, visa, currency questions)
+        #   - OR KB results are sparse (< 3 citations) for travel-related queries
+        logger.info(f"Using LLM synthesis (citations={len(citations)}, needs_web={needs_web_search})")
+
+        # Supplement with web search for travel questions
+        # Trigger web search when:
+        #   - needs_web_search is True (weather, visa, currency keywords)
+        #   - OR KB results are sparse (< 3 citations) for travel queries
+        #   - OR KB results exist but are all low relevance (< 0.45 max score)
+        all_context = list(citations)
+        web_sources = []
+        max_citation_score = max((c.get("score", 0) for c in citations), default=0) if citations else 0
+        should_web_search = needs_web_search or (
+            (len(citations) < 3 or max_citation_score < 0.45)
+            and query_type in _WEB_SEARCH_QUERY_TYPES
+        )
+        if should_web_search:
+            web_results = _web_search_supplement(question, query_type)
+            all_context.extend(web_results)
+            web_sources = [
+                {"filename": r.get("source", "Web Search"), "score": r.get("score", 0.5), "type": "web_search"}
+                for r in web_results
+            ]
+
+        synthesis_start = time.time()
+        try:
+            rag_service = get_rag_service()
+            # Use KB citations + web search results for richer context
+            llm_response = rag_service.generate_response(
+                question=question,
+                search_results=all_context,
+                query_type=query_type.value if hasattr(query_type, 'value') else str(query_type)
+            )
+            synthesis_time = time.time() - synthesis_start
+            total_time = time.time() - start_time
+
+            method = "llm_synthesis" if not web_sources else "llm_synthesis_web"
+            logger.info(f"Helpdesk LLM fallback ({method}): synthesis={synthesis_time:.2f}s, total={total_time:.2f}s")
+
+            # Merge sources: LLM sources + web sources
+            combined_sources = llm_response.get("sources", []) + web_sources
+
+            return {
+                "success": True,
+                "answer": llm_response.get("answer", "I'm not sure how to help with that. Could you try rephrasing your question?"),
+                "sources": combined_sources,
+                "method": method,
+                "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                "timing": {
+                    "search_ms": int(search_time * 1000),
+                    "synthesis_ms": int(synthesis_time * 1000),
+                    "total_ms": int(total_time * 1000)
+                }
+            }
+        except Exception as llm_error:
+            logger.warning(f"LLM synthesis failed: {llm_error}, using static fallback")
+            total_time = time.time() - start_time
+
+            # Final fallback: use the default static response
+            return {
+                "success": True,
+                "answer": static_answer,  # Use default static response
+                "sources": [],
+                "method": "static_fallback",
+                "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                "timing": {
+                    "search_ms": int(search_time * 1000),
+                    "synthesis_ms": 0,
+                    "total_ms": int(total_time * 1000)
+                }
+            }
 
     except Exception as e:
         total_time = time.time() - start_time
@@ -463,7 +855,7 @@ async def ask_helpdesk(
 
 
 @helpdesk_router.get("/topics")
-async def get_helpdesk_topics(
+def get_helpdesk_topics(
     user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """
@@ -476,7 +868,7 @@ async def get_helpdesk_topics(
 
 
 @helpdesk_router.get("/search")
-async def search_helpdesk(
+def search_helpdesk(
     q: str = "",
     user: Optional[dict] = Depends(get_current_user_optional)
 ):
@@ -503,7 +895,7 @@ async def search_helpdesk(
 
 
 @helpdesk_router.get("/rag-status")
-async def get_rag_status() -> Dict[str, Any]:
+def get_rag_status() -> Dict[str, Any]:
     """
     Get status of the Travel Platform RAG connection.
     Useful for debugging and monitoring.
@@ -522,16 +914,16 @@ async def get_rag_status() -> Dict[str, Any]:
 
 
 @helpdesk_router.get("/faiss-status")
-async def get_faiss_status() -> Dict[str, Any]:
+def get_faiss_status() -> Dict[str, Any]:
     """
     Legacy endpoint - redirects to /rag-status.
-    FAISS has been replaced by Travel Platform RAG.
+    Kept for backward compatibility.
     """
-    return await get_rag_status()
+    return get_rag_status()
 
 
 @helpdesk_router.get("/test-search")
-async def test_rag_search(q: str = "Maldives hotels"):
+def test_rag_search(q: str = "Maldives hotels"):
     """
     Test endpoint for Travel Platform RAG search (no auth required).
     For debugging and verification only.
@@ -539,7 +931,7 @@ async def test_rag_search(q: str = "Maldives hotels"):
     Returns the RAG response with answer and citations.
     """
     try:
-        result = search_travel_platform_rag(q, top_k=10, use_rerank=True)
+        result = search_travel_platform_rag(q, top_k=10)
 
         if result.get("success") and result.get("answer"):
             answer = result["answer"]
@@ -553,7 +945,7 @@ async def test_rag_search(q: str = "Maldives hotels"):
                 "citations": [
                     {
                         "source_title": c.get("source_title", "Unknown"),
-                        "relevance_score": c.get("relevance_score", 0),
+                        "relevance_score": c.get("relevance_score", c.get("score", 0)),
                         "content_preview": c.get("content", "")[:200] + "..." if len(c.get("content", "")) > 200 else c.get("content", "")
                     }
                     for c in result.get("citations", [])[:5]
@@ -578,7 +970,7 @@ async def test_rag_search(q: str = "Maldives hotels"):
 
 
 @helpdesk_router.get("/health")
-async def helpdesk_health() -> Dict[str, Any]:
+def helpdesk_health() -> Dict[str, Any]:
     """
     Health check endpoint for the helpdesk RAG system.
 
@@ -629,7 +1021,7 @@ async def helpdesk_health() -> Dict[str, Any]:
 # ============================================================
 
 @helpdesk_router.post("/agent/chat")
-async def agent_chat(
+def agent_chat(
     request: AskQuestion,
     user: Optional[dict] = Depends(get_current_user_optional),
     config: ClientConfig = Depends(get_client_config)
@@ -676,7 +1068,7 @@ async def agent_chat(
 
 
 @helpdesk_router.post("/agent/reset")
-async def agent_reset() -> Dict[str, Any]:
+def agent_reset() -> Dict[str, Any]:
     """Reset the agent's conversation history for a new session."""
     try:
         from src.agents.helpdesk_agent import get_helpdesk_agent
@@ -688,7 +1080,7 @@ async def agent_reset() -> Dict[str, Any]:
 
 
 @helpdesk_router.get("/agent/stats")
-async def agent_stats() -> Dict[str, Any]:
+def agent_stats() -> Dict[str, Any]:
     """Get agent statistics."""
     try:
         from src.agents.helpdesk_agent import get_helpdesk_agent
@@ -699,7 +1091,7 @@ async def agent_stats() -> Dict[str, Any]:
 
 
 @helpdesk_router.post("/reinit")
-async def reinit_rag_client():
+def reinit_rag_client():
     """
     Reinitialize the Travel Platform RAG client.
 
@@ -873,6 +1265,7 @@ def score_response(response: dict, test_case: dict) -> dict:
 
     # Response quality based on method
     method_scores = {
+        'travel_platform_rag': 1.0,
         'rag': 1.0,
         'fallback': 0.7,
         'static': 0.5,
@@ -900,7 +1293,7 @@ def score_response(response: dict, test_case: dict) -> dict:
 
 
 @helpdesk_router.get("/accuracy-test")
-async def run_accuracy_tests(
+def run_accuracy_tests(
     test_id: Optional[str] = None,
     verbose: bool = False
 ):
@@ -943,23 +1336,24 @@ async def run_accuracy_tests(
             query_type, _ = classifier.classify(test_case['question'])
             search_params = classifier.get_search_params(query_type)
 
-            # Run the search
+            # Run the search via Travel Platform RAG
             start_time = time.time()
-            kb_results = search_shared_faiss_index(
+            rag_result = search_travel_platform_rag(
                 test_case['question'],
-                top_k=search_params.get('k', 5),
-                use_mmr=search_params.get('use_mmr', False),
-                lambda_mmr=search_params.get('lambda_mmr', 0.7),
-                use_rerank=search_params.get('use_rerank', False)
+                top_k=search_params.get('k', 5)
             )
 
             # Generate response
-            if kb_results:
-                response = generate_rag_response(
-                    test_case['question'],
-                    kb_results,
-                    query_type.value
-                )
+            if rag_result.get("success") and rag_result.get("answer"):
+                # Travel Platform RAG already has the synthesized answer
+                response = {
+                    'answer': rag_result.get("answer", ""),
+                    'sources': [
+                        {"source": c.get("source_title", ""), "score": c.get("relevance_score", c.get("score", 0))}
+                        for c in rag_result.get("citations", [])
+                    ],
+                    'method': 'travel_platform_rag'
+                }
             else:
                 # Use static response
                 answer, _, sources = get_smart_response(test_case['question'])
@@ -978,7 +1372,7 @@ async def run_accuracy_tests(
                 "test_id": test_case['id'],
                 "question": test_case['question'],
                 "expected_type": test_case['query_type'],
-                "actual_type": query_type.value,
+                "actual_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
                 "method": response.get('method', 'unknown'),
                 "scores": scores,
                 "passed": scores['passed'],
@@ -1029,7 +1423,7 @@ async def run_accuracy_tests(
 
 
 @helpdesk_router.get("/accuracy-test/cases")
-async def list_accuracy_test_cases() -> Dict[str, Any]:
+def list_accuracy_test_cases() -> Dict[str, Any]:
     """List all available accuracy test cases."""
     return {
         "success": True,

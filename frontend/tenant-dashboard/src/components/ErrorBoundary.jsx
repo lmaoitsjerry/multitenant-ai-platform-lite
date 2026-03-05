@@ -11,7 +11,8 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+    const module = this.props.module || 'unknown';
+    console.error(`[ErrorBoundary:${module}] Caught error:`, error, errorInfo);
 
     // Report to Sentry if available (dynamic import to keep bundle small)
     import('@sentry/react').then((Sentry) => {
@@ -21,6 +22,7 @@ class ErrorBoundary extends Component {
 
   handleReset = () => {
     this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
   };
 
   render() {
@@ -39,7 +41,10 @@ class ErrorBoundary extends Component {
             </div>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Something went wrong</h2>
             <p className="text-sm text-gray-600 mb-4">
-              An unexpected error occurred. Please try refreshing the page.
+              {this.props.module
+                ? `The ${this.props.module} module encountered an error. Please try again.`
+                : 'An unexpected error occurred. Please try refreshing the page.'
+              }
             </p>
             <div className="flex gap-3 justify-center">
               <button

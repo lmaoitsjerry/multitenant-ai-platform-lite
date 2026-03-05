@@ -16,6 +16,29 @@ export default function ResetPassword() {
   const [success, setSuccess] = useState(false);
   const [tokenError, setTokenError] = useState(false);
 
+  // Password strength calculation
+  const getPasswordStrength = (pwd) => {
+    if (!pwd) return { score: 0, label: '', color: '' };
+    let score = 0;
+    if (pwd.length >= 6) score++;
+    if (pwd.length >= 10) score++;
+    if (/[A-Z]/.test(pwd)) score++;
+    if (/[0-9]/.test(pwd)) score++;
+    if (/[^A-Za-z0-9]/.test(pwd)) score++;
+
+    const levels = [
+      { label: 'Very weak', color: '#EF4444' },
+      { label: 'Weak', color: '#F97316' },
+      { label: 'Fair', color: '#EAB308' },
+      { label: 'Good', color: '#22C55E' },
+      { label: 'Strong', color: '#16A34A' },
+    ];
+    const idx = Math.min(score, levels.length) - 1;
+    return idx < 0 ? { score: 0, label: '', color: '' } : { score, ...levels[idx] };
+  };
+
+  const strength = getPasswordStrength(password);
+
   // Get token from URL (Supabase sends it as hash fragment or query param)
   const token = searchParams.get('token');
   const type = searchParams.get('type');
@@ -32,8 +55,13 @@ export default function ResetPassword() {
     setError('');
 
     // Validate passwords
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (strength.score < 3) {
+      setError('Password is too weak. Include uppercase, numbers, or special characters.');
       return;
     }
 
@@ -67,7 +95,7 @@ export default function ResetPassword() {
   };
 
   const primaryColor = branding?.colors?.primary || '#3B82F6';
-  const companyName = branding?.company_name || 'Travel Platform';
+  const companyName = branding?.company_name || 'HT-ITC-Lite';
   const logoUrl = branding?.logos?.primary;
 
   // Token error state
@@ -199,7 +227,7 @@ export default function ResetPassword() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none pr-12"
                   placeholder="Enter new password"
-                  minLength={6}
+                  minLength={8}
                 />
                 <button
                   type="button"
@@ -218,6 +246,24 @@ export default function ResetPassword() {
                   )}
                 </button>
               </div>
+              {password && (
+                <div className="mt-2">
+                  <div className="flex gap-1 mb-1">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div
+                        key={i}
+                        className="h-1.5 flex-1 rounded-full transition-colors"
+                        style={{
+                          backgroundColor: i <= strength.score ? strength.color : '#E5E7EB',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs" style={{ color: strength.color }}>
+                    {strength.label}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div>

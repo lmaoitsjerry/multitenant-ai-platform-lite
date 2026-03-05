@@ -181,6 +181,123 @@ THEME_PRESETS: Dict[str, Dict[str, Any]] = {
             "body": "Roboto, system-ui, sans-serif"
         },
         "preview_gradient": "linear-gradient(135deg, #0D9488 0%, #0F766E 100%)"
+    },
+    # --- Onboarding-originated themes ---
+    "ocean_blue": {
+        "name": "Ocean Blue",
+        "description": "Professional and trustworthy ocean tones",
+        "colors": {
+            "primary": "#0EA5E9",
+            "primary_light": "#38BDF8",
+            "primary_dark": "#0284C7",
+            "secondary": "#0284C7",
+            "secondary_light": "#38BDF8",
+            "secondary_dark": "#0369A1",
+            "accent": "#38BDF8",
+            "success": "#22C55E",
+            "warning": "#F59E0B",
+            "error": "#EF4444",
+            "background": "#F0F9FF",
+            "surface": "#FFFFFF",
+            "surface_elevated": "#FFFFFF",
+            "text_primary": "#0C4A6E",
+            "text_secondary": "#075985",
+            "text_muted": "#7DD3FC",
+            "border": "#BAE6FD",
+            "border_light": "#E0F2FE"
+        },
+        "fonts": {
+            "heading": "Inter, system-ui, sans-serif",
+            "body": "Inter, system-ui, sans-serif"
+        },
+        "preview_gradient": "linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%)"
+    },
+    "safari_gold": {
+        "name": "Safari Gold",
+        "description": "Warm and adventurous gold palette",
+        "colors": {
+            "primary": "#D97706",
+            "primary_light": "#F59E0B",
+            "primary_dark": "#B45309",
+            "secondary": "#B45309",
+            "secondary_light": "#D97706",
+            "secondary_dark": "#92400E",
+            "accent": "#FBBF24",
+            "success": "#22C55E",
+            "warning": "#F59E0B",
+            "error": "#EF4444",
+            "background": "#FFFBEB",
+            "surface": "#FFFFFF",
+            "surface_elevated": "#FFFFFF",
+            "text_primary": "#78350F",
+            "text_secondary": "#92400E",
+            "text_muted": "#FCD34D",
+            "border": "#FDE68A",
+            "border_light": "#FEF3C7"
+        },
+        "fonts": {
+            "heading": "Montserrat, system-ui, sans-serif",
+            "body": "Open Sans, system-ui, sans-serif"
+        },
+        "preview_gradient": "linear-gradient(135deg, #D97706 0%, #B45309 100%)"
+    },
+    "classic_black": {
+        "name": "Classic Black",
+        "description": "Elegant and sophisticated dark palette",
+        "colors": {
+            "primary": "#1F2937",
+            "primary_light": "#374151",
+            "primary_dark": "#111827",
+            "secondary": "#111827",
+            "secondary_light": "#1F2937",
+            "secondary_dark": "#030712",
+            "accent": "#6B7280",
+            "success": "#22C55E",
+            "warning": "#F59E0B",
+            "error": "#EF4444",
+            "background": "#F9FAFB",
+            "surface": "#FFFFFF",
+            "surface_elevated": "#FFFFFF",
+            "text_primary": "#111827",
+            "text_secondary": "#374151",
+            "text_muted": "#9CA3AF",
+            "border": "#E5E7EB",
+            "border_light": "#F3F4F6"
+        },
+        "fonts": {
+            "heading": "Playfair Display, serif",
+            "body": "Lato, system-ui, sans-serif"
+        },
+        "preview_gradient": "linear-gradient(135deg, #1F2937 0%, #111827 100%)"
+    },
+    "rose_pink": {
+        "name": "Rose Pink",
+        "description": "Modern and stylish rose tones",
+        "colors": {
+            "primary": "#DB2777",
+            "primary_light": "#EC4899",
+            "primary_dark": "#BE185D",
+            "secondary": "#BE185D",
+            "secondary_light": "#DB2777",
+            "secondary_dark": "#9D174D",
+            "accent": "#F472B6",
+            "success": "#22C55E",
+            "warning": "#F59E0B",
+            "error": "#EF4444",
+            "background": "#FDF2F8",
+            "surface": "#FFFFFF",
+            "surface_elevated": "#FFFFFF",
+            "text_primary": "#831843",
+            "text_secondary": "#9D174D",
+            "text_muted": "#F9A8D4",
+            "border": "#FBCFE8",
+            "border_light": "#FCE7F3"
+        },
+        "fonts": {
+            "heading": "Poppins, system-ui, sans-serif",
+            "body": "Inter, system-ui, sans-serif"
+        },
+        "preview_gradient": "linear-gradient(135deg, #DB2777 0%, #BE185D 100%)"
     }
 }
 
@@ -227,8 +344,20 @@ DEFAULT_BRANDING = {
 
 
 def get_preset(preset_name: str) -> Dict[str, Any]:
-    """Get a theme preset by name"""
-    return THEME_PRESETS.get(preset_name, THEME_PRESETS["professional_blue"])
+    """Get a theme preset by name, with alias resolution for onboarding themes."""
+    # Onboarding uses kebab-case IDs (BRAND_THEMES) — resolve them to THEME_PRESETS
+    _ONBOARDING_ALIASES = {
+        "ocean-blue": "ocean_blue",
+        "safari-gold": "safari_gold",
+        "sunset-orange": "vibrant_orange",
+        "forest-green": "nature_green",
+        "royal-purple": "elegant_purple",
+        "classic-black": "classic_black",
+        "rose-pink": "rose_pink",
+        "teal-modern": "ocean_teal",
+    }
+    resolved = _ONBOARDING_ALIASES.get(preset_name, preset_name)
+    return THEME_PRESETS.get(resolved, THEME_PRESETS["professional_blue"])
 
 
 def get_all_presets() -> Dict[str, Dict[str, Any]]:

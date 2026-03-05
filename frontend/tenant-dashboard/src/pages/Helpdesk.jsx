@@ -10,6 +10,7 @@ import {
   LightBulbIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
+import { normalizeKbSource } from '../utils/fieldTransformers';
 
 // Suggested questions for quick access
 const SUGGESTED_QUESTIONS = [
@@ -48,15 +49,18 @@ function Message({ message, isUser }) {
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-2 space-y-1">
             <p className="text-xs text-theme-muted">Sources:</p>
-            {message.sources.map((source, idx) => (
-              <div key={idx} className="flex items-center gap-1 text-xs text-theme-muted">
-                <DocumentTextIcon className="w-3 h-3" />
-                <span className="truncate">{source.title || source.topic || source.filename || 'Knowledge Base'}</span>
-                {source.score && (
-                  <span className="opacity-70">({Math.round(source.score * 100)}% match)</span>
-                )}
-              </div>
-            ))}
+            {message.sources.map((rawSource, idx) => {
+              const source = normalizeKbSource(rawSource);
+              return (
+                <div key={idx} className="flex items-center gap-1 text-xs text-theme-muted">
+                  <DocumentTextIcon className="w-3 h-3" />
+                  <span className="truncate">{source.title}</span>
+                  {source.relevanceScore > 0 && (
+                    <span className="opacity-70">({Math.round(source.relevanceScore * 100)}% match)</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -151,6 +155,7 @@ export default function Helpdesk() {
         role: 'assistant',
         content: assistantContent,
         sources: sources.length > 0 ? sources : undefined,
+        method: response.data?.method || null,
         timestamp: new Date().toISOString(),
       };
 

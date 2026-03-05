@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { invoicesApi } from '../../services/api';
+import { pdfUrl } from '../../config/environment';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import { useDeleteAction } from '../../hooks/useDeleteAction';
 import {
   ArrowLeftIcon,
   EnvelopeIcon,
@@ -25,7 +28,7 @@ const statusConfig = {
   sent: { label: 'Sent', color: 'bg-blue-100 text-blue-700', icon: EnvelopeIcon },
   viewed: { label: 'Viewed', color: 'bg-purple-100 text-purple-700', icon: CheckCircleIcon },
   paid: { label: 'Paid', color: 'bg-green-100 text-green-700', icon: CheckCircleIcon },
-  partial: { label: 'Partial Payment', color: 'bg-yellow-100 text-yellow-700', icon: ClockIcon },
+  partially_paid: { label: 'Partial Payment', color: 'bg-yellow-100 text-yellow-700', icon: ClockIcon },
   overdue: { label: 'Overdue', color: 'bg-red-100 text-red-700', icon: ExclamationCircleIcon },
   cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500', icon: XCircleIcon },
 };
@@ -37,20 +40,28 @@ function RecordPaymentModal({ isOpen, onClose, invoice, onSuccess }) {
   const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
   const [reference, setReference] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleSubmit = async () => {
     setLoading(true);
+    setError(null);
     try {
-      await invoicesApi.recordPayment(invoice.invoice_id, {
+      const response = await invoicesApi.recordPayment(invoice.invoice_id, {
         amount: parseFloat(amount),
         payment_date: paymentDate,
         payment_method: paymentMethod,
         reference: reference,
       });
-      onSuccess();
-      onClose();
-    } catch (error) {
-      console.error('Payment recording failed:', error);
+
+      if (response.data?.success) {
+        onSuccess();
+        onClose();
+      } else {
+        setError(response.data?.error || response.data?.detail || 'Failed to record payment');
+      }
+    } catch (err) {
+      console.error('Payment recording failed:', err);
+      setError(err.response?.data?.detail || err.message || 'Failed to record payment. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -71,6 +82,12 @@ function RecordPaymentModal({ isOpen, onClose, invoice, onSuccess }) {
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
           <div className="bg-gray-50 p-3 rounded-lg">
             <p className="text-sm text-gray-500">Outstanding Balance</p>
             <p className="text-xl font-bold text-gray-900">R {outstanding.toLocaleString()}</p>
@@ -147,6 +164,41 @@ export default function InvoiceDetail() {
   const [actionLoading, setActionLoading] = useState(null);
   const [toast, setToast] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState({});
+
+  const startEdit = () => {
+    setEditData({
+      customer_name: invoice.customer_name || '',
+      customer_email: invoice.customer_email || '',
+      notes: invoice.notes || '',
+    });
+    setEditMode(true);
+  };
+
+  const handleSaveEdit = async () => {
+    setActionLoading('edit');
+    try {
+      const updates = {};
+      if (editData.customer_name !== invoice.customer_name) updates.customer_name = editData.customer_name;
+      if (editData.customer_email !== invoice.customer_email) updates.customer_email = editData.customer_email;
+      if (editData.notes !== (invoice.notes || '')) updates.notes = editData.notes;
+
+      if (Object.keys(updates).length === 0) {
+        setEditMode(false);
+        return;
+      }
+
+      await invoicesApi.update(id, updates);
+      showToast('Invoice updated', 'success');
+      setEditMode(false);
+      loadInvoice();
+    } catch (error) {
+      showToast(error.response?.data?.detail || 'Failed to update invoice', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   useEffect(() => {
     loadInvoice();
@@ -234,6 +286,39 @@ export default function InvoiceDetail() {
     }
   };
 
+  // Cancel action
+  const {
+    showConfirm: showCancelConfirm,
+    setShowConfirm: setShowCancelConfirm,
+    loading: cancelLoading,
+    handleAction: handleCancelConfirm,
+  } = useDeleteAction({
+    actionFn: () => invoicesApi.updateStatus(id, 'cancelled'),
+    onSuccess: () => {
+      showToast('Invoice cancelled', 'success');
+      loadInvoice();
+    },
+    onError: (err) => {
+      showToast(err.response?.data?.detail || 'Failed to cancel invoice', 'error');
+    },
+  });
+
+  // Delete action
+  const {
+    showConfirm: showDeleteConfirm,
+    setShowConfirm: setShowDeleteConfirm,
+    loading: deleteLoading,
+    handleAction: handleDeleteConfirm,
+  } = useDeleteAction({
+    actionFn: () => invoicesApi.delete(id),
+    onSuccess: () => {
+      navigate('/invoices');
+    },
+    onError: (err) => {
+      showToast(err.response?.data?.detail || 'Failed to delete invoice', 'error');
+    },
+  });
+
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('en-ZA', {
@@ -298,6 +383,24 @@ export default function InvoiceDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {invoice.status === 'draft' && (
+            <button
+              onClick={editMode ? handleSaveEdit : startEdit}
+              disabled={actionLoading === 'edit'}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <PencilIcon className="w-5 h-5" />
+              {editMode ? (actionLoading === 'edit' ? 'Saving...' : 'Save') : 'Edit'}
+            </button>
+          )}
+          {editMode && (
+            <button
+              onClick={() => setEditMode(false)}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleDownload}
             disabled={actionLoading === 'download'}
@@ -349,11 +452,29 @@ export default function InvoiceDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-500">Name</p>
-                <p className="font-medium text-gray-900">{invoice.customer_name}</p>
+                {editMode ? (
+                  <input
+                    type="text"
+                    value={editData.customer_name}
+                    onChange={(e) => setEditData(prev => ({ ...prev, customer_name: e.target.value }))}
+                    className="input mt-1"
+                  />
+                ) : (
+                  <p className="font-medium text-gray-900">{invoice.customer_name}</p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-500">Email</p>
-                <p className="font-medium text-gray-900">{invoice.customer_email}</p>
+                {editMode ? (
+                  <input
+                    type="email"
+                    value={editData.customer_email}
+                    onChange={(e) => setEditData(prev => ({ ...prev, customer_email: e.target.value }))}
+                    className="input mt-1"
+                  />
+                ) : (
+                  <p className="font-medium text-gray-900">{invoice.customer_email}</p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-500">Phone</p>
@@ -455,10 +576,19 @@ export default function InvoiceDetail() {
           )}
 
           {/* Notes */}
-          {invoice.notes && (
+          {(invoice.notes || editMode) && (
             <div className="card">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Notes</h3>
-              <p className="text-gray-600 whitespace-pre-wrap">{invoice.notes}</p>
+              {editMode ? (
+                <textarea
+                  value={editData.notes}
+                  onChange={(e) => setEditData(prev => ({ ...prev, notes: e.target.value }))}
+                  className="input min-h-24"
+                  placeholder="Add notes..."
+                />
+              ) : (
+                <p className="text-gray-600 whitespace-pre-wrap">{invoice.notes}</p>
+              )}
             </div>
           )}
 
@@ -470,14 +600,14 @@ export default function InvoiceDetail() {
             </h3>
             <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
               <iframe
-                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/invoices/${invoice.invoice_id}/pdf`}
+                src={`${pdfUrl('invoices', invoice.invoice_id)}`}
                 className="w-full h-[600px]"
                 title="Invoice Preview"
               />
             </div>
             <div className="mt-3 flex justify-center gap-3">
               <a
-                href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/public/invoices/${invoice.invoice_id}/pdf`}
+                href={`${pdfUrl('invoices', invoice.invoice_id)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary text-sm inline-flex items-center gap-1"
@@ -529,12 +659,12 @@ export default function InvoiceDetail() {
                   <p className="text-sm text-gray-500">{formatDateTime(invoice.created_at)}</p>
                 </div>
               </div>
-              {invoice.sent_at && (
+              {(invoice.email_sent_at || invoice.sent_at) && (
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
                   <div>
                     <p className="font-medium text-gray-900">Sent</p>
-                    <p className="text-sm text-gray-500">{formatDateTime(invoice.sent_at)}</p>
+                    <p className="text-sm text-gray-500">{formatDateTime(invoice.email_sent_at || invoice.sent_at)}</p>
                   </div>
                 </div>
               )}
@@ -578,9 +708,23 @@ export default function InvoiceDetail() {
                 <CurrencyDollarIcon className="w-5 h-5" />
                 Record Payment
               </button>
-              <button className="w-full btn-secondary flex items-center justify-center gap-2 text-red-600 hover:bg-red-50">
-                Cancel Invoice
-              </button>
+              {invoice.status !== 'cancelled' && invoice.status !== 'paid' && (
+                <button
+                  onClick={() => setShowCancelConfirm(true)}
+                  className="w-full btn-secondary flex items-center justify-center gap-2 text-red-600 hover:bg-red-50"
+                >
+                  <XCircleIcon className="w-5 h-5" />
+                  Cancel Invoice
+                </button>
+              )}
+              {(invoice.status === 'draft' || invoice.status === 'cancelled') && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="w-full btn-secondary flex items-center justify-center gap-2 text-red-600 hover:bg-red-50"
+                >
+                  Delete Invoice
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -595,6 +739,30 @@ export default function InvoiceDetail() {
           showToast('Payment recorded!', 'success');
           loadInvoice();
         }}
+      />
+
+      {/* Cancel Confirmation */}
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Cancel Invoice"
+        message="Are you sure you want to cancel this invoice? The customer will no longer be able to pay it."
+        confirmLabel="Cancel Invoice"
+        confirmVariant="warning"
+        onConfirm={handleCancelConfirm}
+        onCancel={() => setShowCancelConfirm(false)}
+        loading={cancelLoading}
+      />
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Invoice"
+        message="Are you sure you want to delete this invoice? This action cannot be undone."
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setShowDeleteConfirm(false)}
+        loading={deleteLoading}
       />
 
       {/* Toast */}

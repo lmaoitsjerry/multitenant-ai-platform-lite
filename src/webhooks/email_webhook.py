@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Webhooks"])
 
+# Shared inbound email domain — configurable via env var
+INBOUND_EMAIL_DOMAIN = os.getenv("INBOUND_EMAIL_DOMAIN", "holidaytoday.co.za")
+
 # ==================== Tenant Email Cache ====================
 # Cache for tenant email mappings to avoid O(n) iteration on every request
 _tenant_email_cache: Dict[str, Any] = {}
@@ -183,7 +186,7 @@ def get_tenant_email_addresses(tenant_id: str) -> Dict[str, Optional[str]]:
                 result['support_email'] = settings.get('support_email')
                 sendgrid_username = settings.get('sendgrid_username')
                 if sendgrid_username:
-                    result['sendgrid_email'] = f"{sendgrid_username}@zorah.ai"
+                    result['sendgrid_email'] = f"{sendgrid_username}@{INBOUND_EMAIL_DOMAIN}"
         except Exception as e:
             logger.debug(f"Could not load tenant settings from DB for {tenant_id}: {e}")
 
@@ -586,9 +589,10 @@ async def receive_inbound_email(
 
 async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
     """
-    Process inbound email - parse and generate quote
+    Process inbound email - create ticket for Enquiry Triage
 
-    This runs in the background after the webhook returns
+    This runs in the background after the webhook returns.
+    Creates a ticket that consultants can review and convert to quotes.
     """
     if not diagnostic_id:
         diagnostic_id = str(uuid.uuid4())[:8].upper()
@@ -610,7 +614,6 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
         try:
             from src.agents.llm_email_parser import LLMEmailParser
             from src.agents.universal_email_parser import UniversalEmailParser
-            from src.agents.quote_agent import QuoteAgent
             diagnostic_log(diagnostic_id, 8, "Email parsers imported successfully", {
                 'llm_parser': 'LLMEmailParser',
                 'fallback_parser': 'UniversalEmailParser'
@@ -618,7 +621,7 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
         except ImportError as e:
             diagnostic_log(diagnostic_id, 8, f"FAILED: Import error", {
                 'error': str(e),
-                'module': 'LLMEmailParser or QuoteAgent'
+                'module': 'LLMEmailParser or UniversalEmailParser'
             })
             raise
 
@@ -646,80 +649,82 @@ async def process_inbound_email(email: ParsedEmail, diagnostic_id: str = None):
             'budget': parsed_data.get('budget')
         })
 
-        # STEP 10: Quote generation decision
-        should_generate_quote = parsed_data.get('destination') or parsed_data.get('is_travel_inquiry')
-        diagnostic_log(diagnostic_id, 10, "Quote generation decision", {
-            'should_generate': should_generate_quote,
-            'reason': 'destination found' if parsed_data.get('destination') else
-                     ('is_travel_inquiry flag' if parsed_data.get('is_travel_inquiry') else 'no destination or travel indicator')
+        # STEP 10: Create ticket for Enquiry Triage
+        # All inbound emails create tickets for consultant review
+        is_travel_inquiry = parsed_data.get('destination') or parsed_data.get('is_travel_inquiry')
+        priority = 'high' if is_travel_inquiry else 'normal'
+
+        diagnostic_log(diagnostic_id, 10, "Creating ticket for Enquiry Triage", {
+            'is_travel_inquiry': is_travel_inquiry,
+            'priority': priority
         })
 
-        # STEP 11: Quote result
-        if should_generate_quote:
-            try:
-                quote_agent = QuoteAgent(config)
-                # Create draft quote for consultant review before sending
-                result = quote_agent.generate_quote(
-                    customer_data=parsed_data,
-                    send_email=False,  # Don't send email automatically
-                    assign_consultant=True,
-                    initial_status='draft'  # Draft status for consultant review
-                )
+        # STEP 11: Create ticket
+        try:
+            from src.tools.supabase_tool import SupabaseTool
+            supabase = SupabaseTool(config)
 
-                quote_id = result.get('quote_id')
+            # Build metadata with parsed travel details
+            metadata = {
+                'parsed_details': {
+                    'destination': parsed_data.get('destination'),
+                    'adults': parsed_data.get('adults'),
+                    'children': parsed_data.get('children'),
+                    'check_in': parsed_data.get('check_in'),
+                    'check_out': parsed_data.get('check_out'),
+                    'budget': parsed_data.get('budget'),
+                },
+                'is_travel_inquiry': is_travel_inquiry,
+                'parse_method': parsed_data.get('parse_method', 'unknown'),
+                'diagnostic_id': diagnostic_id,
+            }
+
+            # Create ticket
+            ticket = supabase.create_ticket(
+                customer_name=parsed_data.get('name', email.from_email.split('@')[0]),
+                customer_email=email.from_email,
+                subject=email.subject or 'No Subject',
+                message=email.body_text or '',
+                source='email',
+                priority=priority,
+                metadata=metadata
+            )
+
+            if ticket:
                 elapsed = time.time() - start_time
-                diagnostic_log(diagnostic_id, 11, "Draft quote generated for consultant review", {
-                    'quote_id': quote_id,
-                    'status': 'draft',
+                diagnostic_log(diagnostic_id, 11, "Ticket created for Enquiry Triage", {
+                    'ticket_id': ticket.get('ticket_id'),
                     'customer_email': email.from_email,
                     'destination': parsed_data.get('destination'),
+                    'priority': priority,
                     'elapsed_ms': round(elapsed * 1000, 2)
                 })
 
-                # Create notification for draft quote requiring review
+                # Create notification for new enquiry
                 try:
                     from src.api.notifications_routes import NotificationService
                     notification_service = NotificationService(config)
                     customer_name = parsed_data.get('name', email.from_email.split('@')[0])
                     destination = parsed_data.get('destination', 'travel inquiry')
-                    notification_service.notify_quote_request(
-                        customer_name=customer_name,
-                        destination=f"{destination} (DRAFT - review required)",
-                        quote_id=quote_id or 'unknown'
+                    notification_service.notify_email_received(
+                        sender_email=email.from_email,
+                        subject=f"{destination} - {email.subject}" if destination else email.subject
                     )
                 except Exception as notif_err:
-                    logger.warning(f"[{diagnostic_id}] Failed to create draft quote notification: {notif_err}")
-
-            except Exception as e:
+                    logger.warning(f"[{diagnostic_id}] Failed to create notification: {notif_err}")
+            else:
                 elapsed = time.time() - start_time
-                diagnostic_log(diagnostic_id, 11, f"FAILED: Quote generation error", {
-                    'error': str(e),
+                diagnostic_log(diagnostic_id, 11, "FAILED: Could not create ticket", {
                     'elapsed_ms': round(elapsed * 1000, 2)
                 })
-                raise
-        else:
+
+        except Exception as e:
             elapsed = time.time() - start_time
-            diagnostic_log(diagnostic_id, 11, "Skipped quote generation - not a travel inquiry", {
-                'from_email': email.from_email,
+            diagnostic_log(diagnostic_id, 11, f"FAILED: Ticket creation error", {
+                'error': str(e),
                 'elapsed_ms': round(elapsed * 1000, 2)
             })
-
-            # Log to BigQuery for review
-            try:
-                from src.tools.bigquery_tool import BigQueryTool
-                bq = BigQueryTool(config)
-                bq.log_email({
-                    'tenant_id': email.tenant_id,
-                    'from_email': email.from_email,
-                    'subject': email.subject,
-                    'body_preview': email.body_text[:500] if email.body_text else '',
-                    'parsed_data': parsed_data,
-                    'status': 'not_travel_inquiry',
-                    'received_at': email.received_at,
-                    'diagnostic_id': diagnostic_id
-                })
-            except Exception as bq_err:
-                logger.warning(f"[{diagnostic_id}] Failed to log to BigQuery: {bq_err}")
+            raise
 
     except Exception as e:
         diagnostic_log(diagnostic_id, 0, f"EXCEPTION in background processing: {str(e)}")
@@ -820,7 +825,7 @@ async def diagnose_email_webhook():
 
     # Environment variables
     results['environment'] = {
-        'SENDGRID_API_KEY_set': bool(os.getenv('SENDGRID_API_KEY')),
+        'SENDGRID_MASTER_API_KEY_set': bool(os.getenv('SENDGRID_MASTER_API_KEY')),
         'OPENAI_API_KEY_set': bool(os.getenv('OPENAI_API_KEY')),
         'SUPABASE_URL_set': bool(os.getenv('SUPABASE_URL')),
         'SUPABASE_KEY_set': bool(os.getenv('SUPABASE_KEY') or os.getenv('SUPABASE_SERVICE_KEY')),
@@ -1021,7 +1026,7 @@ async def test_email_processing(tenant_id: str, email: str, subject: str = "Test
         tenant_id=tenant_id,
         from_email=email,
         from_name="Test User",
-        to_email=f"{tenant_id}@inbound.zorahai.com",
+        to_email=f"{tenant_id}@{INBOUND_EMAIL_DOMAIN}",
         subject=subject,
         body_text=f"""
 Hi,
@@ -1086,10 +1091,10 @@ async def get_webhook_status():
         },
         "supported_routing": [
             "Database lookup: tenant.support_email (any domain)",
-            "Database lookup: tenant.sendgrid_username@zorah.ai",
+            f"Database lookup: tenant.sendgrid_username@{INBOUND_EMAIL_DOMAIN}",
             "Database lookup: tenant.primary_email",
-            "{tenant_id}@inbound.domain.com (direct tenant ID)",
-            "quotes+{tenant_id}@domain.com (plus addressing)",
+            f"{{tenant_id}}@{INBOUND_EMAIL_DOMAIN} (direct tenant ID)",
+            f"quotes+{{tenant_id}}@{INBOUND_EMAIL_DOMAIN} (plus addressing)",
             "X-Tenant-ID header",
             "[TENANT:xxx] in subject line"
         ],
@@ -1098,12 +1103,12 @@ async def get_webhook_status():
         "sendgrid_configuration": {
             "step_1_mx_record": {
                 "type": "MX",
-                "host": "inbound.zorah.ai",
+                "host": INBOUND_EMAIL_DOMAIN,
                 "value": "mx.sendgrid.net",
                 "priority": 10
             },
             "step_2_inbound_parse": {
-                "domain": "inbound.zorah.ai",
+                "domain": INBOUND_EMAIL_DOMAIN,
                 "webhook_url": f"{base_url}/webhooks/email/inbound",
                 "check_incoming_emails": True,
                 "spam_check": False,
@@ -1111,13 +1116,13 @@ async def get_webhook_status():
                 "note": "Configure in SendGrid Dashboard > Settings > Inbound Parse"
             },
             "step_3_test": {
-                "send_test_email_to": "{tenant_id}@inbound.zorah.ai",
-                "example": "final-itc-3@inbound.zorah.ai",
+                "send_test_email_to": f"{{tenant_id}}@{INBOUND_EMAIL_DOMAIN}",
+                "example": f"final-itc-3@{INBOUND_EMAIL_DOMAIN}",
                 "check_logs": "Look for '[EMAIL_WEBHOOK]' in server logs"
             }
         },
         "environment": {
-            "sendgrid_api_key_set": bool(os.getenv("SENDGRID_API_KEY")),
+            "sendgrid_api_key_set": bool(os.getenv("SENDGRID_MASTER_API_KEY")),
             "openai_api_key_set": bool(os.getenv("OPENAI_API_KEY")),
             "base_url": base_url
         }

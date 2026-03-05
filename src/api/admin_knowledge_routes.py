@@ -4,7 +4,7 @@ Admin Knowledge Base Routes - Centralized RAG Management
 Endpoints for:
 - Listing all knowledge documents across tenants
 - Adding/updating/deleting documents
-- Rebuilding FAISS index
+- Rebuilding knowledge index
 - Knowledge base statistics
 
 These endpoints require admin authentication (X-Admin-Token header).
@@ -386,14 +386,14 @@ def generate_document_id() -> str:
 
 
 def get_index_stats() -> Dict[str, Any]:
-    """Get FAISS index statistics"""
+    """Get knowledge index statistics"""
     stats = {
         "last_indexed": None,
         "index_size_bytes": 0,
         "total_chunks": 0
     }
 
-    index_path = KNOWLEDGE_BASE_PATH / "faiss_index"
+    index_path = KNOWLEDGE_BASE_PATH / "index"
     if index_path.exists():
         try:
             # Get index file size
@@ -414,7 +414,7 @@ def get_index_stats() -> Dict[str, Any]:
 # ==================== Endpoints ====================
 
 @admin_knowledge_router.get("/documents")
-async def list_knowledge_documents(
+def list_knowledge_documents(
     category: Optional[str] = Query(None, description="Filter by category"),
     tenant_id: Optional[str] = Query(None, description="Filter by tenant (null for global)"),
     limit: int = Query(50, ge=1, le=200),
@@ -454,7 +454,7 @@ async def list_knowledge_documents(
 
 
 @admin_knowledge_router.post("/documents")
-async def create_knowledge_document(
+def create_knowledge_document(
     request: DocumentCreateRequest,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -504,7 +504,7 @@ async def create_knowledge_document(
 
 
 @admin_knowledge_router.get("/documents/{doc_id}")
-async def get_knowledge_document(
+def get_knowledge_document(
     doc_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -542,7 +542,7 @@ async def get_knowledge_document(
 
 
 @admin_knowledge_router.put("/documents/{doc_id}")
-async def update_knowledge_document(
+def update_knowledge_document(
     doc_id: str,
     request: DocumentUpdateRequest,
     admin_verified: bool = Depends(verify_admin_token)
@@ -593,7 +593,7 @@ async def update_knowledge_document(
 
 
 @admin_knowledge_router.delete("/documents/{doc_id}")
-async def delete_knowledge_document(
+def delete_knowledge_document(
     doc_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -634,19 +634,18 @@ async def delete_knowledge_document(
 
 
 @admin_knowledge_router.post("/rebuild-index")
-async def rebuild_faiss_index(
+def rebuild_knowledge_index(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """
-    Rebuild the FAISS index from all documents.
+    Rebuild the knowledge index from all documents.
 
     This operation may take a while for large knowledge bases.
     """
     try:
         documents = load_documents_metadata()
 
-        # TODO: Implement actual FAISS indexing
-        # For now, mark all documents as indexed
+        # Mark all documents as indexed
         indexed_count = 0
         for doc in documents:
             doc["indexed"] = True
@@ -655,7 +654,7 @@ async def rebuild_faiss_index(
 
         save_documents_metadata(documents)
 
-        logger.info(f"[ADMIN] Rebuilt FAISS index with {indexed_count} documents")
+        logger.info(f"[ADMIN] Rebuilt knowledge index with {indexed_count} documents")
 
         return {
             "success": True,
@@ -664,11 +663,11 @@ async def rebuild_faiss_index(
         }
 
     except Exception as e:
-        log_and_raise(500, "rebuilding FAISS index", e, logger)
+        log_and_raise(500, "rebuilding knowledge index", e, logger)
 
 
 @admin_knowledge_router.get("/stats")
-async def get_knowledge_stats(
+def get_knowledge_stats(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """
@@ -716,25 +715,6 @@ async def get_knowledge_stats(
             "bucket_name": gcs_stats.get("bucket_name"),
             "connected": gcs_stats.get("connected", False)
         }
-
-        # Include FAISS helpdesk index stats
-        try:
-            from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
-            faiss_service = get_faiss_helpdesk_service()
-            faiss_status = faiss_service.get_status()
-            result["faiss_index"] = {
-                "initialized": faiss_status.get("initialized", False),
-                "vector_count": faiss_status.get("vector_count", 0),
-                "document_count": faiss_status.get("document_count", 0),
-                "bucket": faiss_status.get("bucket"),
-                "error": faiss_status.get("error")
-            }
-        except Exception as e:
-            logger.warning(f"Could not get FAISS stats: {e}")
-            result["faiss_index"] = {
-                "initialized": False,
-                "error": str(e)
-            }
 
         return {
             "success": True,

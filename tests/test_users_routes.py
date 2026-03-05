@@ -497,9 +497,7 @@ class TestUserDependencies:
 
 class TestListUsersUnit:
     """Unit tests for list_users endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_list_users_returns_users(self, mock_admin_user):
+    def test_list_users_returns_users(self, mock_admin_user):
         """list_users should return all organization users."""
         from src.api.users_routes import list_users
         from fastapi import Request
@@ -527,15 +525,13 @@ class TestListUsersUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await list_users(request=mock_request, user=mock_admin_user, db=mock_db)
+        result = list_users(request=mock_request, user=mock_admin_user, db=mock_db)
 
         assert result.success is True
         assert result.total == 2
         assert len(result.users) == 2
         assert result.users[0].email == "user1@example.com"
-
-    @pytest.mark.asyncio
-    async def test_list_users_handles_empty_list(self, mock_admin_user):
+    def test_list_users_handles_empty_list(self, mock_admin_user):
         """list_users should handle empty user list."""
         from src.api.users_routes import list_users
         from fastapi import Request
@@ -545,14 +541,12 @@ class TestListUsersUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await list_users(request=mock_request, user=mock_admin_user, db=mock_db)
+        result = list_users(request=mock_request, user=mock_admin_user, db=mock_db)
 
         assert result.success is True
         assert result.total == 0
         assert len(result.users) == 0
-
-    @pytest.mark.asyncio
-    async def test_list_users_handles_db_error(self, mock_admin_user):
+    def test_list_users_handles_db_error(self, mock_admin_user):
         """list_users should raise 500 on database error."""
         from src.api.users_routes import list_users
         from fastapi import Request, HTTPException
@@ -563,16 +557,14 @@ class TestListUsersUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await list_users(request=mock_request, user=mock_admin_user, db=mock_db)
+            list_users(request=mock_request, user=mock_admin_user, db=mock_db)
 
         assert exc_info.value.status_code == 500
 
 
 class TestInviteUserUnit:
     """Unit tests for invite_user endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_invite_user_creates_invitation(self, mock_admin_user, mock_config):
+    def test_invite_user_creates_invitation(self, mock_admin_user, mock_config):
         """invite_user should create invitation and send email."""
         from src.api.users_routes import invite_user, InviteUserRequest
         from fastapi import Request
@@ -599,7 +591,7 @@ class TestInviteUserUnit:
         )
 
         with patch('src.api.users_routes.get_config', return_value=mock_config):
-            result = await invite_user(
+            result = invite_user(
                 invite_request=invite_request,
                 request=mock_request,
                 user=mock_admin_user,
@@ -612,9 +604,7 @@ class TestInviteUserUnit:
         assert "invitation" in result
         mock_db.create_invitation.assert_called_once()
         mock_email_sender.send_invitation_email.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_invite_user_rejects_invalid_role(self, mock_admin_user):
+    def test_invite_user_rejects_invalid_role(self, mock_admin_user):
         """invite_user should reject invalid role."""
         from src.api.users_routes import invite_user, InviteUserRequest
         from fastapi import Request, HTTPException
@@ -630,7 +620,7 @@ class TestInviteUserUnit:
         )
 
         with pytest.raises(HTTPException) as exc_info:
-            await invite_user(
+            invite_user(
                 invite_request=invite_request,
                 request=mock_request,
                 user=mock_admin_user,
@@ -641,9 +631,7 @@ class TestInviteUserUnit:
 
         assert exc_info.value.status_code == 400
         assert "Invalid role" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_invite_user_rejects_existing_user(self, mock_admin_user):
+    def test_invite_user_rejects_existing_user(self, mock_admin_user):
         """invite_user should reject if user already exists."""
         from src.api.users_routes import invite_user, InviteUserRequest
         from fastapi import Request, HTTPException
@@ -660,7 +648,7 @@ class TestInviteUserUnit:
         )
 
         with pytest.raises(HTTPException) as exc_info:
-            await invite_user(
+            invite_user(
                 invite_request=invite_request,
                 request=mock_request,
                 user=mock_admin_user,
@@ -675,9 +663,7 @@ class TestInviteUserUnit:
 
 class TestListInvitationsUnit:
     """Unit tests for list_invitations endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_list_invitations_returns_invitations(self, mock_admin_user):
+    def test_list_invitations_returns_invitations(self, mock_admin_user):
         """list_invitations should return all pending invitations."""
         from src.api.users_routes import list_invitations
         from fastapi import Request
@@ -696,14 +682,12 @@ class TestListInvitationsUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await list_invitations(request=mock_request, user=mock_admin_user, db=mock_db)
+        result = list_invitations(request=mock_request, user=mock_admin_user, db=mock_db)
 
         assert result.success is True
         assert result.total == 1
         assert result.invitations[0].email == "invite1@example.com"
-
-    @pytest.mark.asyncio
-    async def test_list_invitations_handles_db_error(self, mock_admin_user):
+    def test_list_invitations_handles_db_error(self, mock_admin_user):
         """list_invitations should raise 500 on database error."""
         from src.api.users_routes import list_invitations
         from fastapi import Request, HTTPException
@@ -714,16 +698,14 @@ class TestListInvitationsUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await list_invitations(request=mock_request, user=mock_admin_user, db=mock_db)
+            list_invitations(request=mock_request, user=mock_admin_user, db=mock_db)
 
         assert exc_info.value.status_code == 500
 
 
 class TestCancelInvitationUnit:
     """Unit tests for cancel_invitation endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_cancel_invitation_success(self, mock_admin_user):
+    def test_cancel_invitation_success(self, mock_admin_user):
         """cancel_invitation should cancel the invitation."""
         from src.api.users_routes import cancel_invitation
         from fastapi import Request
@@ -733,7 +715,7 @@ class TestCancelInvitationUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await cancel_invitation(
+        result = cancel_invitation(
             invitation_id="inv-123",
             request=mock_request,
             user=mock_admin_user,
@@ -742,9 +724,7 @@ class TestCancelInvitationUnit:
 
         assert result["success"] is True
         mock_db.cancel_invitation.assert_called_once_with("inv-123")
-
-    @pytest.mark.asyncio
-    async def test_cancel_invitation_not_found(self, mock_admin_user):
+    def test_cancel_invitation_not_found(self, mock_admin_user):
         """cancel_invitation should raise 404 when invitation not found."""
         from src.api.users_routes import cancel_invitation
         from fastapi import Request, HTTPException
@@ -755,7 +735,7 @@ class TestCancelInvitationUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_invitation(
+            cancel_invitation(
                 invitation_id="nonexistent",
                 request=mock_request,
                 user=mock_admin_user,
@@ -767,9 +747,7 @@ class TestCancelInvitationUnit:
 
 class TestGetUserUnit:
     """Unit tests for get_user endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_returns_user(self, mock_admin_user):
+    def test_get_user_returns_user(self, mock_admin_user):
         """get_user should return user details."""
         from src.api.users_routes import get_user
         from fastapi import Request
@@ -787,7 +765,7 @@ class TestGetUserUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await get_user(
+        result = get_user(
             user_id="user-123",
             request=mock_request,
             user=mock_admin_user,
@@ -796,9 +774,7 @@ class TestGetUserUnit:
 
         assert result["success"] is True
         assert result["user"].email == "user@example.com"
-
-    @pytest.mark.asyncio
-    async def test_get_user_not_found(self, mock_admin_user):
+    def test_get_user_not_found(self, mock_admin_user):
         """get_user should raise 404 when user not found."""
         from src.api.users_routes import get_user
         from fastapi import Request, HTTPException
@@ -809,7 +785,7 @@ class TestGetUserUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_user(
+            get_user(
                 user_id="nonexistent",
                 request=mock_request,
                 user=mock_admin_user,
@@ -821,9 +797,7 @@ class TestGetUserUnit:
 
 class TestUpdateUserUnit:
     """Unit tests for update_user endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_update_user_name(self, mock_admin_user):
+    def test_update_user_name(self, mock_admin_user):
         """update_user should update user name."""
         from src.api.users_routes import update_user, UpdateUserRequest
         from fastapi import Request
@@ -849,7 +823,7 @@ class TestUpdateUserUnit:
         mock_request = MagicMock(spec=Request)
         update_request = UpdateUserRequest(name="New Name")
 
-        result = await update_user(
+        result = update_user(
             user_id="user-123",
             update_request=update_request,
             request=mock_request,
@@ -859,9 +833,7 @@ class TestUpdateUserUnit:
 
         assert result["success"] is True
         assert result["user"].name == "New Name"
-
-    @pytest.mark.asyncio
-    async def test_update_user_prevents_self_demotion(self, mock_admin_user):
+    def test_update_user_prevents_self_demotion(self, mock_admin_user):
         """update_user should prevent admin from demoting themselves."""
         from src.api.users_routes import update_user, UpdateUserRequest
         from fastapi import Request, HTTPException
@@ -880,7 +852,7 @@ class TestUpdateUserUnit:
         update_request = UpdateUserRequest(role="consultant")  # Try to demote
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_user(
+            update_user(
                 user_id="admin-123",  # Same as current user
                 update_request=update_request,
                 request=mock_request,
@@ -890,9 +862,7 @@ class TestUpdateUserUnit:
 
         assert exc_info.value.status_code == 400
         assert "Cannot demote yourself" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_update_user_rejects_invalid_role(self, mock_admin_user):
+    def test_update_user_rejects_invalid_role(self, mock_admin_user):
         """update_user should reject invalid role."""
         from src.api.users_routes import update_user, UpdateUserRequest
         from fastapi import Request, HTTPException
@@ -911,7 +881,7 @@ class TestUpdateUserUnit:
         update_request = UpdateUserRequest(role="superadmin")  # Invalid role
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_user(
+            update_user(
                 user_id="user-123",
                 update_request=update_request,
                 request=mock_request,
@@ -921,9 +891,7 @@ class TestUpdateUserUnit:
 
         assert exc_info.value.status_code == 400
         assert "Invalid role" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_update_user_no_updates_raises_400(self, mock_admin_user):
+    def test_update_user_no_updates_raises_400(self, mock_admin_user):
         """update_user should raise 400 when no updates provided."""
         from src.api.users_routes import update_user, UpdateUserRequest
         from fastapi import Request, HTTPException
@@ -942,7 +910,7 @@ class TestUpdateUserUnit:
         update_request = UpdateUserRequest()  # Empty
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_user(
+            update_user(
                 user_id="user-123",
                 update_request=update_request,
                 request=mock_request,
@@ -956,9 +924,7 @@ class TestUpdateUserUnit:
 
 class TestDeactivateUserUnit:
     """Unit tests for deactivate_user endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_deactivate_user_success(self, mock_admin_user):
+    def test_deactivate_user_success(self, mock_admin_user):
         """deactivate_user should deactivate the user."""
         from src.api.users_routes import deactivate_user
         from fastapi import Request
@@ -976,7 +942,7 @@ class TestDeactivateUserUnit:
 
         mock_request = MagicMock(spec=Request)
 
-        result = await deactivate_user(
+        result = deactivate_user(
             user_id="user-123",
             request=mock_request,
             user=mock_admin_user,
@@ -985,9 +951,7 @@ class TestDeactivateUserUnit:
 
         assert result["success"] is True
         mock_db.deactivate_user.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_deactivate_user_prevents_self_deactivation(self, mock_admin_user):
+    def test_deactivate_user_prevents_self_deactivation(self, mock_admin_user):
         """deactivate_user should prevent user from deactivating themselves."""
         from src.api.users_routes import deactivate_user
         from fastapi import Request, HTTPException
@@ -996,7 +960,7 @@ class TestDeactivateUserUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_user(
+            deactivate_user(
                 user_id="admin-123",  # Same as mock_admin_user.user_id
                 request=mock_request,
                 user=mock_admin_user,
@@ -1005,9 +969,7 @@ class TestDeactivateUserUnit:
 
         assert exc_info.value.status_code == 400
         assert "Cannot deactivate your own" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_deactivate_user_not_found(self, mock_admin_user):
+    def test_deactivate_user_not_found(self, mock_admin_user):
         """deactivate_user should raise 404 when user not found."""
         from src.api.users_routes import deactivate_user
         from fastapi import Request, HTTPException
@@ -1018,7 +980,7 @@ class TestDeactivateUserUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_user(
+            deactivate_user(
                 user_id="nonexistent",
                 request=mock_request,
                 user=mock_admin_user,
@@ -1030,9 +992,7 @@ class TestDeactivateUserUnit:
 
 class TestResendInvitationUnit:
     """Unit tests for resend_invitation endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_resend_invitation_not_found(self, mock_admin_user):
+    def test_resend_invitation_not_found(self, mock_admin_user):
         """resend_invitation should raise 404 when invitation not found."""
         from src.api.users_routes import resend_invitation
         from fastapi import Request, HTTPException
@@ -1044,7 +1004,7 @@ class TestResendInvitationUnit:
         mock_request = MagicMock(spec=Request)
 
         with pytest.raises(HTTPException) as exc_info:
-            await resend_invitation(
+            resend_invitation(
                 invitation_id="nonexistent",
                 request=mock_request,
                 user=mock_admin_user,

@@ -66,7 +66,7 @@ class PerformanceSummaryResponse(BaseModel):
 
 # ==================== Dependencies ====================
 
-def get_supabase_tool(x_client_id: str = Header(None, alias="X-Client-ID")) -> SupabaseTool:
+def get_supabase_tool(x_client_id: Optional[str] = Header(None, alias="X-Client-ID")) -> SupabaseTool:
     """Get SupabaseTool instance for the tenant"""
     client_id = x_client_id or os.getenv("CLIENT_ID", "africastay")
 
@@ -85,7 +85,7 @@ def get_performance_service(db: SupabaseTool = Depends(get_supabase_tool)) -> Pe
 # ==================== Endpoints ====================
 
 @leaderboard_router.get("/rankings", response_model=LeaderboardResponse)
-async def get_rankings(
+def get_rankings(
     request: Request,
     period: str = "month",
     metric: str = "conversions",
@@ -146,7 +146,7 @@ async def get_rankings(
 
 
 @leaderboard_router.get("/me", response_model=MyPerformanceResponse)
-async def get_my_performance(
+def get_my_performance(
     request: Request,
     period: str = "month",
     user: UserContext = Depends(get_current_user),
@@ -209,7 +209,7 @@ async def get_my_performance(
 
 
 @leaderboard_router.get("/summary", response_model=PerformanceSummaryResponse)
-async def get_performance_summary(
+def get_performance_summary(
     request: Request,
     period: str = "month",
     user: UserContext = Depends(get_current_user),
@@ -264,7 +264,7 @@ async def get_performance_summary(
 
 
 @leaderboard_router.get("/consultant/{consultant_id}")
-async def get_consultant_performance(
+def get_consultant_performance(
     consultant_id: str,
     request: Request,
     period: str = "month",

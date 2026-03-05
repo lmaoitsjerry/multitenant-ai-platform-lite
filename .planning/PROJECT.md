@@ -8,21 +8,21 @@ A multi-tenant AI-powered travel platform for property management companies, fea
 
 Production-ready multi-tenant AI travel platform with secure tenant isolation, automated email-to-quote pipeline, and natural helpdesk responses.
 
-## Current Milestone: v5.0 Production Readiness Audit
+## Current State
 
-**Goal:** Comprehensive audit and optimization to prepare for production deployment.
+**Latest Milestone:** v5.0 Production Readiness Audit (shipped 2026-01-23)
+**Status:** Production-ready, staging deployment
 
-**Focus areas:**
-- **Code consistency** — Standardize patterns, remove dead code, clean up technical debt
-- **Performance** — Optimize slow queries, API latency, caching gaps
-- **Edge case handling** — Error handling, failure modes, graceful degradation
+**v5.0 Delivered:**
+- Thread-safe caching (lru_cache, double-check locking)
+- Timing-safe auth (hmac.compare_digest)
+- N+1 query elimination (batch queries)
+- Circuit breaker + retry for OpenAI
+- 10s timeouts on Supabase queries
+- Response models, Redis caching, CORS from env
 
-**Approach:**
-1. Verify codebase mapping is current
-2. Define production-ready criteria based on audit findings
-3. Execute optimization phases systematically
-
-**Status:** Staging only — free to refactor without breaking live users
+**Next Milestone Goals:** (define with /gsd:new-milestone)
+- TBD
 
 ## Requirements
 
@@ -55,38 +55,13 @@ Production-ready multi-tenant AI travel platform with secure tenant isolation, a
 - ✓ TEST-01 to TEST-03: Auth, rate limiting, tenant isolation tests — v3.0
 - ✓ COVER-01 to COVER-05: External API mocking (BigQuery, Twilio, SendGrid, LLM agents) — v4.0
 - ✓ TEST-04: 57.5% test coverage achieved with 1,554 tests — v4.0
+- ✓ PROD-01 to PROD-07: Critical fixes (thread-safe caching, timing-safe auth, N+1 queries, DB indexes, FAISS locking) — v5.0
+- ✓ PROD-04/08-10/13/15/17/18: Error handling & resilience (circuit breaker, retries, timeouts, graceful degradation) — v5.0
+- ✓ PROD-11/12/14/16/19/20/24: Code quality (async/sync, type hints, Redis caching, response models, CORS) — v5.0
 
 ### Active
 
-**Blocking (Must Fix):**
-- [ ] BLOCK-01: Fix race condition in DI caching (`routes.py:132-150`)
-- [ ] BLOCK-02: Fix admin token timing attack vulnerability (`admin_routes.py:71-97`)
-- [ ] BLOCK-03: Fix N+1 queries in CRM search (`crm_service.py:290-334`)
-- [ ] BLOCK-04: Add circuit breaker + retry for OpenAI API
-- [ ] BLOCK-05: Remove 15 bare exception handlers (8 in `email_webhook.py`, 7 in `analytics_routes.py`)
-- [ ] BLOCK-06: Add database indexes for common query patterns
-- [ ] BLOCK-07: Fix FAISS singleton thread safety
-- [ ] BLOCK-08: Implement deletion operations in provisioning service
-
-**High Priority:**
-- [ ] HIGH-01: Standardize error handling on `safe_error_response()` pattern
-- [ ] HIGH-02: Remove unused `logger.py`, use structured_logger everywhere
-- [ ] HIGH-03: Fix async/sync mismatch in `admin_tenants_routes.py`
-- [ ] HIGH-04: Add type hints to all public functions
-- [ ] HIGH-05: Replace pipeline_summary with database aggregation
-- [ ] HIGH-06: Add Redis caching for expensive operations (60s TTL)
-- [ ] HIGH-07: Add timeouts to all Supabase queries (5-10 seconds)
-- [ ] HIGH-08: Add bounds checking to all array/dict accesses
-- [ ] HIGH-09: Implement graceful degradation when OpenAI unavailable
-- [ ] HIGH-10: Add retry logic for GCS downloads
-
-**Medium Priority:**
-- [ ] MED-01: Standardize response format across all endpoints
-- [ ] MED-02: Deduplicate PDF building code (3 locations)
-- [ ] MED-03: Centralize table name constants
-- [ ] MED-04: Add cache TTL to config/agent/service caches
-- [ ] MED-05: Optimize MMR search O(n^2) complexity
-- [ ] MED-06: Move CORS origins to environment variables
+(No active requirements — define with /gsd:new-milestone)
 
 ### Out of Scope
 
@@ -94,45 +69,30 @@ Production-ready multi-tenant AI travel platform with secure tenant isolation, a
 - Adding new destinations/hotels — focus on pipeline, not data
 - Major refactoring of multi-tenant architecture — working fine
 - Real-time chat/WebSocket — async email pipeline is sufficient
-- Full TypeScript migration for frontends — deferred to v6.0
-- Distributed tracing (OpenTelemetry) — deferred to v6.0
+- Full TypeScript migration for frontends — deferred
+- Distributed tracing (OpenTelemetry) — deferred
 - Multi-GCP project consolidation — enterprise scale feature
-- Fixing broken email pipeline — address after production hardening
-- Helpdesk RAG quality improvements — address after production hardening
+- PROD-21: Table name constants — deferred (current scale OK)
+- PROD-23: MMR O(n²) optimization — deferred (current index size OK)
 
 ## Context
 
-**v5.0 Audit Summary (2026-01-23):**
+**Current State (v5.0 shipped):**
+- 29,200 lines of Python
+- 1,554 tests, 57.5% coverage
+- Production-ready with resilience patterns
 
-Deep-dive audit completed across code consistency, performance, and error handling. Full report: `.planning/PRODUCTION-AUDIT.md`
+**v5.0 Accomplishments:**
+- 93+ issues identified in deep-dive audit
+- 21 requirements completed across 3 phases (16-18)
+- Thread-safe caching, timing-safe auth, batch queries
+- Circuit breaker + retry for OpenAI
+- 10s Supabase timeouts, graceful degradation
 
-| Area | Issues | Critical | High | Medium |
-|------|--------|----------|------|--------|
-| Code Consistency | 25+ | 2 | 5 | 18 |
-| Performance | 21 | 4 | 8 | 9 |
-| Error Handling | 47+ | 8 | 12 | 27 |
-
-**Key Findings:**
-- Race conditions in dependency injection caching and FAISS singleton
-- N+1 query patterns adding 1-5s latency to CRM operations
-- 15 bare exception handlers swallowing errors silently
-- No circuit breaker for OpenAI API (helpdesk crashes on outage)
-- Missing database indexes on common query patterns
-
-**Known Issues (Deferred to Later):**
+**Known Issues (Future Work):**
 1. **Inbound Email Pipeline**: Emails to tenant subusers should trigger quote generation - currently broken
 2. **Helpdesk RAG Quality**: Responses are robotic list dumps instead of natural answers
-
-**Expected Inbound Email Flow:**
-```
-Customer Email → SendGrid Inbound Parse → Webhook → Tenant Lookup →
-Email Parser (LLM) → Quote Generator → Email Sender → Notification
-```
-
-**Expected Helpdesk Behavior:**
-- User asks: "What hotels do you have in Zanzibar with beach access?"
-- Current: Returns list of search results
-- Required: Natural response recommending specific properties with features
+3. **PROD-21/23**: Table name constants and MMR optimization - deferred to later
 
 **Technical Environment:**
 - Backend: FastAPI (Python 3.11) on Cloud Run
@@ -163,6 +123,11 @@ Email Parser (LLM) → Quote Generator → Email Sender → Notification
 | 45% coverage baseline for v3.0 | 70% requires 20-25hrs for external API mocking | ✓ Good |
 | Database-backed tenant config | Scalability over file-based YAML | ✓ Good |
 | Redis rate limiting with fallback | Production resilience | ✓ Good |
+| lru_cache for DI caching | Thread-safe, bounded memory | ✓ Good |
+| hmac.compare_digest for tokens | Timing-safe comparison | ✓ Good |
+| Circuit breaker for OpenAI | Resilience, prevents cascade failure | ✓ Good |
+| 10s Supabase query timeout | Prevents hanging connections | ✓ Good |
+| asyncio.to_thread for sync calls | Clean async/sync bridge | ✓ Good |
 
 ---
-*Last updated: 2026-01-23 — v5.0 deep-dive audit complete, production criteria defined*
+*Last updated: 2026-01-23 after v5.0 milestone*

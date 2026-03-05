@@ -83,7 +83,7 @@ class TestHotelBedsClientInit:
 
         with patch.dict('os.environ', {}, clear=True):
             client = HotelBedsClient()
-            assert "zorah-travel-platform" in client.base_url
+            assert client.base_url == "http://localhost:8080"
 
     def test_default_timeout(self):
         """Should use default timeout of 60 seconds."""

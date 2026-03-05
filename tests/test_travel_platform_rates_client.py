@@ -77,7 +77,7 @@ class TestClientInitialization:
             client = TravelPlatformRatesClient()
 
             assert client._initialized is True
-            assert "zorah-travel-platform" in client.base_url
+            assert "localhost" in client.base_url
             assert client.timeout == 120.0
 
     def test_client_uses_env_vars(self):
@@ -245,7 +245,7 @@ class TestSearchHotels:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -289,7 +289,7 @@ class TestSearchHotels:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+            mock_client.get.side_effect = httpx.TimeoutException("Timeout")
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -313,7 +313,7 @@ class TestSearchHotels:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -342,7 +342,7 @@ class TestSearchHotels:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.HTTPStatusError(
+            mock_client.get.side_effect = httpx.HTTPStatusError(
                 "Server Error",
                 request=mock_request,
                 response=mock_response
@@ -374,7 +374,7 @@ class TestSearchHotels:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -384,15 +384,14 @@ class TestSearchHotels:
                 check_in=date(2025, 3, 1),
                 check_out=date(2025, 3, 5),
                 adults=2,
-                children_ages=[5, 8],
-                max_hotels=20
+                children=2,
             )
 
             assert result["success"] is True
-            # Verify the payload included children
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["rooms"][0]["children_ages"] == [5, 8]
+            # Verify the params included children count
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["children"] == 2
 
 
 # ==================== Search by Names Tests ====================
@@ -538,7 +537,7 @@ class TestDateHandling:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -549,10 +548,10 @@ class TestDateHandling:
                 check_out=date(2025, 6, 20)
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["check_in"] == "2025-06-15"
-            assert payload["check_out"] == "2025-06-20"
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["check_in"] == "2025-06-15"
+            assert params["check_out"] == "2025-06-20"
 
     @pytest.mark.asyncio
     async def test_nights_calculated_from_response(self, mock_circuit_breaker):
@@ -577,7 +576,7 @@ class TestDateHandling:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -611,7 +610,7 @@ class TestDateHandling:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -643,7 +642,7 @@ class TestDestinationHandling:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -654,9 +653,9 @@ class TestDestinationHandling:
                 check_out=date(2025, 3, 5)
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["destination"] == "mauritius"
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["destination"] == "mauritius"
 
     @pytest.mark.asyncio
     async def test_destination_mixed_case_lowercased(self, mock_circuit_breaker, sample_search_response):
@@ -671,7 +670,7 @@ class TestDestinationHandling:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -682,9 +681,9 @@ class TestDestinationHandling:
                 check_out=date(2025, 3, 5)
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["destination"] == "zanzibar"
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["destination"] == "zanzibar"
 
 
 # ==================== NEW TESTS: Hotel Search Response Structure ====================
@@ -705,7 +704,7 @@ class TestSearchResponseStructure:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -738,7 +737,7 @@ class TestSearchResponseStructure:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -752,16 +751,21 @@ class TestSearchResponseStructure:
             assert result["search_time_seconds"] == 3.5
 
     @pytest.mark.asyncio
-    async def test_hotel_count_from_total_hotels_field(self, mock_circuit_breaker):
-        """total_hotels should come from response's total_hotels field."""
+    async def test_hotel_count_reflects_post_filter_count(self, mock_circuit_breaker):
+        """total_hotels should reflect post-filter count (excluding zero-price hotels)."""
         from src.services.travel_platform_rates_client import TravelPlatformRatesClient
 
         client = TravelPlatformRatesClient()
 
+        # 10 hotels with prices, should all pass filter
+        hotels_with_prices = [{"name": f"Hotel {i}", "total_price": 100 + i * 50} for i in range(10)]
+        # 5 hotels without prices, should be filtered out
+        hotels_no_prices = [{"name": f"Free Hotel {i}"} for i in range(5)]
+
         response_data = {
             "destination": "mauritius",
-            "total_hotels": 25,
-            "hotels": [{"name": f"Hotel {i}"} for i in range(10)],  # Only 10 returned
+            "total_hotels": 25,  # Upstream says 25, but only 10 have valid prices
+            "hotels": hotels_with_prices + hotels_no_prices,
             "search_time_seconds": 5.0
         }
 
@@ -771,7 +775,7 @@ class TestSearchResponseStructure:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -782,18 +786,19 @@ class TestSearchResponseStructure:
                 check_out=date(2025, 3, 5)
             )
 
-            # total_hotels from response, not len(hotels)
-            assert result["total_hotels"] == 25
+            # total_hotels should reflect post-filter count, not upstream count
+            assert result["total_hotels"] == 10
+            assert len(result["hotels"]) == 10
 
 
 # ==================== NEW TESTS: Payload Construction ====================
 
 class TestPayloadConstruction:
-    """Tests for correct payload construction."""
+    """Tests for correct query params construction."""
 
     @pytest.mark.asyncio
-    async def test_rooms_array_structure(self, mock_circuit_breaker, sample_search_response):
-        """Payload should have rooms array with adults and children_ages."""
+    async def test_params_include_adults(self, mock_circuit_breaker, sample_search_response):
+        """GET params should include adults count."""
         from src.services.travel_platform_rates_client import TravelPlatformRatesClient
 
         client = TravelPlatformRatesClient()
@@ -804,7 +809,7 @@ class TestPayloadConstruction:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -816,17 +821,16 @@ class TestPayloadConstruction:
                 adults=3
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
 
-            assert "rooms" in payload
-            assert len(payload["rooms"]) == 1
-            assert payload["rooms"][0]["adults"] == 3
-            assert payload["rooms"][0]["children_ages"] == []
+            assert params["adults"] == 3
+            assert params["children"] == 0
+            assert params["destination"] == "zanzibar"
 
     @pytest.mark.asyncio
-    async def test_max_hotels_sent_in_payload(self, mock_circuit_breaker, sample_search_response):
-        """max_hotels should be included in the payload."""
+    async def test_children_count_sent_in_params(self, mock_circuit_breaker, sample_search_response):
+        """children count should be included in the params."""
         from src.services.travel_platform_rates_client import TravelPlatformRatesClient
 
         client = TravelPlatformRatesClient()
@@ -837,7 +841,7 @@ class TestPayloadConstruction:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -846,16 +850,16 @@ class TestPayloadConstruction:
                 destination="zanzibar",
                 check_in=date(2025, 3, 1),
                 check_out=date(2025, 3, 5),
-                max_hotels=10
+                children=3
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["max_hotels"] == 10
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["children"] == 3
 
     @pytest.mark.asyncio
-    async def test_default_max_hotels_is_50(self, mock_circuit_breaker, sample_search_response):
-        """Default max_hotels should be 50."""
+    async def test_default_adults_is_2(self, mock_circuit_breaker, sample_search_response):
+        """Default adults should be 2."""
         from src.services.travel_platform_rates_client import TravelPlatformRatesClient
 
         client = TravelPlatformRatesClient()
@@ -866,7 +870,7 @@ class TestPayloadConstruction:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -877,13 +881,13 @@ class TestPayloadConstruction:
                 check_out=date(2025, 3, 5)
             )
 
-            call_args = mock_client.post.call_args
-            payload = call_args.kwargs.get('json') or call_args[1].get('json')
-            assert payload["max_hotels"] == 50
+            call_args = mock_client.get.call_args
+            params = call_args.kwargs.get('params') or call_args[1].get('params')
+            assert params["adults"] == 2
 
     @pytest.mark.asyncio
     async def test_correct_api_endpoint_used(self, mock_circuit_breaker, sample_search_response):
-        """Should call /api/v1/availability/search endpoint."""
+        """Should call aggregated search endpoint."""
         from src.services.travel_platform_rates_client import TravelPlatformRatesClient
 
         client = TravelPlatformRatesClient()
@@ -894,7 +898,7 @@ class TestPayloadConstruction:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -905,8 +909,8 @@ class TestPayloadConstruction:
                 check_out=date(2025, 3, 5)
             )
 
-            call_url = mock_client.post.call_args[0][0]
-            assert '/api/v1/availability/search' in call_url
+            call_url = mock_client.get.call_args[0][0]
+            assert '/api/v1/travel-services/hotels/search/aggregated' in call_url
 
 
 # ==================== NEW TESTS: Circuit Breaker Integration ====================
@@ -927,7 +931,7 @@ class TestCircuitBreakerIntegration:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
+            mock_client.get.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -949,7 +953,7 @@ class TestCircuitBreakerIntegration:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+            mock_client.get.side_effect = httpx.TimeoutException("Timeout")
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -971,7 +975,7 @@ class TestCircuitBreakerIntegration:
 
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+            mock_client.get.side_effect = httpx.TimeoutException("Timeout")
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client

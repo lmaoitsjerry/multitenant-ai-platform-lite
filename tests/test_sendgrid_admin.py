@@ -616,5 +616,381 @@ class TestSingleton:
                 assert service1 is not service2
 
 
+# ==================== NEW TESTS: Webhook, Inbound Parse, Domain & Sender Verification ====================
+
+class TestListSubusersFieldMapping:
+    """Tests for field mapping in list_subusers response."""
+
+    def test_list_subusers_maps_disabled_field(self, mock_sendgrid_module):
+        """Should correctly map disabled field from each subuser."""
+        mock_module, mock_client = mock_sendgrid_module
+        subusers = [
+            {"username": "active_user", "email": "active@test.com", "disabled": False, "id": 1},
+            {"username": "disabled_user", "email": "disabled@test.com", "disabled": True, "id": 2},
+        ]
+        mock_response = MockSendGridResponse(200, json.dumps(subusers))
+        mock_client.client.subusers.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.list_subusers()
+
+                assert result[0]['disabled'] is False
+                assert result[1]['disabled'] is True
+
+    def test_list_subusers_defaults_disabled_to_false(self, mock_sendgrid_module):
+        """Should default disabled to False when not present in response."""
+        mock_module, mock_client = mock_sendgrid_module
+        subusers = [{"username": "user1", "email": "u@t.com"}]  # No disabled field
+        mock_response = MockSendGridResponse(200, json.dumps(subusers))
+        mock_client.client.subusers.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.list_subusers()
+
+                assert result[0]['disabled'] is False
+
+    def test_list_subusers_maps_id_field(self, mock_sendgrid_module):
+        """Should include id field in subuser response."""
+        mock_module, mock_client = mock_sendgrid_module
+        subusers = [{"username": "user1", "email": "u@t.com", "disabled": False, "id": 42}]
+        mock_response = MockSendGridResponse(200, json.dumps(subusers))
+        mock_client.client.subusers.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.list_subusers()
+
+                assert result[0]['id'] == 42
+
+
+class TestGetSubuserStatsEdgeCases:
+    """Additional edge case tests for get_subuser_stats."""
+
+    def test_get_subuser_stats_custom_days(self, mock_sendgrid_module):
+        """Should use custom days parameter for date range."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-15',
+            'stats': [{'metrics': {
+                'requests': 50, 'delivered': 48, 'opens': 10,
+                'unique_opens': 8, 'clicks': 3, 'unique_clicks': 2,
+                'bounces': 2, 'spam_reports': 0, 'unsubscribes': 0,
+                'blocks': 0, 'invalid_emails': 0
+            }}]
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+
+        mock_subuser = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.get.return_value = mock_response
+        mock_subuser.stats = mock_stats
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_subuser_stats('test_user', days=7)
+
+                assert result['period_days'] == 7
+
+    def test_get_subuser_stats_handles_zero_requests(self, mock_sendgrid_module):
+        """Should handle zero requests without division error for bounce_rate."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-15',
+            'stats': [{'metrics': {
+                'requests': 0, 'delivered': 0, 'opens': 0,
+                'unique_opens': 0, 'clicks': 0, 'unique_clicks': 0,
+                'bounces': 0, 'spam_reports': 0, 'unsubscribes': 0,
+                'blocks': 0, 'invalid_emails': 0
+            }}]
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+
+        mock_subuser = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.get.return_value = mock_response
+        mock_subuser.stats = mock_stats
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_subuser_stats('test_user')
+
+                assert result['totals']['bounce_rate'] == 0
+                assert result['totals']['open_rate'] == 0
+                assert result['totals']['click_rate'] == 0
+
+    def test_get_subuser_stats_exception(self, mock_sendgrid_module):
+        """Should return error dict on network exception."""
+        mock_module, mock_client = mock_sendgrid_module
+
+        mock_subuser = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.get.side_effect = Exception("Connection timeout")
+        mock_subuser.stats = mock_stats
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_subuser_stats('test_user')
+
+                assert 'error' in result
+                assert 'Connection timeout' in result['error']
+
+    def test_get_subuser_stats_empty_stats_array(self, mock_sendgrid_module):
+        """Should handle empty stats array in day data gracefully."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-15',
+            'stats': [{}]  # No metrics key
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+
+        mock_subuser = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.get.return_value = mock_response
+        mock_subuser.stats = mock_stats
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_subuser_stats('test_user')
+
+                # Should not crash, all totals should be 0
+                assert result['totals']['requests'] == 0
+
+
+class TestGlobalStatsEdgeCases:
+    """Additional edge case tests for get_global_stats."""
+
+    def test_get_global_stats_exception(self, mock_sendgrid_module):
+        """Should return error dict on exception."""
+        mock_module, mock_client = mock_sendgrid_module
+        mock_client.client.stats.get.side_effect = Exception("Network error")
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_global_stats()
+
+                assert 'error' in result
+
+    def test_get_global_stats_api_error_status(self, mock_sendgrid_module):
+        """Should return error dict on non-200 status."""
+        mock_module, mock_client = mock_sendgrid_module
+        mock_response = MockSendGridResponse(500, '{"error": "Internal error"}')
+        mock_client.client.stats.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_global_stats()
+
+                assert 'error' in result
+                assert '500' in result['error']
+
+    def test_get_global_stats_custom_days(self, mock_sendgrid_module):
+        """Should use custom days parameter."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-01',
+            'stats': [{'metrics': {
+                'requests': 100, 'delivered': 95, 'opens': 30,
+                'unique_opens': 25, 'clicks': 10, 'unique_clicks': 8,
+                'bounces': 5, 'spam_reports': 0, 'unsubscribes': 0,
+                'blocks': 0
+            }}]
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+        mock_client.client.stats.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_global_stats(days=7)
+
+                assert result['period_days'] == 7
+
+
+class TestEnableSubuserEdgeCases:
+    """Additional edge case tests for enable_subuser."""
+
+    def test_enable_subuser_200_status(self, mock_sendgrid_module):
+        """Should accept 200 status as success for enable."""
+        mock_module, mock_client = mock_sendgrid_module
+        mock_response = MockSendGridResponse(200, '{}')
+
+        mock_subuser = MagicMock()
+        mock_subuser.patch.return_value = mock_response
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.enable_subuser('test_user')
+
+                assert result is True
+
+    def test_enable_subuser_exception(self, mock_sendgrid_module):
+        """Should return False on exception during enable."""
+        mock_module, mock_client = mock_sendgrid_module
+
+        mock_subuser = MagicMock()
+        mock_subuser.patch.side_effect = Exception("Network error")
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.enable_subuser('test_user')
+
+                assert result is False
+
+    def test_enable_sends_disabled_false(self, mock_sendgrid_module):
+        """Enable should send disabled=False in the request body."""
+        mock_module, mock_client = mock_sendgrid_module
+        mock_response = MockSendGridResponse(204, '')
+
+        mock_subuser = MagicMock()
+        mock_subuser.patch.return_value = mock_response
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                service.enable_subuser('my_user')
+
+                mock_subuser.patch.assert_called_once_with(request_body={'disabled': False})
+
+    def test_disable_sends_disabled_true(self, mock_sendgrid_module):
+        """Disable should send disabled=True in the request body."""
+        mock_module, mock_client = mock_sendgrid_module
+        mock_response = MockSendGridResponse(204, '')
+
+        mock_subuser = MagicMock()
+        mock_subuser.patch.return_value = mock_response
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                service.disable_subuser('my_user')
+
+                mock_subuser.patch.assert_called_once_with(request_body={'disabled': True})
+
+
+class TestIsAvailableMethod:
+    """Tests for is_available method specifics."""
+
+    def test_is_available_true_with_client(self, mock_sendgrid_module):
+        """Should return True when sg client is initialized."""
+        mock_module, mock_client = mock_sendgrid_module
+
+        with patch.dict(os.environ, {'SENDGRID_MASTER_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+
+                assert service.is_available() is True
+
+    def test_is_available_false_without_client(self):
+        """Should return False when sg client is None."""
+        env = {k: v for k, v in os.environ.items() if k != 'SENDGRID_MASTER_API_KEY'}
+        with patch.dict(os.environ, env, clear=True):
+            from src.services.sendgrid_admin import SendGridAdminService
+            service = SendGridAdminService()
+
+            assert service.is_available() is False
+            assert service.sg is None
+
+
+class TestGlobalStatsRateCalculations:
+    """Detailed tests for rate calculation correctness in global stats."""
+
+    def test_open_rate_calculation(self, mock_sendgrid_module):
+        """open_rate should be (unique_opens / delivered) * 100."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-01',
+            'stats': [{'metrics': {
+                'requests': 1000, 'delivered': 500, 'opens': 200,
+                'unique_opens': 150, 'clicks': 50, 'unique_clicks': 30,
+                'bounces': 20, 'spam_reports': 1, 'unsubscribes': 2,
+                'blocks': 5
+            }}]
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+        mock_client.client.stats.get.return_value = mock_response
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_global_stats()
+
+                # open_rate = (150 / 500) * 100 = 30.0
+                assert result['totals']['open_rate'] == 30.0
+                # click_rate = (30 / 500) * 100 = 6.0
+                assert result['totals']['click_rate'] == 6.0
+                # bounce_rate = (20 / 1000) * 100 = 2.0
+                assert result['totals']['bounce_rate'] == 2.0
+                # delivery_rate = (500 / 1000) * 100 = 50.0
+                assert result['totals']['delivery_rate'] == 50.0
+
+    def test_subuser_stats_rate_precision(self, mock_sendgrid_module):
+        """Rate calculations should be rounded to 2 decimal places."""
+        mock_module, mock_client = mock_sendgrid_module
+        stats_data = [{
+            'date': '2026-01-01',
+            'stats': [{'metrics': {
+                'requests': 300, 'delivered': 299, 'opens': 100,
+                'unique_opens': 99, 'clicks': 33, 'unique_clicks': 33,
+                'bounces': 1, 'spam_reports': 0, 'unsubscribes': 0,
+                'blocks': 0, 'invalid_emails': 0
+            }}]
+        }]
+        mock_response = MockSendGridResponse(200, json.dumps(stats_data))
+
+        mock_subuser = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.get.return_value = mock_response
+        mock_subuser.stats = mock_stats
+        mock_client.client.subusers._.return_value = mock_subuser
+
+        with patch.dict(os.environ, {'SENDGRID_API_KEY': 'SG.test-key'}):
+            with patch.dict('sys.modules', {'sendgrid': mock_module}):
+                from src.services.sendgrid_admin import SendGridAdminService
+                service = SendGridAdminService()
+                result = service.get_subuser_stats('test_user')
+
+                # open_rate = (99/299)*100 = 33.11..
+                assert isinstance(result['totals']['open_rate'], float)
+                # Verify rounding to 2 decimal places
+                assert result['totals']['open_rate'] == round((99/299)*100, 2)
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

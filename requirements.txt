@@ -1,29 +1,29 @@
 # Multi-Tenant AI Platform - Requirements
 
 # Core Framework
-fastapi==0.115.4
-uvicorn==0.32.0
+fastapi==0.115.12
+uvicorn==0.34.3
 python-multipart==0.0.20
 pydantic==2.12.3
 pydantic-settings==2.11.0
 
 # AI & LangChain
-langchain==1.0.7
-langchain-classic==1.0.0
-langchain-openai==1.0.3
-langchain-google-vertexai==3.0.3
-langchain-core==1.0.5
+langchain==1.2.10
+langchain-classic==1.0.1
+langchain-openai==1.1.10
+langchain-google-vertexai==3.2.2
+langchain-core==1.2.17
 langchain-community>=0.2.0
-langsmith==0.4.43
-openai==2.8.0
+langsmith==0.7.11
+openai==2.24.0
 
 # Google Cloud
-google-cloud-aiplatform==1.127.0
-google-cloud-bigquery==3.26.0
-google-cloud-storage==2.18.2
-google-cloud-pubsub==2.33.0
+google-cloud-aiplatform==1.140.0
+google-cloud-bigquery==3.40.1
+google-cloud-storage==2.19.0  # Stay on 2.x (3.x is a major breaking change)
+google-cloud-pubsub==2.35.0
 google-cloud-tasks>=2.16.0
-google-auth==2.41.1
+google-auth==2.48.0
 
 # Database
 supabase>=2.9.0
@@ -32,27 +32,29 @@ storage3>=0.8.0
 supafunc>=0.6.0
 
 # Configuration & Validation
-pyyaml==6.0.1
-jsonschema==4.23.0
-python-dotenv==1.0.0
+pyyaml==6.0.3
+jsonschema==4.26.0
+python-dotenv==1.1.1
+email-validator>=2.0.0
 
 # Templates
-jinja2==3.1.4
+jinja2==3.1.6
 
 # PDF & Document Processing
 weasyprint==66.0
-pdfplumber==0.11.0
-pypdf==5.1.0
+fpdf2>=2.8.0
+pdfplumber==0.11.6
+pypdf==6.2.0
 pdf2image==1.17.0
-pillow==12.0.0
+pillow==12.1.0
+python-docx>=0.8.11
 
 # Excel/Data
-pandas>=2.0.0
-openpyxl==3.1.2
+pandas>=2.0.0,<3.0.0
+openpyxl==3.1.5
 pyarrow==21.0.0
 
-# Vector Search / FAISS
-faiss-cpu>=1.7.4
+# Sentence Embeddings (for RAG)
 sentence-transformers>=2.2.0
 
 # Email
@@ -62,14 +64,15 @@ sendgrid==6.12.5
 # Utilities
 requests==2.32.5
 python-dateutil==2.9.0.post0
-pytz==2024.1
+pytz==2025.2
 validators==0.35.0
-tenacity==8.5.0
+tenacity==9.1.2
 
 # Testing (Development)
-pytest==8.3.0
-pytest-asyncio==0.24.0
-pytest-cov==6.0.0
+pytest==8.4.1
+pytest-asyncio==0.26.0
+pytest-cov==6.2.1
+pytest-mock==3.15.1
 
 # Rate Limiting
 slowapi>=0.1.9
@@ -86,6 +89,6 @@ opentelemetry-instrumentation-requests>=0.45b0
 opentelemetry-exporter-gcp-trace>=1.6.0
 
 # Code Quality (Development)
-black==24.8.0
-flake8==7.1.1
-mypy==1.11.2
+black==25.1.0
+flake8==7.3.0
+mypy==1.16.0

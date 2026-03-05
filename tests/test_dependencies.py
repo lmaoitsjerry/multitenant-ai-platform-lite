@@ -45,18 +45,16 @@ class TestGetClientConfig:
             mock_class.assert_called_once_with("cached_client")
             assert result1 is result2
 
-    def test_raises_400_on_invalid_client(self):
-        """Should raise HTTPException 400 on config error."""
-        from src.api.dependencies import get_client_config, _client_configs
+    def test_falls_back_on_config_error(self):
+        """Should return FallbackClientConfig on config loading error instead of 400."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
         _client_configs.clear()
 
         with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Config not found")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="invalid_client")
-
-            assert exc_info.value.status_code == 400
-            assert "Invalid client" in exc_info.value.detail
+            result = get_client_config(x_client_id="invalid_client")
+            assert isinstance(result, FallbackClientConfig)
+            assert result.client_id == "invalid_client"
 
     def test_uses_env_var_fallback(self):
         """Should fall back to CLIENT_ID env var if header not provided."""
@@ -159,19 +157,20 @@ class TestErrorHandling:
     """Tests for error handling in get_client_config."""
 
     def test_logs_error_on_config_failure(self):
-        """Should log error when ClientConfig raises."""
-        from src.api.dependencies import get_client_config, _client_configs, logger
+        """Should log error and return FallbackClientConfig when ClientConfig raises."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig, logger
 
         _client_configs.clear()
 
         with patch('src.api.dependencies.ClientConfig', side_effect=ValueError("Test error")):
             with patch.object(logger, 'error') as mock_logger:
-                with pytest.raises(HTTPException):
-                    get_client_config(x_client_id="failing_client")
+                result = get_client_config(x_client_id="failing_client")
 
                 # Should have logged the error
                 mock_logger.assert_called()
                 assert "failing_client" in str(mock_logger.call_args)
+                # Should return FallbackClientConfig instead of raising
+                assert isinstance(result, FallbackClientConfig)
 
     def test_logs_info_on_successful_load(self):
         """Should log info when config loads successfully."""
@@ -188,29 +187,28 @@ class TestErrorHandling:
                 mock_logger.assert_called()
                 assert "new_client" in str(mock_logger.call_args)
 
-    def test_http_exception_has_correct_status(self):
-        """HTTPException should be 400 Bad Request."""
-        from src.api.dependencies import get_client_config, _client_configs
+    def test_returns_fallback_on_error(self):
+        """Should return FallbackClientConfig instead of raising HTTPException."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
         _client_configs.clear()
 
         with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Not found")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="bad_client")
+            result = get_client_config(x_client_id="bad_client")
 
-            assert exc_info.value.status_code == 400
+            assert isinstance(result, FallbackClientConfig)
 
-    def test_http_exception_has_descriptive_detail(self):
-        """HTTPException detail should include client ID."""
-        from src.api.dependencies import get_client_config, _client_configs
+    def test_fallback_preserves_client_id(self):
+        """FallbackClientConfig should preserve the requested client ID."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
         _client_configs.clear()
 
         with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Not found")):
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config(x_client_id="specific_client")
+            result = get_client_config(x_client_id="specific_client")
 
-            assert "specific_client" in exc_info.value.detail
+            assert isinstance(result, FallbackClientConfig)
+            assert result.client_id == "specific_client"
 
 
 class TestHeaderHandling:
@@ -313,7 +311,7 @@ class TestIntegrationScenarios:
 
     def test_exception_on_one_tenant_doesnt_affect_others(self):
         """Exception loading one tenant shouldn't affect others."""
-        from src.api.dependencies import get_client_config, _client_configs
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
         _client_configs.clear()
 
@@ -325,9 +323,9 @@ class TestIntegrationScenarios:
             return mock_good_config
 
         with patch('src.api.dependencies.ClientConfig', side_effect=config_factory):
-            # Bad tenant fails
-            with pytest.raises(HTTPException):
-                get_client_config(x_client_id="bad_tenant")
+            # Bad tenant gets fallback config
+            bad_result = get_client_config(x_client_id="bad_tenant")
+            assert isinstance(bad_result, FallbackClientConfig)
 
             # Good tenant should still work
             result = get_client_config(x_client_id="good_tenant")

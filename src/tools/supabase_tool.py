@@ -542,7 +542,8 @@ class SupabaseTool:
         destination: Optional[str] = None,
         check_in: Optional[str] = None,
         check_out: Optional[str] = None,
-        nights: Optional[int] = None
+        nights: Optional[int] = None,
+        travelers: Optional[List[Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Create invoice (optionally from quote)
@@ -603,7 +604,9 @@ class SupabaseTool:
                 record['check_out'] = check_out
             if nights:
                 record['nights'] = nights
-            
+            if travelers:
+                record['travelers'] = travelers
+
             logger.info(f"Creating invoice with record: {record}")
             result = self.client.table(self.TABLE_INVOICES).insert(record).execute()
 
@@ -905,6 +908,25 @@ class SupabaseTool:
         except Exception as e:
             logger.error(f"Failed to get activities: {e}")
             return []
+
+    def delete_activity(self, activity_id: str, client_id: str) -> bool:
+        """Delete a CRM activity"""
+        if not self.client:
+            return False
+
+        try:
+            result = self.client.table(self.TABLE_ACTIVITIES)\
+                .delete()\
+                .eq('id', activity_id)\
+                .eq('tenant_id', self.tenant_id)\
+                .eq('client_id', client_id)\
+                .execute()
+
+            return len(result.data) > 0
+
+        except Exception as e:
+            logger.error(f"Failed to delete activity: {e}")
+            return False
 
     # ==================== Helpdesk Operations ====================
 

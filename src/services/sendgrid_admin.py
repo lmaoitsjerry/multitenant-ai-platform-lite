@@ -21,7 +21,7 @@ class SendGridAdminService:
     """Service for managing SendGrid subusers and retrieving platform-wide email stats"""
 
     def __init__(self):
-        self.api_key = os.getenv("SENDGRID_API_KEY")
+        self.api_key = os.getenv("SENDGRID_MASTER_API_KEY")
         self.sg = None
 
         if self.api_key:

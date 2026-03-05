@@ -74,8 +74,12 @@ class ProfileUpdateRequest(BaseModel):
 
 # ==================== Dependencies ====================
 
-def get_auth_service(x_client_id: str = Header(None, alias="X-Client-ID")) -> AuthService:
-    """Get AuthService instance for the tenant"""
+def get_auth_service(x_client_id: Optional[str] = Header(None, alias="X-Client-ID")) -> AuthService:
+    """Get AuthService instance for the tenant.
+
+    Falls back to environment variables when tenant config is not in the database,
+    since all tenants share the same Supabase instance.
+    """
     client_id = x_client_id or os.getenv("CLIENT_ID", "africastay")
 
     try:
@@ -85,6 +89,12 @@ def get_auth_service(x_client_id: str = Header(None, alias="X-Client-ID")) -> Au
             supabase_key=config.supabase_service_key
         )
     except FileNotFoundError:
+        # Fallback to env vars - all tenants share the same Supabase instance
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+        if supabase_url and supabase_key:
+            logger.warning(f"Tenant '{client_id}' not in DB, using env vars for auth")
+            return AuthService(supabase_url=supabase_url, supabase_key=supabase_key)
         raise HTTPException(status_code=400, detail=f"Unknown client: {client_id}")
 
 
@@ -108,7 +118,7 @@ def get_platform_auth_service() -> AuthService:
     )
 
 
-def get_tenant_id(x_client_id: str = Header(None, alias="X-Client-ID")) -> str:
+def get_tenant_id(x_client_id: Optional[str] = Header(None, alias="X-Client-ID")) -> str:
     """Get tenant ID from header"""
     return x_client_id or os.getenv("CLIENT_ID", "africastay")
 
@@ -121,7 +131,7 @@ async def login(
     request: Request,  # Required for rate limiter
     login_data: LoginRequest,  # Renamed from 'request' to avoid conflict
     auth_service: AuthService = Depends(get_platform_auth_service),
-    x_client_id: str = Header(None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(None, alias="X-Client-ID")
 ):
     """
     Authenticate user with email and password.
@@ -207,7 +217,7 @@ async def refresh_token(
 @auth_router.get("/me")
 async def get_current_user(
     request: Request,
-    authorization: str = Header(None),
+    authorization: Optional[str] = Header(None),
     auth_service: AuthService = Depends(get_auth_service),
     tenant_id: str = Depends(get_tenant_id)
 ):
@@ -278,7 +288,7 @@ async def request_password_reset(
 
 @auth_router.post("/password/update")
 @limiter.limit("5/minute")  # Prevent token brute force attempts
-async def update_password_with_token(
+def update_password_with_token(
     request: Request,  # Required for rate limiter
     update_data: PasswordUpdateWithTokenRequest,  # Renamed from 'request' to avoid conflict
     auth_service: AuthService = Depends(get_platform_auth_service)
@@ -320,7 +330,7 @@ async def update_password_with_token(
 @auth_router.post("/password/change")
 async def change_password(
     request: PasswordChangeRequest,
-    authorization: str = Header(None),
+    authorization: Optional[str] = Header(None),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
@@ -355,7 +365,7 @@ async def change_password(
 async def update_profile(
     request_body: ProfileUpdateRequest,
     request: Request,
-    authorization: str = Header(None),
+    authorization: Optional[str] = Header(None),
     auth_service: AuthService = Depends(get_auth_service),
     tenant_id: str = Depends(get_tenant_id)
 ):

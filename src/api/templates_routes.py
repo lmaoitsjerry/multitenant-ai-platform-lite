@@ -13,33 +13,15 @@ import logging
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
-import os
-
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
+from src.middleware.auth_middleware import get_current_user, UserContext
 from src.tools.supabase_tool import SupabaseTool
 from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
 
 templates_router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
-
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            logger.error(f"Failed to load config for {client_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-    return _client_configs[client_id]
 
 
 # ==================== Pydantic Models ====================
@@ -125,7 +107,10 @@ def get_default_settings() -> Dict[str, Any]:
 # ==================== Endpoints ====================
 
 @templates_router.get("")
-async def get_template_settings(config: ClientConfig = Depends(get_client_config)):
+def get_template_settings(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
     """
     Get all template settings for the tenant
 
@@ -152,9 +137,10 @@ async def get_template_settings(config: ClientConfig = Depends(get_client_config
 
 
 @templates_router.put("")
-async def update_template_settings(
+def update_template_settings(
     data: TemplateSettingsUpdate,
-    config: ClientConfig = Depends(get_client_config)
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update template settings
@@ -189,7 +175,10 @@ async def update_template_settings(
 
 
 @templates_router.get("/quote")
-async def get_quote_template(config: ClientConfig = Depends(get_client_config)):
+def get_quote_template(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
     """Get quote template settings only"""
     try:
         supabase = SupabaseTool(config)
@@ -210,7 +199,10 @@ async def get_quote_template(config: ClientConfig = Depends(get_client_config)):
 
 
 @templates_router.get("/invoice")
-async def get_invoice_template(config: ClientConfig = Depends(get_client_config)):
+def get_invoice_template(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
     """Get invoice template settings only"""
     try:
         supabase = SupabaseTool(config)
@@ -231,7 +223,10 @@ async def get_invoice_template(config: ClientConfig = Depends(get_client_config)
 
 
 @templates_router.post("/reset")
-async def reset_template_settings(config: ClientConfig = Depends(get_client_config)):
+def reset_template_settings(
+    config: ClientConfig = Depends(get_client_config),
+    user: UserContext = Depends(get_current_user),
+):
     """Reset template settings to defaults"""
     try:
         supabase = SupabaseTool(config)
@@ -248,7 +243,7 @@ async def reset_template_settings(config: ClientConfig = Depends(get_client_conf
 
 
 @templates_router.get("/layouts")
-async def get_available_layouts():
+def get_available_layouts():
     """Get available PDF layout styles"""
     return {
         "success": True,

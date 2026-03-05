@@ -106,7 +106,7 @@ class BigQueryTool:
 
         # Add optional meal plan filter
         if meal_plan_pref:
-            query += f" AND r.meal_plan = '{meal_plan_pref}'"
+            query += " AND r.meal_plan = @meal_plan"
 
         # Add deduplication BEFORE ORDER BY
         query += """
@@ -133,14 +133,17 @@ class BigQueryTool:
             # Convert search terms to uppercase for case-insensitive matching
             destinations_upper = [d.upper() for d in search_terms]
 
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ArrayQueryParameter("destinations", "STRING", destinations_upper),
-                    bigquery.ScalarQueryParameter("check_in", "DATE", check_in),
-                    bigquery.ScalarQueryParameter("check_out", "DATE", check_out),
-                    bigquery.ScalarQueryParameter("nights", "INTEGER", nights)
-                ]
-            )
+            query_params = [
+                bigquery.ArrayQueryParameter("destinations", "STRING", destinations_upper),
+                bigquery.ScalarQueryParameter("check_in", "DATE", check_in),
+                bigquery.ScalarQueryParameter("check_out", "DATE", check_out),
+                bigquery.ScalarQueryParameter("nights", "INTEGER", nights),
+            ]
+            if meal_plan_pref:
+                query_params.append(
+                    bigquery.ScalarQueryParameter("meal_plan", "STRING", meal_plan_pref)
+                )
+            job_config = bigquery.QueryJobConfig(query_parameters=query_params)
             # Execute query with 8 second timeout to stay under frontend's 10s limit
             query_job = self.client.query(query, job_config=job_config)
             results = query_job.result(timeout=8.0)

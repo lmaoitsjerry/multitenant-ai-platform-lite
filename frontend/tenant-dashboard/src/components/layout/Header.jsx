@@ -1,9 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
+
+// Shared hook for click-outside dropdown dismissal
+function useClickOutside(isOpen, onClose) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose]);
+
+  return ref;
+}
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { notificationsApi, quotesApi, crmApi } from '../../services/api';
+import { notificationsApi, quotesApi, crmApi, inboundApi } from '../../services/api';
 import {
   MagnifyingGlassIcon,
   BellIcon,
@@ -21,7 +41,10 @@ import {
   MoonIcon,
   UserIcon,
   MapPinIcon,
+  QuestionMarkCircleIcon,
+  InboxArrowDownIcon,
 } from '@heroicons/react/24/outline';
+import HelpDeskPanel from './HelpDeskPanel';
 
 const pageTitles = {
   '/': 'Dashboard',
@@ -38,35 +61,26 @@ const pageTitles = {
   '/settings': 'Settings',
 };
 
-// Map notification types to icons
-const notificationIcons = {
-  quote_request: DocumentTextIcon,
-  email_received: EnvelopeIcon,
-  invoice_paid: CurrencyDollarIcon,
-  invoice_overdue: ExclamationCircleIcon,
-  booking_confirmed: CheckCircleIcon,
-  client_added: UserPlusIcon,
-  team_invite: UserPlusIcon,
-  system: BellIcon,
-  mention: BellIcon,
+// Map notification types to icons and labels
+const notificationTypeConfig = {
+  quote_request: { icon: DocumentTextIcon, label: 'Quote', color: 'text-blue-500 bg-blue-500/10' },
+  email_received: { icon: EnvelopeIcon, label: 'Enquiry', color: 'text-orange-500 bg-orange-500/10' },
+  invoice_paid: { icon: CurrencyDollarIcon, label: 'Payment', color: 'text-green-500 bg-green-500/10' },
+  invoice_overdue: { icon: ExclamationCircleIcon, label: 'Overdue', color: 'text-red-500 bg-red-500/10' },
+  booking_confirmed: { icon: CheckCircleIcon, label: 'Booking', color: 'text-emerald-500 bg-emerald-500/10' },
+  client_added: { icon: UserPlusIcon, label: 'Client', color: 'text-purple-500 bg-purple-500/10' },
+  team_invite: { icon: UserPlusIcon, label: 'Team', color: 'text-indigo-500 bg-indigo-500/10' },
+  system: { icon: BellIcon, label: 'System', color: 'text-gray-500 bg-gray-500/10' },
+  mention: { icon: BellIcon, label: 'Mention', color: 'text-yellow-500 bg-yellow-500/10' },
 };
 
+// Kept for backwards compat
+const notificationIcons = Object.fromEntries(
+  Object.entries(notificationTypeConfig).map(([k, v]) => [k, v.icon])
+);
+
 function UserDropdown({ isOpen, onClose, user, isAdmin, isConsultant, logout, clientInfo }) {
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
+  const dropdownRef = useClickOutside(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -140,22 +154,8 @@ function UserDropdown({ isOpen, onClose, user, isAdmin, isConsultant, logout, cl
 }
 
 function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, onNotificationClick, loading }) {
-  const dropdownRef = useRef(null);
+  const dropdownRef = useClickOutside(isOpen, onClose);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -165,11 +165,12 @@ function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, 
     onNotificationClick(notification);
 
     // Navigate to related entity if available
-    if (notification.entity_type && notification.entity_id) {
+    if (notification.entity_type) {
       const routes = {
         quote: `/quotes/${notification.entity_id}`,
         invoice: `/invoices/${notification.entity_id}`,
         client: `/crm/clients/${notification.entity_id}`,
+        ticket: '/crm/triage',
       };
       const route = routes[notification.entity_type];
       if (route) {
@@ -198,7 +199,7 @@ function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, 
       </div>
 
       {/* Notifications List */}
-      <div className="max-h-80 overflow-y-auto">
+      <div className="max-h-96 overflow-y-auto">
         {loading ? (
           <div className="text-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-theme-primary mx-auto mb-2"></div>
@@ -209,38 +210,70 @@ function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, 
             <BellIcon className="w-8 h-8 text-theme-muted mx-auto mb-2" />
             <p className="text-sm text-theme-muted">No notifications</p>
           </div>
-        ) : (
-          notifications.map((notification) => {
-            const IconComponent = notificationIcons[notification.type] || BellIcon;
+        ) : (() => {
+          // Group by time: Today / Earlier
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayItems = notifications.filter(n => new Date(n.created_at) >= today);
+          const earlierItems = notifications.filter(n => new Date(n.created_at) < today);
+
+          const renderNotification = (notification) => {
+            const typeConfig = notificationTypeConfig[notification.type] || notificationTypeConfig.system;
+            const IconComponent = typeConfig.icon;
+            const isClickable = notification.entity_type && (notification.entity_id || notification.entity_type === 'ticket');
+
             return (
               <div
                 key={notification.id}
                 onClick={() => handleNotificationClick(notification)}
-                className={`flex gap-3 p-4 list-item-interactive cursor-pointer border-b border-theme-light ${
-                  !notification.read ? 'bg-primary-50/50' : ''
+                className={`flex gap-3 p-3.5 cursor-pointer transition-colors border-b border-theme-light ${
+                  !notification.read ? 'bg-[var(--color-primary)]/8 hover:bg-[var(--color-primary)]/12' : 'hover:bg-theme-border-light'
                 }`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  !notification.read ? 'bg-primary-100' : 'bg-theme-surface-elevated'
-                }`}>
-                  <IconComponent className={`w-5 h-5 ${
-                    !notification.read ? 'text-theme-primary' : 'text-theme-muted'
-                  }`} />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${typeConfig.color}`}>
+                  <IconComponent className="w-4.5 h-4.5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm ${!notification.read ? 'font-semibold text-theme' : 'text-theme-secondary'}`}>
-                    {notification.title}
-                  </p>
-                  <p className="text-sm text-theme-muted truncate">{notification.message}</p>
-                  <p className="text-xs text-theme-muted mt-1">{notification.time_ago || notification.time}</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm leading-snug ${!notification.read ? 'font-semibold text-theme' : 'text-theme-secondary'}`}>
+                      {notification.title}
+                    </p>
+                    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${typeConfig.color}`}>
+                      {typeConfig.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-theme-muted mt-0.5 line-clamp-2">{notification.message}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[11px] text-theme-muted">{notification.time_ago || notification.time}</span>
+                    {isClickable && (
+                      <span className="text-[11px] text-theme-primary">View &rarr;</span>
+                    )}
+                  </div>
                 </div>
                 {!notification.read && (
                   <div className="w-2 h-2 bg-theme-primary rounded-full flex-shrink-0 mt-2"></div>
                 )}
               </div>
             );
-          })
-        )}
+          };
+
+          return (
+            <>
+              {todayItems.length > 0 && (
+                <>
+                  <div className="px-4 py-1.5 bg-theme-surface-elevated text-[11px] font-semibold text-theme-muted uppercase tracking-wider">Today</div>
+                  {todayItems.map(renderNotification)}
+                </>
+              )}
+              {earlierItems.length > 0 && (
+                <>
+                  <div className="px-4 py-1.5 bg-theme-surface-elevated text-[11px] font-semibold text-theme-muted uppercase tracking-wider">Earlier</div>
+                  {earlierItems.map(renderNotification)}
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Footer */}
@@ -257,24 +290,9 @@ function NotificationsDropdown({ isOpen, onClose, notifications, onMarkAllRead, 
   );
 }
 
-// Search dropdown component
-function SearchDropdown({ isOpen, onClose, searchQuery, results, loading, onResultClick }) {
-  const dropdownRef = useRef(null);
+function SearchDropdown({ isOpen, onClose, searchQuery, results, loading }) {
+  const dropdownRef = useClickOutside(isOpen, onClose);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
 
   if (!isOpen || !searchQuery) return null;
 
@@ -304,55 +322,39 @@ function SearchDropdown({ isOpen, onClose, searchQuery, results, loading, onResu
         </div>
       ) : (
         <div className="max-h-80 overflow-y-auto">
-          {/* Clients Section */}
-          {results.filter(r => r.type === 'client').length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-theme-surface-elevated text-xs font-semibold text-theme-muted uppercase">
-                Clients
-              </div>
-              {results.filter(r => r.type === 'client').map((result) => (
-                <div
-                  key={`client-${result.id}`}
-                  onClick={() => handleClick('client', result.id)}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-theme-border-light cursor-pointer border-b border-theme-light"
-                >
-                  <div className="p-2 rounded-lg bg-[var(--color-primary)]/10">
-                    <UserIcon className="w-4 h-4 text-theme-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-theme truncate">{result.name}</p>
-                    <p className="text-xs text-theme-muted truncate">{result.email}</p>
-                  </div>
+          {[
+            { type: 'client', label: 'Clients', icon: UserIcon, iconClass: 'bg-[var(--color-primary)]/10', textClass: 'text-theme-primary' },
+            { type: 'quote', label: 'Quotes', icon: DocumentTextIcon, iconClass: 'bg-[var(--color-secondary)]/10', textClass: 'text-[var(--color-secondary)]' },
+          ].map(({ type, label, icon: Icon, iconClass, textClass }) => {
+            const items = results.filter(r => r.type === type);
+            if (items.length === 0) return null;
+            return (
+              <div key={type}>
+                <div className="px-4 py-2 bg-theme-surface-elevated text-xs font-semibold text-theme-muted uppercase">
+                  {label}
                 </div>
-              ))}
-            </>
-          )}
-
-          {/* Quotes Section */}
-          {results.filter(r => r.type === 'quote').length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-theme-surface-elevated text-xs font-semibold text-theme-muted uppercase">
-                Quotes
+                {items.map((result) => (
+                  <div
+                    key={`${type}-${result.id}`}
+                    onClick={() => handleClick(type, result.id)}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-theme-border-light cursor-pointer border-b border-theme-light"
+                  >
+                    <div className={`p-2 rounded-lg ${iconClass}`}>
+                      <Icon className={`w-4 h-4 ${textClass}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-theme truncate">{result.name}</p>
+                      <p className="text-xs text-theme-muted truncate">
+                        {type === 'client' ? result.email : (
+                          result.destination && <span className="inline-flex items-center gap-1"><MapPinIcon className="w-3 h-3" />{result.destination}</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-              {results.filter(r => r.type === 'quote').map((result) => (
-                <div
-                  key={`quote-${result.id}`}
-                  onClick={() => handleClick('quote', result.id)}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-theme-border-light cursor-pointer border-b border-theme-light"
-                >
-                  <div className="p-2 rounded-lg bg-[var(--color-secondary)]/10">
-                    <DocumentTextIcon className="w-4 h-4 text-[var(--color-secondary)]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-theme truncate">{result.name}</p>
-                    <p className="text-xs text-theme-muted truncate">
-                      {result.destination && <span className="inline-flex items-center gap-1"><MapPinIcon className="w-3 h-3" />{result.destination}</span>}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
+            );
+          })}
         </div>
       )}
     </div>
@@ -367,9 +369,11 @@ export default function Header() {
   const { branding, darkMode, toggleDarkMode } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showHelpDesk, setShowHelpDesk] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [enquiryCount, setEnquiryCount] = useState(0);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -468,14 +472,30 @@ export default function Header() {
     }
   }, []);
 
+  // Fetch open enquiry count
+  const fetchEnquiryCount = useCallback(async () => {
+    try {
+      const response = await inboundApi.listTickets({ status: 'open', limit: 1 });
+      if (response.data?.success) {
+        setEnquiryCount(response.data.stats?.open || 0);
+      }
+    } catch (error) {
+      // Silently fail for enquiry count
+    }
+  }, []);
+
   // Initial fetch and polling
   useEffect(() => {
     fetchUnreadCount();
+    fetchEnquiryCount();
 
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
+    // Poll for new notifications every 15 seconds
+    const interval = setInterval(() => {
+      fetchUnreadCount();
+      fetchEnquiryCount();
+    }, 15000);
     return () => clearInterval(interval);
-  }, [fetchUnreadCount]);
+  }, [fetchUnreadCount, fetchEnquiryCount]);
 
   // Fetch notifications when dropdown opens
   useEffect(() => {
@@ -517,6 +537,7 @@ export default function Header() {
   };
 
   return (
+    <>
     <header className="h-16 bg-theme-surface border-b border-theme flex items-center justify-between px-6">
       {/* Left Side - Theme Toggle & Page Title */}
       <div className="flex items-center gap-4">
@@ -562,6 +583,29 @@ export default function Header() {
             loading={searchLoading}
           />
         </div>
+
+        {/* Enquiry Triage */}
+        <button
+          onClick={() => navigate('/crm/triage')}
+          className="relative p-2 text-theme-muted hover:text-theme-secondary hover:bg-theme-border-light rounded-lg"
+          title="Enquiry Triage"
+        >
+          <InboxArrowDownIcon className="w-6 h-6" />
+          {enquiryCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
+              {enquiryCount > 99 ? '99+' : enquiryCount}
+            </span>
+          )}
+        </button>
+
+        {/* Help Desk */}
+        <button
+          onClick={() => setShowHelpDesk(true)}
+          className="p-2 text-theme-muted hover:text-theme-secondary hover:bg-theme-border-light rounded-lg"
+          title="AI Help Desk"
+        >
+          <QuestionMarkCircleIcon className="w-6 h-6" />
+        </button>
 
         {/* Notifications */}
         <div className="relative">
@@ -630,5 +674,12 @@ export default function Header() {
         </div>
       </div>
     </header>
+
+    {/* Help Desk Slide-in Panel */}
+    <HelpDeskPanel
+      isOpen={showHelpDesk}
+      onClose={() => setShowHelpDesk(false)}
+    />
+    </>
   );
 }

@@ -162,9 +162,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem('client_info_cache');  // Clear cached org data
     clearTenantId();  // Clear tenant_id so next login uses correct tenant
     setUser(null);
     setError(null);
+    window.dispatchEvent(new CustomEvent('auth:logout'));  // Notify modules to clear in-memory state
   };
 
   const updateUser = (userData) => {

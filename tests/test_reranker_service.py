@@ -304,3 +304,305 @@ class TestRerankResults:
 
         # Should return documents (model not available, returns original)
         assert result == documents
+
+
+# ==================== NEW TESTS: Scores, Edge Cases, Error Handling, Model Init ====================
+
+class TestRerankScoreSorting:
+    """Tests for correct score-based sorting behavior."""
+
+    def test_rerank_sorts_descending_by_score(self):
+        """Documents should be sorted descending by rerank_score."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.1, 0.9, 0.5, 0.3, 0.7]
+        service.model = mock_model
+
+        documents = [
+            {"content": f"doc{i}", "id": i} for i in range(5)
+        ]
+
+        result = service.rerank("query", documents, top_k=5)
+
+        scores = [doc['rerank_score'] for doc in result]
+        assert scores == sorted(scores, reverse=True)
+        assert result[0]['rerank_score'] == 0.9
+        assert result[-1]['rerank_score'] == 0.1
+
+    def test_rerank_preserves_negative_scores(self):
+        """Should handle negative scores correctly (cross-encoders can produce them)."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [-2.0, 1.5, -0.5]
+        service.model = mock_model
+
+        documents = [
+            {"content": "irrelevant"},
+            {"content": "highly relevant"},
+            {"content": "somewhat irrelevant"},
+        ]
+
+        result = service.rerank("query", documents, top_k=3)
+
+        assert result[0]['rerank_score'] == 1.5
+        assert result[1]['rerank_score'] == -0.5
+        assert result[2]['rerank_score'] == -2.0
+
+    def test_rerank_equal_scores_preserves_order(self):
+        """When scores are equal, original order should be preserved (stable sort)."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5, 0.5, 0.5]
+        service.model = mock_model
+
+        documents = [
+            {"content": "first", "id": 1},
+            {"content": "second", "id": 2},
+            {"content": "third", "id": 3},
+        ]
+
+        result = service.rerank("query", documents, top_k=3)
+
+        assert len(result) == 3
+        # All should have same score
+        assert all(doc['rerank_score'] == 0.5 for doc in result)
+
+
+class TestRerankSingleResult:
+    """Tests for reranking with exactly one document."""
+
+    def test_rerank_single_document(self):
+        """Should handle single document correctly."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.85]
+        service.model = mock_model
+
+        documents = [{"content": "only document"}]
+        result = service.rerank("query", documents, top_k=5)
+
+        assert len(result) == 1
+        assert result[0]['rerank_score'] == 0.85
+        assert result[0]['content'] == "only document"
+
+    def test_rerank_single_document_without_model(self):
+        """Should return single document without model."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+        service._init_error = "not available"
+
+        documents = [{"content": "only doc"}]
+        result = service.rerank("query", documents, top_k=1)
+
+        assert len(result) == 1
+        assert result[0]['content'] == "only doc"
+
+
+class TestRerankTopK:
+    """Tests for top_k parameter behavior."""
+
+    def test_top_k_less_than_documents(self):
+        """top_k should limit number of returned documents."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.1, 0.5, 0.9, 0.3, 0.7]
+        service.model = mock_model
+
+        documents = [{"content": f"doc{i}"} for i in range(5)]
+        result = service.rerank("query", documents, top_k=2)
+
+        assert len(result) == 2
+        assert result[0]['rerank_score'] == 0.9
+        assert result[1]['rerank_score'] == 0.7
+
+    def test_top_k_greater_than_documents(self):
+        """top_k larger than document count should return all documents."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5, 0.8]
+        service.model = mock_model
+
+        documents = [{"content": "a"}, {"content": "b"}]
+        result = service.rerank("query", documents, top_k=10)
+
+        assert len(result) == 2
+
+    def test_top_k_zero(self):
+        """top_k=0 should return empty list."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5]
+        service.model = mock_model
+
+        documents = [{"content": "doc"}]
+        result = service.rerank("query", documents, top_k=0)
+
+        assert len(result) == 0
+
+    def test_default_top_k_is_five(self):
+        """Default top_k should be 5."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.1] * 10
+        service.model = mock_model
+
+        documents = [{"content": f"doc{i}"} for i in range(10)]
+        result = service.rerank("query", documents)
+
+        assert len(result) == 5
+
+
+class TestRerankErrorRecovery:
+    """Tests for error handling and recovery."""
+
+    def test_model_predict_runtime_error(self):
+        """Should fall back to original order on RuntimeError."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.side_effect = RuntimeError("CUDA out of memory")
+        service.model = mock_model
+
+        documents = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
+        result = service.rerank("query", documents, top_k=2)
+
+        assert len(result) == 2
+        assert result[0]["content"] == "a"
+
+    def test_model_predict_value_error(self):
+        """Should fall back on ValueError."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.side_effect = ValueError("Invalid input shape")
+        service.model = mock_model
+
+        documents = [{"content": "x"}, {"content": "y"}]
+        result = service.rerank("query", documents, top_k=2)
+
+        assert len(result) == 2
+        assert result[0]["content"] == "x"
+
+    def test_document_missing_content_key(self):
+        """Should handle documents missing the content key."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.5, 0.8]
+        service.model = mock_model
+
+        documents = [{"title": "no content key"}, {"content": "has content"}]
+        result = service.rerank("query", documents, top_k=2)
+
+        # Should not crash; missing key returns empty string via .get()
+        assert len(result) == 2
+
+
+class TestModelInitializationDetails:
+    """Tests for model initialization flow."""
+
+    def test_lazy_init_import_error_caches(self):
+        """ImportError during _lazy_init should be cached."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        with patch.dict('sys.modules', {'sentence_transformers': None}):
+            with patch('builtins.__import__', side_effect=ImportError("No module")):
+                result1 = service._lazy_init()
+                assert result1 is False
+                assert service._init_error is not None
+
+                # Second call should return False without trying again
+                result2 = service._lazy_init()
+                assert result2 is False
+
+    def test_lazy_init_generic_exception_caches(self):
+        """Generic exception during _lazy_init should be cached."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service = ReRankerService()
+
+        # Create a mock sentence_transformers module whose CrossEncoder raises
+        mock_st_module = MagicMock()
+        mock_st_module.CrossEncoder.side_effect = RuntimeError("Download failed")
+
+        with patch.dict('sys.modules', {'sentence_transformers': mock_st_module}):
+            result = service._lazy_init()
+            # CrossEncoder() raises RuntimeError, which is cached
+            assert service._init_error is not None
+
+    def test_singleton_preserves_state_across_calls(self):
+        """Singleton should preserve model state across instantiations."""
+        from src.services.reranker_service import ReRankerService
+
+        ReRankerService._instance = None
+        service1 = ReRankerService()
+        service1._init_error = "test error"
+
+        service2 = ReRankerService()
+        assert service2._init_error == "test error"
+        assert service1 is service2
+
+    def test_reranker_module_level_singleton_reset(self):
+        """Module-level _reranker should be resettable."""
+        import src.services.reranker_service as module
+        from src.services.reranker_service import get_reranker, ReRankerService
+
+        ReRankerService._instance = None
+        module._reranker = None
+
+        r1 = get_reranker()
+        assert module._reranker is r1
+
+        # Reset and get new instance
+        ReRankerService._instance = None
+        module._reranker = None
+
+        r2 = get_reranker()
+        assert module._reranker is r2

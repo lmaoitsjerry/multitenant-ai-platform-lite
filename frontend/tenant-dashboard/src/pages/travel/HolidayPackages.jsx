@@ -17,9 +17,11 @@ import {
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
-import { hotelsApi, flightsApi, activitiesApi, transfersApi, travelApi, hotelbedsApi } from '../../services/api';
+import { hotelsApi, flightsApi, activitiesApi, transfersApi, travelApi } from '../../services/api';
 import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
+import HotelDetailModal from '../../components/travel/HotelDetailModal';
 import { getDestinationIata } from '../../utils/destinations';
+import { normalizeHotelPrice, normalizeActivityPrice, normalizeTransferPrice } from '../../utils/fieldTransformers';
 
 // Departure airports for South African travelers
 const DEPARTURE_AIRPORTS = [
@@ -58,6 +60,8 @@ export default function HolidayPackages() {
   const [hasSearched, setHasSearched] = useState(false);
   const [activeTab, setActiveTab] = useState('hotels');
   const [expandedHotel, setExpandedHotel] = useState(null);
+  const [selectedHotel, setSelectedHotel] = useState(null); // For HotelDetailModal
+  const [expandedActivity, setExpandedActivity] = useState(null);
   const [showAllOptions, setShowAllOptions] = useState({}); // Track which hotels show all options
   const [aggregation, setAggregation] = useState(null); // Multi-provider aggregation metadata
 
@@ -176,6 +180,9 @@ export default function HolidayPackages() {
 
     try {
       // Search hotels, flights, activities, and transfers in parallel
+      const destIata = getDestinationIata(selectedDestination);
+      const totalPax = totalAdults + totalChildren;
+
       const [hotelResponse, flightResponse, activitiesResponse, transfersResponse] = await Promise.all([
         hotelsApi.searchAggregated({
           destination: selectedDestination,
@@ -184,7 +191,7 @@ export default function HolidayPackages() {
           adults: totalAdults,
           children: totalChildren,
         }).catch(() =>
-          // Fall back to standard Juniper-only search if aggregated fails
+          // Fall back to standard search if aggregated fails
           hotelsApi.search({
             destination: selectedDestination,
             check_in: checkIn,
@@ -194,21 +201,20 @@ export default function HolidayPackages() {
             max_hotels: 50
           })
         ),
-        flightsApi.searchRttc(selectedDeparture, getDestinationIata(selectedDestination), checkIn, checkOut, totalAdults).catch(() =>
+        flightsApi.searchRttc(selectedDeparture, destIata, checkIn, checkOut, totalAdults).catch(() =>
           flightsApi.search(selectedDestination, checkIn, checkOut).catch(() => ({ data: { success: false, flights: [] } }))
         ),
-        hotelbedsApi.searchActivities(selectedDestination, totalAdults).catch(() =>
-          activitiesApi.search(selectedDestination).catch(() => ({ data: { success: false, activities: [] } }))
-        ),
-        hotelbedsApi.searchTransfers(`${selectedDestination} Airport to Hotel`, checkIn, totalAdults + totalChildren).catch(() =>
-          transfersApi.search(selectedDestination).catch(() => ({ data: { success: false, transfers: [] } }))
-        )
+        activitiesApi.search({ destination: selectedDestination, participants: totalAdults })
+          .catch((err) => { console.warn('Activities search failed:', err.message); return { data: { success: false, activities: [] } }; }),
+        transfersApi.search({ destination: selectedDestination, from_code: destIata, to_code: destIata, date: checkIn, passengers: totalPax })
+          .catch((err) => { console.warn('Transfers search failed:', err.message); return { data: { success: false, transfers: [] } }; }),
       ]);
 
       // Process hotel results
       let hotelsOk = false;
       if (hotelResponse.data?.success) {
         setHotels(hotelResponse.data.hotels || []);
+        setPriceRange([0, 999999]);
         setSearchTime(hotelResponse.data.search_time_seconds);
         setAggregation(hotelResponse.data.aggregation || null);
         hotelsOk = (hotelResponse.data.hotels || []).length > 0;
@@ -252,7 +258,7 @@ export default function HolidayPackages() {
             price_per_person: a.price_per_person || a.price_adult || 0,
             image_url: imageUrl,
             description: (a.description || '').replace(/<[^>]*>/g, ''),
-            source: a.source || (activitiesResponse.data.source === 'hotelbeds' ? 'hotelbeds' : 'sample'),
+            source: a.source || activitiesResponse.data.source || 'unknown',
           };
         });
         setActivities(normalized);
@@ -373,22 +379,41 @@ export default function HolidayPackages() {
     return roomType;
   };
 
+  // Helper to get display price for a hotel (prefers ZAR-converted, falls back to canonical normalizer)
+  const getHotelPrice = (h) => {
+    return h.display_price_zar
+      || h.best_rate?.rate_per_night_zar
+      || normalizeHotelPrice(h.best_rate || h).ratePerNight
+      || h.cheapest_price
+      || 0;
+  };
+
+  // Helper to get the correct currency for display (ZAR if converted, otherwise original)
+  const getHotelCurrency = (h) => {
+    if (h.display_price_zar || h.best_rate?.rate_per_night_zar) return 'ZAR';
+    return h.best_rate?.currency || h.original_currency || h.options?.[0]?.currency || 'ZAR';
+  };
+
   // Filter out zero-price hotels and apply user filters
   const displayHotels = useMemo(() => {
-    let filtered = hotels.filter(h => h.cheapest_price > 0);
+    let filtered = hotels.filter(h => getHotelPrice(h) > 0);
     if (starFilter.length > 0) {
-      filtered = filtered.filter(h => h.stars && starFilter.includes(h.stars));
+      filtered = filtered.filter(h => {
+        const stars = h.star_rating || h.stars;
+        return stars && starFilter.includes(stars);
+      });
     }
     if (priceRange[0] > 0 || priceRange[1] < 999999) {
       filtered = filtered.filter(h => {
-        const price = h.display_price_zar || h.cheapest_price || 0;
+        const price = getHotelPrice(h);
         return price >= priceRange[0] && price <= priceRange[1];
       });
     }
     if (providerFilter.length > 0) {
       filtered = filtered.filter(h => {
-        const src = (h.source || h.provider || '').toLowerCase();
-        return providerFilter.includes(src);
+        // Multi-provider: match if any source in the hotel's sources array matches
+        const hotelSources = (h.sources || [h.source || h.provider || '']).map(s => (s || '').toLowerCase());
+        return providerFilter.some(pf => hotelSources.includes(pf));
       });
     }
     return filtered;
@@ -396,18 +421,28 @@ export default function HolidayPackages() {
 
   // Compute available star ratings and providers for filter options
   const availableStars = useMemo(() => {
-    const stars = new Set(hotels.filter(h => h.stars).map(h => h.stars));
+    const stars = new Set(hotels.filter(h => h.star_rating || h.stars).map(h => h.star_rating || h.stars));
     return [...stars].sort();
   }, [hotels]);
 
   const availableProviders = useMemo(() => {
-    const providers = new Set(hotels.map(h => (h.source || h.provider || '').toLowerCase()).filter(Boolean));
+    const providers = new Set();
+    hotels.forEach(h => {
+      // Collect from sources[] array (merged profiles) or single source
+      const srcs = h.sources || [h.source || h.provider || ''];
+      srcs.forEach(s => { if (s) providers.add(s.toLowerCase()); });
+    });
     return [...providers].sort();
   }, [hotels]);
 
   const maxPrice = useMemo(() => {
     if (hotels.length === 0) return 999999;
-    return Math.max(...hotels.map(h => h.display_price_zar || h.cheapest_price || 0));
+    return Math.max(...hotels.map(h => getHotelPrice(h)));
+  }, [hotels]);
+
+  const minPrice = useMemo(() => {
+    const prices = hotels.map(h => getHotelPrice(h)).filter(p => p > 0);
+    return prices.length ? Math.min(...prices) : 0;
   }, [hotels]);
 
   return (
@@ -777,15 +812,15 @@ export default function HolidayPackages() {
                 <div className="space-y-2">
                   <input
                     type="range"
-                    min={0}
+                    min={minPrice}
                     max={maxPrice}
                     step={Math.max(1, Math.round(maxPrice / 100))}
                     value={priceRange[1] >= 999999 ? maxPrice : priceRange[1]}
-                    onChange={(e) => setPriceRange([priceRange[0], parseInt(e.target.value)])}
+                    onChange={(e) => setPriceRange([0, Math.max(minPrice, parseInt(e.target.value))])}
                     className="w-full accent-blue-600"
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>R0</span>
+                    <span>R{minPrice.toLocaleString()}</span>
                     <span>{priceRange[1] >= 999999 ? 'Any' : `R${priceRange[1].toLocaleString()}`}</span>
                   </div>
                 </div>
@@ -829,8 +864,11 @@ export default function HolidayPackages() {
                 className="card overflow-hidden hover:shadow-md transition-shadow"
               >
                 <div className="flex">
-                  {/* Hotel Image */}
-                  <div className="w-48 h-40 flex-shrink-0">
+                  {/* Hotel Image — click opens detail modal */}
+                  <div
+                    className="w-48 h-40 flex-shrink-0 cursor-pointer"
+                    onClick={() => setSelectedHotel(hotel)}
+                  >
                     {hotel.image_url ? (
                       <img
                         src={hotel.image_url}
@@ -851,19 +889,29 @@ export default function HolidayPackages() {
                   <div className="flex-1 p-4">
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-semibold text-theme">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3
+                            className="text-lg font-semibold text-theme cursor-pointer hover:text-theme-primary hover:underline"
+                            onClick={() => setSelectedHotel(hotel)}
+                          >
                             {hotel.hotel_name}
                           </h3>
-                          {/* Provider Badge */}
-                          {(hotel.source || hotel.provider) && (
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getProviderStyle(hotel.source || hotel.provider)}`}>
-                              {(hotel.source || hotel.provider).toUpperCase()}
-                            </span>
-                          )}
+                          {/* Provider Badges — show all sources for merged profiles */}
+                          {(hotel.sources && hotel.sources.length > 0)
+                            ? hotel.sources.map((src, i) => (
+                                <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-medium ${getProviderStyle(src)}`}>
+                                  {src.toUpperCase()}
+                                </span>
+                              ))
+                            : (hotel.source || hotel.provider) && (
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getProviderStyle(hotel.source || hotel.provider)}`}>
+                                  {(hotel.source || hotel.provider).toUpperCase()}
+                                </span>
+                              )
+                          }
                         </div>
                         <div className="flex items-center gap-2 mt-1">
-                          {renderStars(hotel.stars)}
+                          {renderStars(hotel.star_rating || hotel.stars)}
                           {hotel.zone && (
                             <span className="text-sm text-gray-500">
                               <MapPinIcon className="h-4 w-4 inline" /> {hotel.zone}
@@ -873,35 +921,60 @@ export default function HolidayPackages() {
                       </div>
                       <div className="text-right">
                         <div className="text-2xl font-bold text-theme-primary">
-                          {hotel.display_price_zar
-                            ? formatCurrency(hotel.display_price_zar, 'ZAR')
-                            : formatCurrency(hotel.cheapest_price, hotel.options?.[0]?.currency || 'ZAR')}
+                          {formatCurrency(getHotelPrice(hotel), getHotelCurrency(hotel))}
                         </div>
-                        {hotel.display_price_zar && hotel.original_currency && (
+                        {hotel.display_price_zar && hotel.original_currency && hotel.original_currency !== 'ZAR' && (
                           <div className="text-xs text-gray-400">
-                            {formatCurrency(hotel.cheapest_price, hotel.original_currency)}
+                            {formatCurrency(hotel.cheapest_price, hotel.original_currency)} original
                           </div>
                         )}
                         <div className="text-sm text-gray-500">
-                          hotel only • {hotel.cheapest_meal_plan}
+                          {hotel.best_rate?.meal_plan || hotel.cheapest_meal_plan
+                            ? `hotel only • ${hotel.best_rate?.meal_plan || hotel.cheapest_meal_plan}`
+                            : 'hotel only'
+                          }
                         </div>
-                        <div className="mt-2">
+                        {/* Savings indicator — only compare ZAR-converted rates to avoid cross-currency errors */}
+                        {hotel.all_rates && hotel.all_rates.length > 1 && (() => {
+                          const zarPrices = hotel.all_rates
+                            .map(r => r.rate_per_night_zar)
+                            .filter(p => p && p > 0);
+                          if (zarPrices.length > 1) {
+                            const min = Math.min(...zarPrices);
+                            const max = Math.max(...zarPrices);
+                            const savingsPct = Math.round(((max - min) / max) * 100);
+                            if (savingsPct > 5) {
+                              return (
+                                <div className="text-xs text-green-600 font-medium mt-0.5">
+                                  Save up to {savingsPct}% vs other providers
+                                </div>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
+                        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                           <AddToQuoteButton
                             item={{
                               id: hotel.hotel_id,
                               type: 'hotel',
                               name: hotel.hotel_name,
-                              price: hotel.cheapest_price,
-                              currency: hotel.options?.[0]?.currency || 'ZAR',
+                              price: getHotelPrice(hotel),
+                              currency: hotel.best_rate?.currency || hotel.options?.[0]?.currency || 'ZAR',
                               details: {
-                                stars: hotel.stars,
+                                stars: hotel.star_rating || hotel.stars,
                                 zone: hotel.zone,
-                                room_type: hotel.options?.[0]?.room_type,
-                                meal_plan: hotel.cheapest_meal_plan,
+                                room_type: hotel.best_rate?.room_type || hotel.options?.[0]?.room_type,
+                                meal_plan: hotel.best_rate?.meal_plan || hotel.cheapest_meal_plan,
                                 check_in: checkIn,
                                 check_out: checkOut,
                                 nights: calculateNights(),
                                 destination: selectedDestination,
+                                sources: hotel.sources,
+                                rooms: rooms,
+                                adults: rooms.reduce((sum, r) => sum + r.adults, 0),
+                                children: rooms.reduce((sum, r) => sum + r.children, 0),
+                                room_count: rooms.length,
                               }
                             }}
                             size="sm"
@@ -910,26 +983,27 @@ export default function HolidayPackages() {
                       </div>
                     </div>
 
-                    {/* Room Options Summary */}
+                    {/* Room Options Summary — click to toggle inline room list */}
                     <div className="mt-3">
                       <button
+                        className="text-sm text-theme-primary hover:underline cursor-pointer"
                         onClick={() => setExpandedHotel(expandedHotel === hotel.hotel_id ? null : hotel.hotel_id)}
-                        className="text-sm text-theme-primary hover:text-theme-primary-dark"
                       >
-                        {hotel.options?.length || 0} room options available
-                        {expandedHotel === hotel.hotel_id ? ' (hide)' : ' (show)'}
+                        {(hotel.all_rates?.length || hotel.options?.length || 0)} room options available
+                        {hotel.sources?.length > 1 ? ` from ${hotel.sources.length} providers` : ''}
+                        {expandedHotel === hotel.hotel_id ? ' ▲' : ' ▼'}
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Expanded Room Options */}
-                {expandedHotel === hotel.hotel_id && hotel.options && (
-                  <div className="border-t border-gray-200 bg-gray-50 p-4">
+                {/* Expanded Room Options — uses all_rates[] (merged profiles) or options[] (legacy) */}
+                {expandedHotel === hotel.hotel_id && (hotel.all_rates?.length > 0 || hotel.options?.length > 0) && (
+                  <div className="border-t border-gray-200 bg-gray-50 p-4" onClick={(e) => e.stopPropagation()}>
                     <div className="grid gap-2">
                       {(showAllOptions[hotel.hotel_id]
-                        ? hotel.options
-                        : hotel.options.slice(0, VISIBLE_OPTIONS_COUNT)
+                        ? (hotel.all_rates?.length > 0 ? hotel.all_rates : hotel.options)
+                        : (hotel.all_rates?.length > 0 ? hotel.all_rates : hotel.options).slice(0, VISIBLE_OPTIONS_COUNT)
                       ).map((option, idx) => (
                         <div
                           key={idx}
@@ -971,14 +1045,18 @@ export default function HolidayPackages() {
                           <div className="flex items-center gap-3 ml-4">
                             <div className="text-right">
                               <span className="font-semibold text-gray-900">
-                                {option.price_total_zar
-                                  ? formatCurrency(option.price_total_zar, 'ZAR')
-                                  : formatCurrency(option.price_total, option.currency)}
+                                {option.rate_per_night_zar
+                                  ? formatCurrency(option.rate_per_night_zar, 'ZAR')
+                                  : option.price_total_zar
+                                    ? formatCurrency(option.price_total_zar, 'ZAR')
+                                    : formatCurrency(option.rate_per_night || option.price_total || option.price_per_night || 0, option.currency || 'ZAR')}
                               </span>
                               <div className="text-sm text-gray-500">
-                                {option.price_per_night_zar
-                                  ? `${formatCurrency(option.price_per_night_zar, 'ZAR')}/night`
-                                  : `${formatCurrency(option.price_per_night, option.currency)}/night`}
+                                {option.rate_per_night_zar
+                                  ? `${formatCurrency(option.rate_per_night_zar, 'ZAR')}/night`
+                                  : option.price_per_night_zar
+                                    ? `${formatCurrency(option.price_per_night_zar, 'ZAR')}/night`
+                                    : `${formatCurrency(option.rate_per_night || option.price_per_night || 0, option.currency || 'ZAR')}/night`}
                               </div>
                             </div>
                             <AddToQuoteButton
@@ -986,10 +1064,10 @@ export default function HolidayPackages() {
                                 id: `${hotel.hotel_id}-${idx}`,
                                 type: 'hotel',
                                 name: hotel.hotel_name,
-                                price: option.price_total,
+                                price: option.rate_per_night || option.price_total || option.price_per_night || 0,
                                 currency: option.currency || 'ZAR',
                                 details: {
-                                  stars: hotel.stars,
+                                  stars: hotel.star_rating || hotel.stars,
                                   zone: hotel.zone,
                                   room_type: option.room_type,
                                   meal_plan: option.meal_plan,
@@ -997,8 +1075,12 @@ export default function HolidayPackages() {
                                   check_out: checkOut,
                                   nights: calculateNights(),
                                   destination: selectedDestination,
-                                  price_per_night: option.price_per_night,
+                                  price_per_night: option.rate_per_night || option.price_per_night,
                                   provider: option.source || option.provider || hotel.source || hotel.provider,
+                                  rooms: rooms,
+                                  adults: rooms.reduce((sum, r) => sum + r.adults, 0),
+                                  children: rooms.reduce((sum, r) => sum + r.children, 0),
+                                  room_count: rooms.length,
                                 }
                               }}
                               size="sm"
@@ -1008,17 +1090,20 @@ export default function HolidayPackages() {
                       ))}
 
                       {/* Show All / Show Less Toggle */}
-                      {hotel.options.length > VISIBLE_OPTIONS_COUNT && (
-                        <button
-                          onClick={() => toggleShowAllOptions(hotel.hotel_id)}
-                          className="w-full py-3 text-center text-theme-primary hover:text-theme-primary-dark font-medium border-t border-gray-100 transition-colors mt-2"
-                        >
-                          {showAllOptions[hotel.hotel_id]
-                            ? 'Show less'
-                            : `+ Show all ${hotel.options.length - VISIBLE_OPTIONS_COUNT} more options`
-                          }
-                        </button>
-                      )}
+                      {(() => {
+                        const rateCount = hotel.all_rates?.length || hotel.options?.length || 0;
+                        return rateCount > VISIBLE_OPTIONS_COUNT ? (
+                          <button
+                            onClick={() => toggleShowAllOptions(hotel.hotel_id)}
+                            className="w-full py-3 text-center text-theme-primary hover:text-theme-primary-dark font-medium border-t border-gray-100 transition-colors mt-2"
+                          >
+                            {showAllOptions[hotel.hotel_id]
+                              ? 'Show less'
+                              : `+ Show all ${rateCount - VISIBLE_OPTIONS_COUNT} more options`
+                            }
+                          </button>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 )}
@@ -1146,34 +1231,79 @@ export default function HolidayPackages() {
               )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activities.map((activity) => (
-                <div key={activity.activity_id} className="card overflow-hidden hover:shadow-md transition-shadow">
-                  {activity.image_url ? (
-                    <img src={activity.image_url} alt={activity.name} className="w-full h-40 object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.querySelector('.placeholder-icon')?.classList.remove('hidden'); }} />
-                  ) : (
-                    <div className="w-full h-40 bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
-                      <SparklesIcon className="h-10 w-10 text-blue-300" />
-                    </div>
-                  )}
-                  <div className="p-4">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-900">{activity.name}</h3>
-                      {activity.category && (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">{activity.category}</span>
+              {activities.map((activity) => {
+                const catColors = {
+                  'Water Sports': 'bg-blue-100 text-blue-700',
+                  'Cultural': 'bg-amber-100 text-amber-700',
+                  'Nature': 'bg-green-100 text-green-700',
+                  'Adventure': 'bg-red-100 text-red-700',
+                  'Sightseeing': 'bg-indigo-100 text-indigo-700',
+                  'Food & Drink': 'bg-orange-100 text-orange-700',
+                  'Wellness': 'bg-teal-100 text-teal-700',
+                  'Wildlife': 'bg-emerald-100 text-emerald-700',
+                };
+                const tagColor = catColors[activity.category] || 'bg-purple-100 text-purple-700';
+                const isExpanded = expandedActivity === activity.activity_id;
+
+                return (
+                  <div
+                    key={activity.activity_id}
+                    className="card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => setExpandedActivity(isExpanded ? null : activity.activity_id)}
+                  >
+                    {activity.image_url ? (
+                      <img src={activity.image_url} alt={activity.name} className="w-full h-40 object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.querySelector('.placeholder-icon')?.classList.remove('hidden'); }} />
+                    ) : (
+                      <div className="w-full h-40 bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
+                        <SparklesIcon className="h-10 w-10 text-blue-300" />
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-gray-900">{activity.name}</h3>
+                        {activity.category && (
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${tagColor}`}>{activity.category}</span>
+                        )}
+                      </div>
+                      {activity.description && (
+                        <p className={`text-sm text-gray-600 mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{activity.description}</p>
                       )}
-                    </div>
-                    {activity.description && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{activity.description}</p>}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                      <span className="font-semibold text-theme-primary">
-                        {(activity.price_per_person || activity.price_adult) > 0 ? formatCurrency(activity.price_per_person || activity.price_adult, activity.currency) : 'Price on request'}
-                      </span>
-                      {(activity.price_per_person || activity.price_adult) > 0 && (
-                        <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: activity.price_per_person || activity.price_adult, currency: activity.currency || 'EUR', details: { category: activity.category, destination: selectedDestination } }} size="sm" />
+
+                      {/* Expanded Details */}
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                          {activity.duration && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <span className="font-medium">Duration:</span> {activity.duration}
+                            </div>
+                          )}
+                          {activity.destination && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <span className="font-medium">Location:</span> {activity.destination}
+                            </div>
+                          )}
+                          {activity.price_child > 0 && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <span className="font-medium">Child price:</span> {formatCurrency(activity.price_child, activity.currency)}
+                            </div>
+                          )}
+                        </div>
                       )}
+
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                        <span className="font-semibold text-theme-primary">
+                          {(activity.price_per_person || activity.price_adult) > 0 ? formatCurrency(activity.price_per_person || activity.price_adult, activity.currency) : 'Price on request'}
+                        </span>
+                        {(activity.price_per_person || activity.price_adult) > 0 && (
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: normalizeActivityPrice(activity).pricePerPerson * rooms.reduce((sum, r) => sum + r.adults, 0), currency: activity.currency || 'EUR', details: { category: activity.category, destination: selectedDestination, participants: rooms.reduce((sum, r) => sum + r.adults, 0), price_per_person: normalizeActivityPrice(activity).pricePerPerson } }} size="sm" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -1201,7 +1331,7 @@ export default function HolidayPackages() {
                       {transfer.price > 0 ? formatCurrency(transfer.price, transfer.currency) : 'Price on request'}
                     </span>
                     {transfer.price > 0 && (
-                      <AddToQuoteButton item={{ id: `transfer-${idx}`, type: 'transfer', name: transfer.name || 'Airport Transfer', price: transfer.price, currency: transfer.currency || 'ZAR', details: { type: transfer.type, destination: selectedDestination } }} size="sm" />
+                      <AddToQuoteButton item={(() => { const norm = normalizeTransferPrice(transfer); const pax = rooms.reduce((sum, r) => sum + r.adults + r.children, 0); const totalPrice = norm.pricingModel === 'per_person' ? norm.price * pax : norm.price; return { id: `transfer-${idx}`, type: 'transfer', name: transfer.name || 'Airport Transfer', price: totalPrice, currency: transfer.currency || 'ZAR', details: { type: transfer.type, destination: selectedDestination, passengers: pax, pricing_model: norm.pricingModel, unit_price: norm.price } }; })()} size="sm" />
                     )}
                   </div>
                 </div>
@@ -1239,6 +1369,18 @@ export default function HolidayPackages() {
             Checking availability for hotels, flights, activities, and transfers. This may take 30-60 seconds.
           </p>
         </div>
+      )}
+
+      {/* Hotel Detail Modal */}
+      {selectedHotel && (
+        <HotelDetailModal
+          hotel={selectedHotel}
+          onClose={() => setSelectedHotel(null)}
+          checkIn={checkIn}
+          checkOut={checkOut}
+          nights={calculateNights()}
+          formatCurrency={formatCurrency}
+        />
       )}
     </div>
   );

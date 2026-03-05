@@ -498,14 +498,12 @@ class TestListNotificationsUnit:
         )
         mock.client.table.return_value = mock_query
         return mock
-
-    @pytest.mark.asyncio
-    async def test_list_notifications_success(self, mock_config, mock_supabase):
+    def test_list_notifications_success(self, mock_config, mock_supabase):
         """list_notifications should return formatted notifications."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config,
                 user_id="user-123",
                 limit=20,
@@ -518,14 +516,12 @@ class TestListNotificationsUnit:
         assert len(result['data']) == 1
         assert result['data'][0]['id'] == 'notif-1'
         assert 'time_ago' in result['data'][0]
-
-    @pytest.mark.asyncio
-    async def test_list_notifications_with_pagination(self, mock_config, mock_supabase):
+    def test_list_notifications_with_pagination(self, mock_config, mock_supabase):
         """list_notifications should respect pagination params."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config,
                 user_id="user-123",
                 limit=10,
@@ -535,14 +531,12 @@ class TestListNotificationsUnit:
 
         assert result['limit'] == 10
         assert result['offset'] == 5
-
-    @pytest.mark.asyncio
-    async def test_list_notifications_unread_only(self, mock_config, mock_supabase):
+    def test_list_notifications_unread_only(self, mock_config, mock_supabase):
         """list_notifications should filter unread only when requested."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config,
                 user_id="user-123",
                 limit=20,
@@ -551,9 +545,7 @@ class TestListNotificationsUnit:
             )
 
         assert result['success'] is True
-
-    @pytest.mark.asyncio
-    async def test_list_notifications_error_handling(self, mock_config):
+    def test_list_notifications_error_handling(self, mock_config):
         """list_notifications should handle errors gracefully."""
         from src.api.notifications_routes import list_notifications
         from fastapi import HTTPException
@@ -563,7 +555,7 @@ class TestListNotificationsUnit:
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
             with pytest.raises(HTTPException) as exc_info:
-                await list_notifications(
+                list_notifications(
                     config=mock_config,
                     user_id="user-123",
                     limit=20,
@@ -575,9 +567,7 @@ class TestListNotificationsUnit:
 
 class TestUnreadCountUnit:
     """Unit tests for get_unread_count endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_unread_count_success(self, mock_config):
+    def test_get_unread_count_success(self, mock_config):
         """get_unread_count should return count of unread notifications."""
         from src.api.notifications_routes import get_unread_count
 
@@ -592,16 +582,14 @@ class TestUnreadCountUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_unread_count(
+            result = get_unread_count(
                 config=mock_config,
                 user_id="user-123"
             )
 
         assert result['success'] is True
         assert result['unread_count'] == 5
-
-    @pytest.mark.asyncio
-    async def test_get_unread_count_zero(self, mock_config):
+    def test_get_unread_count_zero(self, mock_config):
         """get_unread_count should return 0 when no unread notifications."""
         from src.api.notifications_routes import get_unread_count
 
@@ -616,37 +604,33 @@ class TestUnreadCountUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_unread_count(
+            result = get_unread_count(
                 config=mock_config,
                 user_id="user-123"
             )
 
         assert result['unread_count'] == 0
-
-    @pytest.mark.asyncio
-    async def test_get_unread_count_error_returns_zero(self, mock_config):
-        """get_unread_count should return 0 on error."""
+    def test_get_unread_count_error_raises_500(self, mock_config):
+        """get_unread_count should raise 500 on error."""
         from src.api.notifications_routes import get_unread_count
+        from fastapi import HTTPException
 
         mock_supabase = MagicMock()
         mock_supabase.client.table.side_effect = Exception("Database error")
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_unread_count(
-                config=mock_config,
-                user_id="user-123"
-            )
+            with pytest.raises(HTTPException) as exc_info:
+                get_unread_count(
+                    config=mock_config,
+                    user_id="user-123"
+                )
 
-        # Error handling returns 0 instead of raising
-        assert result['success'] is True
-        assert result['unread_count'] == 0
+        assert exc_info.value.status_code == 500
 
 
 class TestMarkNotificationReadUnit:
     """Unit tests for mark_notification_read endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_mark_notification_read_success(self, mock_config):
+    def test_mark_notification_read_success(self, mock_config):
         """mark_notification_read should update notification as read."""
         from src.api.notifications_routes import mark_notification_read
 
@@ -659,7 +643,7 @@ class TestMarkNotificationReadUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await mark_notification_read(
+            result = mark_notification_read(
                 notification_id="notif-123",
                 config=mock_config,
                 user_id="user-123"
@@ -667,9 +651,7 @@ class TestMarkNotificationReadUnit:
 
         assert result['success'] is True
         assert result['message'] == 'Notification marked as read'
-
-    @pytest.mark.asyncio
-    async def test_mark_notification_read_error(self, mock_config):
+    def test_mark_notification_read_error(self, mock_config):
         """mark_notification_read should handle errors."""
         from src.api.notifications_routes import mark_notification_read
         from fastapi import HTTPException
@@ -679,7 +661,7 @@ class TestMarkNotificationReadUnit:
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
             with pytest.raises(HTTPException) as exc_info:
-                await mark_notification_read(
+                mark_notification_read(
                     notification_id="notif-123",
                     config=mock_config,
                     user_id="user-123"
@@ -689,9 +671,7 @@ class TestMarkNotificationReadUnit:
 
 class TestMarkAllReadUnit:
     """Unit tests for mark_all_read endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_mark_all_read_success(self, mock_config):
+    def test_mark_all_read_success(self, mock_config):
         """mark_all_read should update all notifications as read."""
         from src.api.notifications_routes import mark_all_read
 
@@ -704,16 +684,14 @@ class TestMarkAllReadUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await mark_all_read(
+            result = mark_all_read(
                 config=mock_config,
                 user_id="user-123"
             )
 
         assert result['success'] is True
         assert result['message'] == 'All notifications marked as read'
-
-    @pytest.mark.asyncio
-    async def test_mark_all_read_error(self, mock_config):
+    def test_mark_all_read_error(self, mock_config):
         """mark_all_read should handle errors."""
         from src.api.notifications_routes import mark_all_read
         from fastapi import HTTPException
@@ -723,7 +701,7 @@ class TestMarkAllReadUnit:
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
             with pytest.raises(HTTPException) as exc_info:
-                await mark_all_read(
+                mark_all_read(
                     config=mock_config,
                     user_id="user-123"
                 )
@@ -732,9 +710,7 @@ class TestMarkAllReadUnit:
 
 class TestNotificationPreferencesUnit:
     """Unit tests for notification preferences endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_get_preferences_success(self, mock_config):
+    def test_get_preferences_success(self, mock_config):
         """get_notification_preferences should return user preferences."""
         from src.api.notifications_routes import get_notification_preferences
 
@@ -742,27 +718,24 @@ class TestNotificationPreferencesUnit:
         mock_query = MagicMock()
         mock_query.select.return_value = mock_query
         mock_query.eq.return_value = mock_query
-        mock_query.single.return_value = mock_query
         mock_query.execute.return_value = MagicMock(
-            data={
+            data=[{
                 'email_quote_request': True,
                 'email_invoice_paid': True,
                 'email_system': False
-            }
+            }]
         )
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_notification_preferences(
+            result = get_notification_preferences(
                 config=mock_config,
                 user_id="user-123"
             )
 
         assert result['success'] is True
         assert result['data']['email_quote_request'] is True
-
-    @pytest.mark.asyncio
-    async def test_get_preferences_returns_defaults(self, mock_config):
+    def test_get_preferences_returns_defaults(self, mock_config):
         """get_notification_preferences should return defaults if none exist."""
         from src.api.notifications_routes import get_notification_preferences
 
@@ -775,7 +748,7 @@ class TestNotificationPreferencesUnit:
         mock_supabase.client.table.return_value = mock_query
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_notification_preferences(
+            result = get_notification_preferences(
                 config=mock_config,
                 user_id="user-123"
             )
@@ -784,9 +757,7 @@ class TestNotificationPreferencesUnit:
         # Should have default preferences
         assert result['data']['email_quote_request'] is True
         assert result['data']['email_digest_enabled'] is False
-
-    @pytest.mark.asyncio
-    async def test_update_preferences_success(self, mock_config):
+    def test_update_preferences_success(self, mock_config):
         """update_notification_preferences should update preferences."""
         from src.api.notifications_routes import (
             update_notification_preferences,
@@ -804,7 +775,7 @@ class TestNotificationPreferencesUnit:
         prefs = NotificationPreferencesUpdate(email_quote_request=False)
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await update_notification_preferences(
+            result = update_notification_preferences(
                 preferences=prefs,
                 config=mock_config,
                 user_id="user-123"
@@ -812,9 +783,7 @@ class TestNotificationPreferencesUnit:
 
         assert result['success'] is True
         assert result['message'] == 'Preferences updated'
-
-    @pytest.mark.asyncio
-    async def test_update_preferences_empty_raises_error(self, mock_config):
+    def test_update_preferences_empty_raises_error(self, mock_config):
         """update_notification_preferences should reject empty updates."""
         from src.api.notifications_routes import (
             update_notification_preferences,
@@ -826,7 +795,7 @@ class TestNotificationPreferencesUnit:
 
         with patch("src.api.notifications_routes.SupabaseTool"):
             with pytest.raises(HTTPException) as exc_info:
-                await update_notification_preferences(
+                update_notification_preferences(
                     preferences=prefs,
                     config=mock_config,
                     user_id="user-123"
@@ -851,12 +820,23 @@ class TestNotificationServiceUnit:
 
     def test_create_notification_success(self, service, mock_config):
         """create_notification should insert notification and return ID."""
-        mock_query = MagicMock()
-        mock_query.insert.return_value = mock_query
-        mock_query.execute.return_value = MagicMock(
+        # Dedup query mock — returns empty (no duplicate)
+        dedup_mock = MagicMock()
+        dedup_mock.select.return_value = dedup_mock
+        dedup_mock.eq.return_value = dedup_mock
+        dedup_mock.gte.return_value = dedup_mock
+        dedup_mock.limit.return_value = dedup_mock
+        dedup_mock.execute.return_value = MagicMock(data=[])
+
+        # Insert mock
+        insert_mock = MagicMock()
+        insert_mock.insert.return_value = insert_mock
+        insert_mock.execute.return_value = MagicMock(
             data=[{'id': 'notif-new-123'}]
         )
-        service.supabase.client.table.return_value = mock_query
+
+        # First call = dedup select, second call = insert
+        service.supabase.client.table.side_effect = [dedup_mock, insert_mock]
 
         with patch.object(service, '_send_notification_email'):
             result = service.create_notification(
@@ -872,6 +852,7 @@ class TestNotificationServiceUnit:
 
     def test_create_notification_without_email(self, service, mock_config):
         """create_notification should skip email when send_email=False."""
+        # No entity_id → skips dedup, single table call for insert
         mock_query = MagicMock()
         mock_query.insert.return_value = mock_query
         mock_query.execute.return_value = MagicMock(
@@ -967,7 +948,7 @@ class TestNotificationServiceUnit:
 
         mock_notify.assert_called_once()
         call_kwargs = mock_notify.call_args[1]
-        assert call_kwargs['type'] == 'system'
+        assert call_kwargs['type'] == 'quote_sent'
         assert 'Jane Smith' in call_kwargs['message']
 
     def test_notify_email_received(self, service, mock_config):
@@ -1025,9 +1006,8 @@ class TestNotificationServiceUnit:
         mock_query = MagicMock()
         mock_query.select.return_value = mock_query
         mock_query.eq.return_value = mock_query
-        mock_query.single.return_value = mock_query
         mock_query.execute.return_value = MagicMock(
-            data={'email': 'user@example.com'}
+            data=[{'email': 'user@example.com'}]
         )
         service.supabase.client.table.return_value = mock_query
 
@@ -1086,101 +1066,54 @@ class TestNotificationServiceUnit:
 # ==================== get_current_user_id Tests ====================
 
 class TestGetCurrentUserId:
-    """Unit tests for get_current_user_id helper function."""
+    """Unit tests for get_current_user_id helper function.
 
-    def test_get_current_user_id_no_auth_header(self, mock_config):
-        """get_current_user_id should raise 401 without auth header."""
+    The function now delegates to the auth middleware's get_current_user,
+    which returns a UserContext. get_current_user_id extracts user_id from it.
+    """
+
+    def test_get_current_user_id_returns_user_id(self):
+        """get_current_user_id should return user_id from UserContext."""
         from src.api.notifications_routes import get_current_user_id
-        from fastapi import HTTPException
+        from src.middleware.auth_middleware import UserContext
 
-        with pytest.raises(HTTPException) as exc_info:
-            get_current_user_id(authorization=None, config=mock_config)
+        mock_user = UserContext(
+            user_id="org-user-123",
+            auth_user_id="auth-user-id",
+            email="test@example.com",
+            name="Test User",
+            role="admin",
+            tenant_id="test-tenant"
+        )
 
-        assert exc_info.value.status_code == 401
-        assert "Authorization required" in str(exc_info.value.detail)
+        result = get_current_user_id(user=mock_user)
+        assert result == "org-user-123"
 
-    def test_get_current_user_id_invalid_format(self, mock_config):
-        """get_current_user_id should raise 401 for invalid format."""
+    def test_get_current_user_id_different_users(self):
+        """get_current_user_id should return correct user_id for different users."""
         from src.api.notifications_routes import get_current_user_id
-        from fastapi import HTTPException
+        from src.middleware.auth_middleware import UserContext
 
-        with patch("src.services.auth_service.get_cached_auth_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with pytest.raises(HTTPException) as exc_info:
-                get_current_user_id(authorization="InvalidToken", config=mock_config)
+        user_a = UserContext(
+            user_id="user-aaa",
+            auth_user_id="auth-a",
+            email="a@example.com",
+            name="User A",
+            role="consultant",
+            tenant_id="tenant-1"
+        )
 
-            assert exc_info.value.status_code == 401
-            assert "Invalid authorization format" in str(exc_info.value.detail)
+        user_b = UserContext(
+            user_id="user-bbb",
+            auth_user_id="auth-b",
+            email="b@example.com",
+            name="User B",
+            role="admin",
+            tenant_id="tenant-1"
+        )
 
-    def test_get_current_user_id_invalid_token(self, mock_config):
-        """get_current_user_id should raise 401 for invalid token."""
-        from src.api.notifications_routes import get_current_user_id
-        from fastapi import HTTPException
-
-        with patch("src.services.auth_service.get_cached_auth_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("src.services.auth_service.AuthService.verify_jwt") as mock_verify:
-                mock_verify.return_value = (False, None)
-
-                with pytest.raises(HTTPException) as exc_info:
-                    get_current_user_id(
-                        authorization="Bearer invalid-token",
-                        config=mock_config
-                    )
-
-                assert exc_info.value.status_code == 401
-                assert "Invalid token" in str(exc_info.value.detail)
-
-    def test_get_current_user_id_user_not_found(self, mock_config):
-        """get_current_user_id should raise 401 when user not found."""
-        from src.api.notifications_routes import get_current_user_id
-        from fastapi import HTTPException
-
-        with patch("src.services.auth_service.get_cached_auth_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("src.services.auth_service.AuthService.verify_jwt") as mock_verify:
-                mock_verify.return_value = (True, {'sub': 'auth-user-id'})
-
-                with patch("src.api.notifications_routes.SupabaseTool") as mock_supabase:
-                    mock_query = MagicMock()
-                    mock_query.select.return_value = mock_query
-                    mock_query.eq.return_value = mock_query
-                    mock_query.single.return_value = mock_query
-                    mock_query.execute.return_value = MagicMock(data=None)
-                    mock_supabase.return_value.client.table.return_value = mock_query
-
-                    with pytest.raises(HTTPException) as exc_info:
-                        get_current_user_id(
-                            authorization="Bearer valid-token",
-                            config=mock_config
-                        )
-
-                    assert exc_info.value.status_code == 401
-                    assert "User not found" in str(exc_info.value.detail)
-
-    def test_get_current_user_id_success(self, mock_config):
-        """get_current_user_id should return org user ID on success."""
-        from src.api.notifications_routes import get_current_user_id
-
-        with patch("src.services.auth_service.get_cached_auth_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("src.services.auth_service.AuthService.verify_jwt") as mock_verify:
-                mock_verify.return_value = (True, {'sub': 'auth-user-id'})
-
-                with patch("src.api.notifications_routes.SupabaseTool") as mock_supabase:
-                    mock_query = MagicMock()
-                    mock_query.select.return_value = mock_query
-                    mock_query.eq.return_value = mock_query
-                    mock_query.single.return_value = mock_query
-                    mock_query.execute.return_value = MagicMock(data={'id': 'org-user-123'})
-                    mock_supabase.return_value.client.table.return_value = mock_query
-
-                    result = get_current_user_id(
-                        authorization="Bearer valid-token",
-                        config=mock_config
-                    )
-
-                    assert result == 'org-user-123'
+        assert get_current_user_id(user=user_a) == "user-aaa"
+        assert get_current_user_id(user=user_b) == "user-bbb"
 
 
 # ==================== NEW: Notification Templates Tests ====================
@@ -1197,9 +1130,7 @@ class TestNotificationTemplates:
             config.client_id = "test"
             service = NotificationService(config)
             # Force the DB lookup to fail so we get the hardcoded defaults
-            service.supabase.client.table.return_value.select.return_value \
-                .eq.return_value.eq.return_value.single.return_value \
-                .execute.side_effect = Exception("not found")
+            service.supabase.client.table.side_effect = Exception("not found")
             defaults = service._get_user_preferences("nonexistent-user")
 
             # Every preference key in TYPE_TO_PREFERENCE must appear in defaults
@@ -1313,14 +1244,12 @@ class TestReadUnreadStatus:
         mock_query.execute.return_value = MagicMock(data=[], count=0)
         mock.client.table.return_value = mock_query
         return mock
-
-    @pytest.mark.asyncio
-    async def test_mark_read_sets_read_at_timestamp(self, mock_config, mock_supabase):
+    def test_mark_read_sets_read_at_timestamp(self, mock_config, mock_supabase):
         """mark_notification_read should set read_at with current timestamp."""
         from src.api.notifications_routes import mark_notification_read
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await mark_notification_read(
+            result = mark_notification_read(
                 notification_id="notif-123",
                 config=mock_config,
                 user_id="user-123"
@@ -1332,23 +1261,19 @@ class TestReadUnreadStatus:
         update_data = update_call.call_args[0][0]
         assert update_data['read'] is True
         assert 'read_at' in update_data
-
-    @pytest.mark.asyncio
-    async def test_mark_all_read_updates_both_user_and_system(self, mock_config, mock_supabase):
+    def test_mark_all_read_updates_both_user_and_system(self, mock_config, mock_supabase):
         """mark_all_read should update user notifications AND system notifications."""
         from src.api.notifications_routes import mark_all_read
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await mark_all_read(
+            result = mark_all_read(
                 config=mock_config,
                 user_id="user-123"
             )
 
         # table should be called at least twice (user + system notifications)
         assert mock_supabase.client.table.call_count >= 2
-
-    @pytest.mark.asyncio
-    async def test_unread_count_returns_integer(self, mock_config, mock_supabase):
+    def test_unread_count_returns_integer(self, mock_config, mock_supabase):
         """get_unread_count should always return an integer count."""
         from src.api.notifications_routes import get_unread_count
 
@@ -1357,7 +1282,7 @@ class TestReadUnreadStatus:
         mock_supabase.client.table.return_value.execute.return_value = mock_result
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase):
-            result = await get_unread_count(config=mock_config, user_id="user-123")
+            result = get_unread_count(config=mock_config, user_id="user-123")
 
         assert isinstance(result['unread_count'], int)
         assert result['unread_count'] == 42
@@ -1452,14 +1377,12 @@ class TestNotificationsPagination:
         )
         mock.client.table.return_value = mock_query
         return mock
-
-    @pytest.mark.asyncio
-    async def test_pagination_returns_total_count(self, mock_config, mock_supabase_with_data):
+    def test_pagination_returns_total_count(self, mock_config, mock_supabase_with_data):
         """list_notifications should return total count for pagination."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase_with_data):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config, user_id="user-1",
                 limit=5, offset=0, unread_only=False
             )
@@ -1467,28 +1390,24 @@ class TestNotificationsPagination:
         assert 'total' in result
         assert 'limit' in result
         assert 'offset' in result
-
-    @pytest.mark.asyncio
-    async def test_pagination_respects_limit(self, mock_config, mock_supabase_with_data):
+    def test_pagination_respects_limit(self, mock_config, mock_supabase_with_data):
         """list_notifications should pass limit to database query."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase_with_data):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config, user_id="user-1",
                 limit=5, offset=10, unread_only=False
             )
 
         assert result['limit'] == 5
         assert result['offset'] == 10
-
-    @pytest.mark.asyncio
-    async def test_time_ago_in_notification_list(self, mock_config, mock_supabase_with_data):
+    def test_time_ago_in_notification_list(self, mock_config, mock_supabase_with_data):
         """Each notification in list should include time_ago field."""
         from src.api.notifications_routes import list_notifications
 
         with patch("src.api.notifications_routes.SupabaseTool", return_value=mock_supabase_with_data):
-            result = await list_notifications(
+            result = list_notifications(
                 config=mock_config, user_id="user-1",
                 limit=20, offset=0, unread_only=False
             )

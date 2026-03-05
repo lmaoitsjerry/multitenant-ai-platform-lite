@@ -85,7 +85,7 @@ def match_subuser_to_tenant(username: str) -> tuple[Optional[str], Optional[str]
 # ==================== Endpoints ====================
 
 @admin_sendgrid_router.get("/subusers")
-async def list_sendgrid_subusers(
+def list_sendgrid_subusers(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """
@@ -129,7 +129,7 @@ async def list_sendgrid_subusers(
 
 
 @admin_sendgrid_router.get("/subusers/{username}/stats")
-async def get_subuser_statistics(
+def get_subuser_statistics(
     username: str,
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
     admin_verified: bool = Depends(verify_admin_token)
@@ -160,7 +160,7 @@ async def get_subuser_statistics(
 
 
 @admin_sendgrid_router.post("/subusers/{username}/disable")
-async def disable_sendgrid_subuser(
+def disable_sendgrid_subuser(
     username: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -193,7 +193,7 @@ async def disable_sendgrid_subuser(
 
 
 @admin_sendgrid_router.post("/subusers/{username}/enable")
-async def enable_sendgrid_subuser(
+def enable_sendgrid_subuser(
     username: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -226,7 +226,7 @@ async def enable_sendgrid_subuser(
 
 
 @admin_sendgrid_router.get("/stats")
-async def get_global_email_stats(
+def get_global_email_stats(
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -282,7 +282,7 @@ class SubuserCredentials(BaseModel):
 
 
 @admin_sendgrid_router.post("/tenants/{tenant_id}/credentials")
-async def store_sendgrid_credentials(
+def store_sendgrid_credentials(
     tenant_id: str,
     credentials: SubuserCredentials,
     admin_verified: bool = Depends(verify_admin_token)
@@ -329,7 +329,7 @@ async def store_sendgrid_credentials(
 
 
 @admin_sendgrid_router.get("/tenants/{tenant_id}/credentials")
-async def get_sendgrid_credentials(
+def get_sendgrid_credentials(
     tenant_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -373,7 +373,7 @@ async def get_sendgrid_credentials(
 
 
 @admin_sendgrid_router.delete("/tenants/{tenant_id}/credentials")
-async def delete_sendgrid_credentials(
+def delete_sendgrid_credentials(
     tenant_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):

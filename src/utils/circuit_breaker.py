@@ -71,3 +71,4 @@ sendgrid_circuit = CircuitBreaker(name="sendgrid", failure_threshold=3, recovery
 supabase_circuit = CircuitBreaker(name="supabase", failure_threshold=5, recovery_timeout=30)
 rag_circuit = CircuitBreaker(name="travel_platform_rag", failure_threshold=5, recovery_timeout=60)
 rates_circuit = CircuitBreaker(name="travel_platform_rates", failure_threshold=3, recovery_timeout=120)
+hotelbeds_circuit = CircuitBreaker(name="hotelbeds", failure_threshold=3, recovery_timeout=60)

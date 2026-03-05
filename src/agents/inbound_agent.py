@@ -1,9 +1,8 @@
 """
-Inbound Agent - Multi-Tenant Version with Google GenAI and RAG
+Inbound Agent - Multi-Tenant Version with Google GenAI
 
 Customer-facing conversational AI for travel inquiries.
 Uses Google GenAI (Gemini) for natural language understanding.
-Integrates with Knowledge Base (FAISS) for RAG-enhanced responses.
 
 Usage:
     from config.loader import ClientConfig
@@ -34,118 +33,34 @@ except ImportError:
 
 
 class KnowledgeBaseRAG:
-    """Simple RAG interface for knowledge base queries"""
-    
+    """Simple RAG interface for knowledge base queries (stub - no local index)"""
+
     def __init__(self, client_id: str):
         self.client_id = client_id
-        self.base_path = Path(f"clients/{client_id}/data/knowledge")
-        self.index_path = self.base_path / "faiss_index"
-        self.metadata_file = self.base_path / "metadata.json"
-        self._embeddings = None
-        self._index = None
-        self._chunks = None
-        
-    def _load_index(self):
-        """Load FAISS index and chunks"""
-        if self._index is not None:
-            return True
-            
-        index_file = self.index_path / "index.faiss"
-        chunks_file = self.index_path / "chunks.json"
-        
-        if not index_file.exists() or not chunks_file.exists():
-            logger.warning(f"No knowledge base index found for {self.client_id}")
-            return False
-            
-        try:
-            import faiss
-            self._index = faiss.read_index(str(index_file))
-            with open(chunks_file, 'r') as f:
-                self._chunks = json.load(f)
-            logger.info(f"Loaded knowledge base: {len(self._chunks)} chunks")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to load knowledge base: {e}")
-            return False
-    
-    def _get_embeddings_model(self):
-        """Get embeddings model"""
-        if self._embeddings is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-                self._embeddings = SentenceTransformer('all-MiniLM-L6-v2')
-            except ImportError:
-                logger.error("sentence-transformers not installed")
-                return None
-        return self._embeddings
-    
+
     def search(
-        self, 
-        query: str, 
-        top_k: int = 3, 
+        self,
+        query: str,
+        top_k: int = 3,
         visibility: str = "public",
         min_score: float = 0.4
     ) -> List[Dict]:
         """
-        Search knowledge base for relevant content
-        
+        Search knowledge base for relevant content.
+
+        Note: Local FAISS index has been removed. This returns empty results.
+        Use the Travel Platform RAG API for knowledge base queries instead.
+
         Args:
             query: Search query
             top_k: Number of results to return
             visibility: Filter by visibility (public/private)
             min_score: Minimum similarity score
-            
+
         Returns:
-            List of relevant chunks with content and metadata
+            Empty list (local index removed)
         """
-        if not self._load_index():
-            return []
-            
-        model = self._get_embeddings_model()
-        if model is None:
-            return []
-            
-        try:
-            import numpy as np
-            
-            # Embed query
-            query_embedding = model.encode([query], convert_to_numpy=True)
-            query_vector = query_embedding.astype('float32')
-            
-            # Search
-            distances, indices = self._index.search(query_vector, min(top_k * 3, len(self._chunks)))
-            
-            results = []
-            for dist, idx in zip(distances[0], indices[0]):
-                if idx < 0 or idx >= len(self._chunks):
-                    continue
-                    
-                chunk = self._chunks[idx]
-                
-                # Filter by visibility - only public docs for inbound agent
-                chunk_visibility = chunk.get("visibility", "public")
-                if visibility and chunk_visibility != visibility:
-                    continue
-                
-                # Convert L2 distance to similarity score
-                score = 1 / (1 + dist)
-                
-                if score >= min_score:
-                    results.append({
-                        "content": chunk["content"],
-                        "score": round(score, 3),
-                        "document_id": chunk.get("document_id"),
-                        "category": chunk.get("category")
-                    })
-                    
-                if len(results) >= top_k:
-                    break
-                    
-            return results
-            
-        except Exception as e:
-            logger.error(f"Knowledge base search failed: {e}")
-            return []
+        return []
 
 
 class InboundAgent:

@@ -1,7 +1,7 @@
 [project]
 name = "multitenant-ai-platform-lite"
 version = "1.0.0"
-description = "Multi-Tenant AI Travel Platform Lite - CRM, Quotes, and Invoices for travel agencies"
+description = "HT-ITC-Lite - CRM, Quotes, and Invoices for travel agencies"
 readme = "README.md"
 requires-python = ">=3.11"
 
@@ -56,5 +56,5 @@ precision = 1
 
 [tool.coverage.html]
 directory = "htmlcov"
-title = "Multi-Tenant AI Platform Test Coverage"
+title = "HT-ITC-Lite Test Coverage"
 show_contexts = true

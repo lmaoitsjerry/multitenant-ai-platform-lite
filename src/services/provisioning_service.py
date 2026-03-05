@@ -267,6 +267,38 @@ class SendGridProvisioner:
             logger.error(f"❌ IP assignment failed: {response.text}")
             return {'success': False, 'error': response.text}
 
+    def assign_domain_to_subuser(
+        self,
+        domain_id: int,
+        username: str
+    ) -> Dict[str, Any]:
+        """
+        Assign an authenticated domain to a subuser.
+
+        This allows the subuser to send from any address on the authenticated
+        domain without needing Single Sender Verification.
+
+        Args:
+            domain_id: ID of the authenticated domain (from parent account)
+            username: Subuser username to assign the domain to
+
+        Returns:
+            Assignment result
+        """
+        response = requests.post(
+            f"{self.base_url}/whitelabel/domains/{domain_id}/subuser",
+            headers=self.headers,
+            json={"username": username}
+        )
+
+        if response.status_code in [200, 201]:
+            result = response.json()
+            logger.info(f"✅ Domain {domain_id} assigned to subuser {username}")
+            return {'success': True, 'data': result}
+        else:
+            logger.error(f"❌ Domain assignment to subuser failed: {response.text}")
+            return {'success': False, 'error': response.text}
+
     def setup_domain_authentication(
         self,
         domain: str,
@@ -720,9 +752,9 @@ Company: {company_name}
             import sendgrid
             from sendgrid.helpers.mail import Mail
 
-            api_key = os.getenv('SENDGRID_API_KEY')
+            api_key = os.getenv('SENDGRID_MASTER_API_KEY')
             if not api_key:
-                result['errors'].append("SENDGRID_API_KEY not set - cannot delete subuser")
+                result['errors'].append("SENDGRID_MASTER_API_KEY not set - cannot delete subuser")
                 return False
 
             # Get subuser name from tenant settings

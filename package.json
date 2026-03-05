@@ -1,0 +1,40 @@
+{
+  "name": "multitenant-ai-platform-lite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-Tenant AI Travel Platform - CRM, Quotes, Invoices for travel agencies",
+  "workspaces": [
+    "frontend/tenant-dashboard",
+    "frontend/internal-admin"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend/tenant-dashboard",
+    "dev:dashboard": "npm run dev --workspace=frontend/tenant-dashboard",
+    "dev:admin": "npm run dev --workspace=frontend/internal-admin",
+    "build": "npm run build --workspace=frontend/tenant-dashboard",
+    "build:dashboard": "npm run build --workspace=frontend/tenant-dashboard",
+    "build:admin": "npm run build --workspace=frontend/internal-admin",
+    "install:all": "npm install --workspaces",
+    "backend": "python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload",
+    "start": "echo 'Run backend: npm run backend' && echo 'Run frontend: npm run dev'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/multitenant-ai-platform-lite"
+  },
+  "keywords": [
+    "travel",
+    "crm",
+    "quotes",
+    "invoices",
+    "multi-tenant",
+    "fastapi",
+    "react",
+    "vite"
+  ],
+  "author": "Zorah AI",
+  "license": "UNLICENSED"
+}

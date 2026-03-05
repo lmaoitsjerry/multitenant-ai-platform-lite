@@ -69,7 +69,7 @@ class PhoneNumberSearchRequest(BaseModel):
 
 # ==================== Admin Auth Dependency ====================
 
-def verify_admin_token(x_admin_token: str = Header(None, alias="X-Admin-Token")) -> bool:
+def verify_admin_token(x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token")) -> bool:
     """
     Verify admin authentication token.
 
@@ -104,7 +104,7 @@ def verify_admin_token(x_admin_token: str = Header(None, alias="X-Admin-Token"))
 # ==================== VAPI Provisioning Endpoints ====================
 
 @admin_router.post("/provision/vapi", response_model=VAPIProvisionResponse)
-async def provision_vapi_for_tenant(
+def provision_vapi_for_tenant(
     request: VAPIProvisionRequest,
     background_tasks: BackgroundTasks,
     admin_verified: bool = Depends(verify_admin_token)
@@ -217,7 +217,7 @@ async def provision_vapi_for_tenant(
 
 
 @admin_router.get("/provision/vapi/{tenant_id}")
-async def get_vapi_status(
+def get_vapi_status(
     tenant_id: str,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -243,7 +243,7 @@ async def get_vapi_status(
 
 
 @admin_router.post("/provision/phone/search")
-async def search_available_phones(
+def search_available_phones(
     request: PhoneNumberSearchRequest,
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -277,7 +277,7 @@ async def search_available_phones(
 
 
 @admin_router.patch("/provision/vapi/{tenant_id}/config")
-async def update_tenant_vapi_config(
+def update_tenant_vapi_config(
     tenant_id: str,
     update: TenantConfigUpdate,
     admin_verified: bool = Depends(verify_admin_token)
@@ -289,7 +289,7 @@ async def update_tenant_vapi_config(
         raise HTTPException(status_code=404, detail=f"Tenant not found: {tenant_id}")
 
     # Update config file
-    updated = await update_tenant_config_file(
+    updated = update_tenant_config_file(
         tenant_id=tenant_id,
         vapi_api_key=update.vapi_api_key,
         inbound_assistant_id=update.vapi_assistant_id,
@@ -307,7 +307,7 @@ async def update_tenant_vapi_config(
 # ==================== Tenant Management ====================
 
 @admin_router.get("/tenants/summary")
-async def get_all_tenants_summary(
+def get_all_tenants_summary(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """Get summary list of all tenants with key info."""
@@ -339,7 +339,7 @@ async def get_all_tenants_summary(
 
 
 @admin_router.get("/tenants")
-async def list_tenants(
+def list_tenants(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """List all configured tenants"""
@@ -484,7 +484,7 @@ async def get_bigquery_destinations(config: ClientConfig) -> Dict[str, Any]:
         }
 
 
-async def update_tenant_config_file(
+def update_tenant_config_file(
     tenant_id: str,
     vapi_api_key: str = None,
     inbound_assistant_id: str = None,
@@ -603,7 +603,7 @@ class TenantSummary(BaseModel):
 # ==================== Usage Tracking Endpoints ====================
 
 @admin_router.get("/tenants/{tenant_id}/usage")
-async def get_tenant_usage(
+def get_tenant_usage(
     tenant_id: str,
     period: str = "month",
     admin_verified: bool = Depends(verify_admin_token)
@@ -688,7 +688,7 @@ async def get_tenant_usage(
 
 
 @admin_router.get("/usage/summary")
-async def get_all_tenants_usage_summary(
+def get_all_tenants_usage_summary(
     period: str = "month",
     admin_verified: bool = Depends(verify_admin_token)
 ):
@@ -697,7 +697,7 @@ async def get_all_tenants_usage_summary(
 
     for client_id in list_clients():
         try:
-            usage = await get_tenant_usage(client_id, period, admin_verified)
+            usage = get_tenant_usage(client_id, period, admin_verified)
             all_usage.append(usage)
         except Exception as e:
             logger.warning(f"Could not get usage for {client_id}: {e}")
@@ -788,7 +788,7 @@ async def create_test_user(
 
 
 @admin_router.get("/health")
-async def get_system_health(
+def get_system_health(
     admin_verified: bool = Depends(verify_admin_token)
 ):
     """Get overall system health status."""
@@ -817,7 +817,7 @@ async def get_system_health(
 # ==================== Diagnostic Endpoints ====================
 
 @admin_router.get("/diagnostics/quotes")
-async def diagnose_quotes(
+def diagnose_quotes(
     tenant_id: Optional[str] = None,
     limit: int = 20,
     admin_verified: bool = Depends(verify_admin_token)

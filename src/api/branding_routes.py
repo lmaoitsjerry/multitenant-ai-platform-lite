@@ -13,8 +13,9 @@ All endpoints support tenant isolation via X-Client-ID header.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, HTTPException, Depends, Header, File, UploadFile, Form
+from fastapi import APIRouter, HTTPException, Depends, Header, File, UploadFile, Form, Query, Response
 from pydantic import BaseModel, Field
 
 from config.loader import ClientConfig
@@ -30,6 +31,7 @@ from src.constants.theme_presets import (
 )
 from src.tools.supabase_tool import SupabaseTool
 from src.utils.error_handler import log_and_raise
+from src.utils.error_handling import log_and_suppress
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,58 @@ def db_to_branding_response(db_record: Dict[str, Any], config: ClientConfig) -> 
     }
 
 
+# ==================== Theme Pack Helpers ====================
+
+# CSS variable mapping for theme-pack (ITC internal key → Builder CSS variable)
+# Only 4 variables are renamed; all others pass through with standard naming.
+_THEME_PACK_COLOR_MAP = {
+    "primary": "--color-primary",
+    "primary_light": "--color-primary-light",
+    "primary_dark": "--color-primary-dark",
+    "secondary": "--color-secondary",
+    "secondary_light": "--color-secondary-light",
+    "secondary_dark": "--color-secondary-dark",
+    "accent": "--color-accent",
+    "success": "--color-success",
+    "warning": "--color-warning",
+    "error": "--color-error",
+    "background": "--color-background",
+    "surface": "--color-surface",
+    "surface_elevated": "--color-surface-elevated",
+    # Renamed for Builder convention
+    "text_primary": "--color-text",
+    "text_secondary": "--color-text-secondary",
+    "text_muted": "--color-muted",
+    "border": "--color-border",
+    "border_light": "--color-border-light",
+    # Sidebar
+    "sidebar_bg": "--color-sidebar-bg",
+    "sidebar_text": "--color-sidebar-text",
+    "sidebar_text_muted": "--color-sidebar-text-muted",
+    "sidebar_hover": "--color-sidebar-hover",
+    "sidebar_active_bg": "--color-sidebar-active-bg",
+    "sidebar_active_text": "--color-sidebar-active-text",
+}
+
+
+def _map_colors_to_css_vars(colors: Dict[str, str]) -> Dict[str, str]:
+    """Map internal color keys to CSS variable names for the Website Builder."""
+    css_vars = {}
+    for key, css_var in _THEME_PACK_COLOR_MAP.items():
+        if key in colors:
+            css_vars[css_var] = colors[key]
+    return css_vars
+
+
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convert hex color to RGB string (e.g., '#7C3AED' -> '124, 58, 237')."""
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"{r}, {g}, {b}"
+
+
 # ==================== Endpoints ====================
 
 @branding_router.get("")
@@ -213,6 +267,88 @@ def get_branding(config: ClientConfig = Depends(get_client_config)):
     return {
         "success": True,
         "data": branding
+    }
+
+
+@branding_router.get("/theme-pack")
+def get_theme_pack(
+    response: Response,
+    tenantId: str = Query(None),
+):
+    """
+    Get tenant theme pack for cross-platform theme sync.
+
+    Returns the tenant's branding as CSS variables in the Website Builder's
+    naming convention. Includes both light and dark mode color sets, fonts,
+    and logos.
+
+    Query params:
+        tenantId: Tenant identifier (required)
+    """
+    if not tenantId:
+        raise HTTPException(status_code=422, detail="tenantId query parameter is required")
+
+    # Load config for the requested tenant
+    config = get_client_config(x_client_id=tenantId)
+
+    # Fetch branding from database
+    db_branding = None
+    try:
+        supabase = SupabaseTool(config)
+        db_branding = supabase.get_branding()
+    except Exception as e:
+        logger.warning(f"Could not fetch branding for theme-pack: {e}")
+
+    # Get light mode branding (force dark_mode_enabled off so we get raw light colors)
+    light_db = dict(db_branding) if db_branding else None
+    if light_db:
+        light_db["dark_mode_enabled"] = False
+    branding = db_to_branding_response(light_db, config)
+
+    # Build light mode CSS variables
+    light_colors = _map_colors_to_css_vars(branding["colors"])
+    primary_hex = branding["colors"].get("primary", "#2563EB")
+    light_colors["--color-primary-rgb"] = _hex_to_rgb(primary_hex)
+
+    # Build dark mode CSS variables (apply dark mode overlay to light colors)
+    dark_colors_raw = apply_dark_mode(branding["colors"])
+    dark_colors = _map_colors_to_css_vars(dark_colors_raw)
+    dark_colors["--color-primary-rgb"] = _hex_to_rgb(primary_hex)
+
+    # Build fonts (renamed for Builder convention)
+    fonts = {
+        "--font-heading": branding["fonts"].get("heading", "Inter, system-ui, sans-serif"),
+        "--font-body": branding["fonts"].get("body", "Inter, system-ui, sans-serif"),
+    }
+
+    # Determine if tenant has dark mode enabled
+    dark_mode_enabled = False
+    if db_branding:
+        dark_mode_enabled = db_branding.get("dark_mode_enabled", False)
+
+    # Set Cache-Control header
+    response.headers["Cache-Control"] = "public, max-age=300"
+
+    return {
+        "success": True,
+        "data": {
+            "version": 1,
+            "tenantId": tenantId,
+            "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "darkMode": {
+                "enabled": dark_mode_enabled,
+                "colors": dark_colors,
+            },
+            "lightMode": {
+                "colors": light_colors,
+            },
+            "fonts": fonts,
+            "logos": branding["logos"],
+            "meta": {
+                "presetTheme": branding.get("preset_theme", "professional_blue"),
+                "tenantName": config.company_name,
+            }
+        }
     }
 
 
@@ -477,8 +613,8 @@ async def upload_login_background(
         # Try to remove existing file first
         try:
             bucket.remove([storage_path])
-        except Exception:
-            pass
+        except Exception as e:
+            log_and_suppress(e, context="branding_remove_old_background", path=storage_path)
 
         # Upload new file
         bucket.upload(

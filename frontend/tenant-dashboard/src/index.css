@@ -65,8 +65,8 @@
 
 /* Dark Mode Variables - Inspired by GitHub/VS Code dark themes */
 [data-theme="dark"] {
-  /* Background hierarchy - content area uses the neutral dark */
-  --color-background: #161b22;
+  /* Background hierarchy - matches sidebar for visual consistency */
+  --color-background: #0d1117;
   --color-surface: #1c2128;
   --color-surface-elevated: #21262d;
 
@@ -243,6 +243,26 @@ h1, h2, h3, h4, h5, h6 {
 
 .input::placeholder {
   color: var(--color-text-muted);
+}
+
+/* Select element styling */
+select.input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+  cursor: pointer;
+}
+
+[data-theme="dark"] select.input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%239CA3AF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+}
+
+select.input option {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 /* Gradient header for welcome cards */
@@ -556,6 +576,22 @@ h1, h2, h3, h4, h5, h6 {
 
 .animate-toast {
   animation: toastSlideIn 0.3s ease-out;
+}
+
+/* Slide panel from right (for Help Desk) */
+@keyframes slidePanelIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-panel {
+  animation: slidePanelIn 0.3s ease-out;
 }
 
 /* Skeleton shimmer effect */

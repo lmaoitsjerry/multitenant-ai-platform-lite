@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   PaperAirplaneIcon,
   MagnifyingGlassIcon,
@@ -7,10 +7,21 @@ import {
   UserGroupIcon,
   ArrowsRightLeftIcon,
   ClockIcon,
+  FunnelIcon,
 } from '@heroicons/react/24/outline';
 import { flightsApi, travelApi } from '../../services/api';
-import { AddToQuoteButton } from '../../components/travel/FloatingQuoteCart';
-import { getDestinationIata } from '../../utils/destinations';
+import { getDestinationIata, DESTINATION_IATA } from '../../utils/destinations';
+
+// Hardcoded flight destinations fallback when Cloud Run is unavailable
+const FALLBACK_FLIGHT_DESTINATIONS = [
+  { code: 'zanzibar', name: 'Zanzibar', country: 'Tanzania', flights: true },
+  { code: 'mauritius', name: 'Mauritius', country: 'Mauritius', flights: true },
+  { code: 'maldives', name: 'Maldives', country: 'Maldives', flights: true },
+  { code: 'kenya', name: 'Kenya', country: 'Kenya', flights: true },
+  { code: 'seychelles', name: 'Seychelles', country: 'Seychelles', flights: true },
+  { code: 'cape-town', name: 'Cape Town', country: 'South Africa', flights: true },
+  { code: 'durban', name: 'Durban', country: 'South Africa', flights: true },
+];
 
 // Cabin class options
 const CABIN_CLASSES = [
@@ -19,6 +30,79 @@ const CABIN_CLASSES = [
   { value: 'business', label: 'Business' },
   { value: 'first', label: 'First Class' },
 ];
+
+// Stop filter options
+const STOP_FILTERS = [
+  { value: 'all', label: 'Any stops' },
+  { value: '0', label: 'Non-stop' },
+  { value: '1', label: '1 stop' },
+  { value: '2+', label: '2+ stops' },
+];
+
+// Sort options
+const SORT_OPTIONS = [
+  { value: 'price_asc', label: 'Price: Low to High' },
+  { value: 'price_desc', label: 'Price: High to Low' },
+  { value: 'duration', label: 'Duration: Shortest' },
+  { value: 'departure', label: 'Departure: Earliest' },
+];
+
+/**
+ * Fix duplicated/malformed duration strings from upstream RTTC API.
+ *
+ * Real examples from the API:
+ *   "04h04,04H04,04h04,04H04" → "4h 04m"
+ *   "14h 25m14h 25m"          → "14h 25m"
+ *   "02h30"                   → "2h 30m"
+ *
+ * Strategy: split on commas, normalize case, deduplicate, then clean up format.
+ */
+function formatDuration(dur) {
+  if (!dur || typeof dur !== 'string') return dur;
+
+  let val = dur.trim();
+  if (!val) return val;
+
+  // Step 1: If comma-separated, split and deduplicate (case-insensitive)
+  if (val.includes(',')) {
+    const segments = val.split(',').map(s => s.trim().toLowerCase());
+    const unique = [...new Set(segments)].filter(Boolean);
+    val = unique[0] || val; // take the first unique value
+  }
+
+  // Step 2: Lowercase for uniform handling
+  val = val.toLowerCase().trim();
+
+  // Step 3: Handle exact-half duplication without separator: "14h 25m14h 25m"
+  const half = Math.floor(val.length / 2);
+  if (half > 0 && val.length % 2 === 0 && val.substring(0, half) === val.substring(half)) {
+    val = val.substring(0, half);
+  }
+
+  // Step 4: Handle space-separated duplication: "14h 25m 14h 25m"
+  const spaceParts = val.split(/\s+/);
+  if (spaceParts.length >= 4 && spaceParts.length % 2 === 0) {
+    const first = spaceParts.slice(0, spaceParts.length / 2).join(' ');
+    const second = spaceParts.slice(spaceParts.length / 2).join(' ');
+    if (first === second) val = first;
+  }
+
+  // Step 5: Parse hours and minutes from patterns like "04h04", "4h30m", "14h 25m"
+  const match = val.match(/(\d+)\s*h\s*(\d+)\s*m?/i);
+  if (match) {
+    const hours = parseInt(match[1], 10);
+    const mins = match[2].padStart(2, '0');
+    return `${hours}h ${mins}m`;
+  }
+
+  // Step 6: Handle hours-only: "2h"
+  const hoursOnly = val.match(/^(\d+)\s*h$/i);
+  if (hoursOnly) {
+    return `${parseInt(hoursOnly[1], 10)}h 00m`;
+  }
+
+  return val;
+}
 
 export default function FlightsList() {
   // State
@@ -38,6 +122,8 @@ export default function FlightsList() {
   const [error, setError] = useState(null);
   const [dataSource, setDataSource] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [stopFilter, setStopFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('price_asc');
 
   // Load destinations on mount
   useEffect(() => {
@@ -72,12 +158,16 @@ export default function FlightsList() {
 
     try {
       const response = await travelApi.destinations();
-      if (response.data?.success) {
+      if (response.data?.success && response.data?.destinations?.length > 0) {
         setDestinations(response.data.destinations.filter(d => d.flights));
+        return;
       }
     } catch (err) {
-      console.error('Failed to load destinations:', err);
+      console.debug('Travel API destinations not available:', err.message);
     }
+
+    // Hardcoded fallback so the dropdown is never empty
+    setDestinations(FALLBACK_FLIGHT_DESTINATIONS);
   };
 
   const handleSearch = async (e) => {
@@ -98,6 +188,8 @@ export default function FlightsList() {
     setFlights([]);
     setOutboundFlights([]);
     setReturnFlights([]);
+    setStopFilter('all');
+    setSortBy('price_asc');
 
     const destIata = getDestinationIata(selectedDestination);
 
@@ -125,19 +217,28 @@ export default function FlightsList() {
       console.debug('RTTC flight search failed, trying fallback:', err.message);
     }
 
-    // Fallback to legacy search
+    // Fallback to legacy search — pass IATA code + all user selections
     try {
-      const response = await flightsApi.search(
-        selectedDestination,
-        departureDate,
-        tripType === 'roundtrip' ? returnDate || null : null,
-      );
+      const searchParams = {
+        destination: destIata,
+        origin: originCity,
+        departure_date: departureDate,
+        adults,
+      };
+      if (tripType === 'roundtrip' && returnDate) {
+        searchParams.return_date = returnDate;
+      }
+      if (cabinClass !== 'economy') {
+        searchParams.cabin_class = cabinClass;
+      }
 
-      if (response.data?.success) {
+      const response = await flightsApi.search(searchParams);
+
+      if (response.data?.success && response.data?.flights?.length > 0) {
         setFlights(response.data.flights || []);
         setOutboundFlights([]);
         setReturnFlights([]);
-        setDataSource(response.data.source || null);
+        setDataSource(response.data.source || 'platform');
       } else {
         setFlights([]);
         setDataSource(null);
@@ -162,22 +263,61 @@ export default function FlightsList() {
   };
 
   const formatTime = (timeStr) => {
-    if (!timeStr) return '-';
-    // Handle "HH:MM" or "HH:MM:SS" format
-    return timeStr.substring(0, 5);
+    if (!timeStr || typeof timeStr !== 'string') return '-';
+    // Handle "HH:MM" or "HH:MM:SS" format — safe even if shorter than 5 chars
+    return timeStr.length >= 5 ? timeStr.substring(0, 5) : timeStr;
   };
 
   // Determine if we have round-trip sections
   const hasRoundTrip = outboundFlights.length > 0 || returnFlights.length > 0;
-  // For RTTC data, flights have rich fields; for legacy, they have basic fields
-  const isRichData = dataSource === 'rttc' || dataSource === 'rttc_direct';
+  // Detect rich data by checking for fields present in RTTC responses (departure_time, stops, etc.)
+  // rather than relying on source label string
+  const firstFlight = flights[0] || outboundFlights[0];
+  const isRichData = hasRoundTrip || !!(firstFlight && ('departure_time' in firstFlight || 'stops' in firstFlight || 'airline_name' in firstFlight));
+
+  // Filter and sort flights
+  const filterAndSort = (flightList) => {
+    let filtered = [...flightList];
+
+    // Stop filter
+    if (stopFilter !== 'all') {
+      filtered = filtered.filter(f => {
+        const stops = f.stops ?? (f.is_direct === false ? 1 : 0);
+        if (stopFilter === '0') return stops === 0;
+        if (stopFilter === '1') return stops === 1;
+        if (stopFilter === '2+') return stops >= 2;
+        return true;
+      });
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      const priceA = a.price_adult || a.price_per_person || 0;
+      const priceB = b.price_adult || b.price_per_person || 0;
+      if (sortBy === 'price_asc') return priceA - priceB;
+      if (sortBy === 'price_desc') return priceB - priceA;
+      if (sortBy === 'departure') return (a.departure_time || '').localeCompare(b.departure_time || '');
+      if (sortBy === 'duration') {
+        const durA = a.duration_minutes || 9999;
+        const durB = b.duration_minutes || 9999;
+        return durA - durB;
+      }
+      return 0;
+    });
+
+    return filtered;
+  };
+
+  const filteredFlights = useMemo(() => filterAndSort(flights), [flights, stopFilter, sortBy]);
+  const filteredOutbound = useMemo(() => filterAndSort(outboundFlights), [outboundFlights, stopFilter, sortBy]);
+  const filteredReturn = useMemo(() => filterAndSort(returnFlights), [returnFlights, stopFilter, sortBy]);
 
   const FlightCard = ({ flight, idx, section = 'outbound' }) => {
     const airlineName = flight.airline_name || flight.airline || 'Airline';
     const flightNumber = flight.flight_number || '';
     const departTime = flight.departure_time;
     const arriveTime = flight.arrival_time;
-    const duration = flight.duration;
+    const duration = formatDuration(flight.duration);
     const stops = flight.stops ?? (flight.is_direct === false ? 1 : 0);
     const cabin = flight.cabin_class || cabinClass;
     const baggage = flight.baggage;
@@ -214,25 +354,33 @@ export default function FlightsList() {
             </div>
           </div>
 
-          {/* Center: Times + Duration */}
+          {/* Center: Times + Route Line */}
           {departTime && arriveTime ? (
             <div className="flex items-center gap-3 flex-shrink-0">
               <div className="text-center">
                 <div className="text-lg font-bold text-gray-900">{formatTime(departTime)}</div>
                 <div className="text-xs text-gray-500">{flight.origin || originCity}</div>
               </div>
-              <div className="flex flex-col items-center px-2">
+              <div className="flex flex-col items-center px-2 min-w-[120px]">
                 {duration && (
                   <div className="text-xs text-gray-500 mb-1">{duration}</div>
                 )}
-                <div className="w-20 h-px bg-gray-300 relative">
-                  <PaperAirplaneIcon className="h-3 w-3 text-gray-400 absolute -top-1.5 right-0" />
+                <div className="flex items-center w-full">
+                  <div className={`h-0.5 flex-1 ${stops === 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  {stops > 0 && [...Array(Math.min(stops, 3))].map((_, i) => (
+                    <div key={i} className="flex items-center">
+                      <div className="w-2 h-2 rounded-full bg-amber-500 -mx-0.5 relative z-10" />
+                      {i < Math.min(stops, 3) - 1 && <div className="h-0.5 w-3 bg-gray-300" />}
+                    </div>
+                  ))}
+                  {stops > 0 && <div className="h-0.5 flex-1 bg-gray-300" />}
+                  <PaperAirplaneIcon className={`h-3.5 w-3.5 -ml-0.5 ${stops === 0 ? 'text-green-600' : 'text-gray-400'}`} />
                 </div>
                 <div className="text-xs mt-1">
                   {stops === 0 ? (
-                    <span className="text-green-600 font-medium">Direct</span>
+                    <span className="text-green-600 font-medium">Non-stop</span>
                   ) : (
-                    <span className="text-orange-600">{stops} stop{stops > 1 ? 's' : ''}</span>
+                    <span className="text-amber-600 font-medium">{stops} stop{stops > 1 ? 's' : ''}</span>
                   )}
                 </div>
               </div>
@@ -248,7 +396,7 @@ export default function FlightsList() {
             </div>
           )}
 
-          {/* Right: Cabin, Baggage, Price + Add to Quote */}
+          {/* Right: Cabin, Baggage, Price */}
           <div className="flex items-center gap-4 flex-shrink-0">
             {/* Badges */}
             <div className="flex flex-col items-end gap-1">
@@ -269,30 +417,6 @@ export default function FlightsList() {
               </div>
               <div className="text-xs text-gray-500">per adult</div>
             </div>
-
-            {/* Add to Quote */}
-            <AddToQuoteButton
-              item={{
-                id: `flight-${section}-${idx}`,
-                type: 'flight',
-                name: `${airlineName}${flightNumber ? ' ' + flightNumber : ''} ${originCity}-${getDestinationIata(selectedDestination)}`,
-                price: price,
-                currency: flight.currency || 'ZAR',
-                details: {
-                  airline: airlineName,
-                  flight_number: flightNumber,
-                  departure_time: departTime,
-                  arrival_time: arriveTime,
-                  duration: duration,
-                  cabin_class: cabin,
-                  stops: stops,
-                  destination: selectedDestination,
-                  departure_date: departureDate,
-                  return_date: returnDate,
-                }
-              }}
-              size="sm"
-            />
           </div>
         </div>
       </div>
@@ -320,24 +444,6 @@ export default function FlightsList() {
         <span className="text-lg font-semibold text-blue-600">
           {formatCurrency(flight.price_per_person, flight.currency)}
         </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right">
-        <AddToQuoteButton
-          item={{
-            id: `flight-legacy-${idx}`,
-            type: 'flight',
-            name: `${flight.airline || 'Flight'} to ${selectedDestination}`,
-            price: flight.price_per_person,
-            currency: flight.currency || 'ZAR',
-            details: {
-              airline: flight.airline,
-              destination: selectedDestination,
-              departure_date: flight.departure_date,
-              return_date: flight.return_date,
-            }
-          }}
-          size="sm"
-        />
       </td>
     </tr>
   );
@@ -588,11 +694,48 @@ export default function FlightsList() {
             </span>
           </div>
 
+          {/* Filter Bar */}
+          {isRichData && (
+            <div className="flex items-center gap-4 flex-wrap bg-gray-50 rounded-lg p-3 border border-gray-200">
+              <FunnelIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-gray-500 uppercase">Stops</label>
+                <div className="flex gap-1">
+                  {STOP_FILTERS.map(f => (
+                    <button
+                      key={f.value}
+                      onClick={() => setStopFilter(f.value)}
+                      className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
+                        stopFilter === f.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 ml-auto">
+                <label className="text-xs font-medium text-gray-500 uppercase">Sort</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white"
+                >
+                  {SORT_OPTIONS.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Round-trip: Separate sections */}
           {hasRoundTrip ? (
             <>
               {/* Outbound Flights */}
-              {outboundFlights.length > 0 && (
+              {filteredOutbound.length > 0 && (
                 <div>
                   <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
                     <PaperAirplaneIcon className="h-5 w-5 text-blue-500" />
@@ -602,7 +745,7 @@ export default function FlightsList() {
                     </span>
                   </h3>
                   <div className="space-y-3">
-                    {outboundFlights.map((flight, idx) => (
+                    {filteredOutbound.map((flight, idx) => (
                       <FlightCard key={idx} flight={flight} idx={idx} section="outbound" />
                     ))}
                   </div>
@@ -610,7 +753,7 @@ export default function FlightsList() {
               )}
 
               {/* Return Flights */}
-              {returnFlights.length > 0 && (
+              {filteredReturn.length > 0 && (
                 <div>
                   <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center gap-2">
                     <PaperAirplaneIcon className="h-5 w-5 text-orange-500 rotate-180" />
@@ -620,19 +763,38 @@ export default function FlightsList() {
                     </span>
                   </h3>
                   <div className="space-y-3">
-                    {returnFlights.map((flight, idx) => (
+                    {filteredReturn.map((flight, idx) => (
                       <FlightCard key={idx} flight={flight} idx={idx} section="return" />
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* No results after filtering */}
+              {filteredOutbound.length === 0 && filteredReturn.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No flights match your filters. Try adjusting the stop filter.</p>
+                  <button onClick={() => setStopFilter('all')} className="text-blue-600 hover:underline mt-2 text-sm">
+                    Clear filters
+                  </button>
                 </div>
               )}
             </>
           ) : isRichData ? (
             /* Rich RTTC data — use flight cards */
             <div className="space-y-3">
-              {flights.map((flight, idx) => (
-                <FlightCard key={idx} flight={flight} idx={idx} section="all" />
-              ))}
+              {filteredFlights.length > 0 ? (
+                filteredFlights.map((flight, idx) => (
+                  <FlightCard key={idx} flight={flight} idx={idx} section="all" />
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No flights match your filters. Try adjusting the stop filter.</p>
+                  <button onClick={() => setStopFilter('all')} className="text-blue-600 hover:underline mt-2 text-sm">
+                    Clear filters
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             /* Legacy data — use table */
@@ -645,11 +807,10 @@ export default function FlightsList() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Departure</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Return</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price per Person</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {flights.map((flight, idx) => (
+                    {filteredFlights.map((flight, idx) => (
                       <LegacyFlightRow key={idx} flight={flight} idx={idx} />
                     ))}
                   </tbody>

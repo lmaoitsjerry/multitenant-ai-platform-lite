@@ -1,5 +1,5 @@
 """
-Request ID Middleware for distributed tracing.
+Request ID Middleware for distributed tracing (Pure ASGI).
 
 This middleware:
 1. Generates a unique request ID (UUID4) for each request
@@ -15,16 +15,13 @@ Usage in main.py:
 
 import uuid
 import time
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 from src.utils.structured_logger import set_request_id, clear_request_id, clear_tenant_id, get_logger
 
 logger = get_logger(__name__)
 
 
-class RequestIdMiddleware(BaseHTTPMiddleware):
-    """Middleware to generate and propagate request IDs for distributed tracing.
+class RequestIdMiddleware:
+    """Pure ASGI middleware for request ID tracking and distributed tracing.
 
     This middleware ensures every request has a unique identifier that:
     - Is included in all log entries for the request
@@ -35,111 +32,111 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     FIRST (FastAPI processes middleware in reverse order).
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        """Process request with request ID tracking.
+    def __init__(self, app):
+        self.app = app
 
-        Args:
-            request: The incoming request
-            call_next: The next handler in the chain
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        Returns:
-            Response with X-Request-ID header
-        """
         # Get existing request ID from header or generate new one
-        # This allows distributed tracing across services
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request_id = None
+        headers = dict(scope.get("headers", []))
+        for key, value in scope.get("headers", []):
+            if key == b"x-request-id":
+                request_id = value.decode("utf-8", errors="replace")
+                break
+        if not request_id:
+            request_id = str(uuid.uuid4())
 
-        # Set in contextvars for logging (all subsequent logs include this ID)
+        # Store request_id in scope state for route handler access via request.state
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        # Set in contextvars for logging
         set_request_id(request_id)
 
-        # Store in request state for access in route handlers
-        request.state.request_id = request_id
+        # Extract request metadata for logging
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        query_string = scope.get("query_string", b"").decode("utf-8", errors="replace")
+        client = scope.get("client")
+        client_ip = self._get_client_ip(scope)
+        user_agent = ""
+        for key, value in scope.get("headers", []):
+            if key == b"user-agent":
+                user_agent = value.decode("utf-8", errors="replace")[:100]
+                break
 
-        # Record start time for duration logging
         start_time = time.perf_counter()
 
-        # Log request start with key metadata
         logger.info(
             "Request started",
             extra={
-                "method": request.method,
-                "path": request.url.path,
-                "query": str(request.query_params) if request.query_params else None,
-                "client_ip": self._get_client_ip(request),
-                "user_agent": request.headers.get("User-Agent", "")[:100],  # Truncate long UAs
+                "method": method,
+                "path": path,
+                "query": query_string if query_string else None,
+                "client_ip": client_ip,
+                "user_agent": user_agent,
             }
         )
 
+        status_code = 0
+
+        async def send_with_request_id(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 0)
+                extra_headers = [
+                    (b"x-request-id", request_id.encode()),
+                ]
+                message = {
+                    **message,
+                    "headers": list(message.get("headers", [])) + extra_headers,
+                }
+            await send(message)
+
         try:
-            # Process request through the rest of the middleware chain
-            response = await call_next(request)
+            await self.app(scope, receive, send_with_request_id)
 
-            # Calculate duration
             duration_ms = (time.perf_counter() - start_time) * 1000
-
-            # Add request ID to response headers for client-side tracing
-            response.headers["X-Request-ID"] = request_id
-
-            # Log request completion
             logger.info(
                 "Request completed",
                 extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status_code": response.status_code,
+                    "method": method,
+                    "path": path,
+                    "status_code": status_code,
                     "duration_ms": round(duration_ms, 2),
                 }
             )
-
-            return response
-
         except Exception as e:
-            # Calculate duration even for errors
             duration_ms = (time.perf_counter() - start_time) * 1000
-
-            # Log the error (exception will be re-raised)
             logger.error(
                 "Request failed with exception",
                 extra={
-                    "method": request.method,
-                    "path": request.url.path,
+                    "method": method,
+                    "path": path,
                     "duration_ms": round(duration_ms, 2),
                     "error_type": type(e).__name__,
-                    "error_message": str(e)[:500],  # Truncate long messages
+                    "error_message": str(e)[:500],
                 },
                 exc_info=True
             )
-
-            # Re-raise to let FastAPI's exception handlers deal with it
             raise
-
         finally:
-            # Clear context vars to prevent leakage to other contexts
             clear_request_id()
             clear_tenant_id()
 
-    def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP, handling proxies.
+    def _get_client_ip(self, scope) -> str:
+        """Extract client IP, handling proxies."""
+        for key, value in scope.get("headers", []):
+            if key == b"x-forwarded-for":
+                return value.decode("utf-8", errors="replace").split(",")[0].strip()
+            if key == b"x-real-ip":
+                return value.decode("utf-8", errors="replace")
 
-        Args:
-            request: The incoming request
-
-        Returns:
-            Client IP address
-        """
-        # Check for forwarded headers (when behind proxy/load balancer)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # Take the first IP in the chain (original client)
-            return forwarded_for.split(",")[0].strip()
-
-        # Check for real IP header (some proxies use this)
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-        # Fall back to direct connection IP
-        if request.client:
-            return request.client.host
+        client = scope.get("client")
+        if client:
+            return client[0]
 
         return "unknown"

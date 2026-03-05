@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from google.cloud import bigquery
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
@@ -114,23 +115,6 @@ class ImportResult(BaseModel):
     imported: int
     errors: List[Dict[str, Any]]
 
-
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    import os
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-    
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-    
-    return _client_configs[client_id]
 
 
 _bigquery_clients = {}

@@ -9,14 +9,15 @@ Endpoints for managing user notifications:
 - Manage preferences
 """
 
-import os
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Request
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
+from src.middleware.auth_middleware import get_current_user, UserContext
 from src.tools.supabase_tool import SupabaseTool
 from src.utils.error_handler import log_and_raise
 
@@ -56,67 +57,24 @@ class MarkReadRequest(BaseModel):
     notification_ids: List[str]
 
 
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            logger.error(f"Failed to load config for {client_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-    return _client_configs[client_id]
-
 
 def get_current_user_id(
-    authorization: str = Header(None),
-    config: ClientConfig = Depends(get_client_config)
+    user: UserContext = Depends(get_current_user),
 ) -> str:
-    """Extract user ID from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authorization required")
+    """
+    Extract organization user ID from the authenticated UserContext.
 
-    from src.services.auth_service import AuthService
-
-    auth_service = AuthService(
-        supabase_url=config.supabase_url,
-        supabase_key=config.supabase_service_key
-    )
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid authorization format")
-
-    valid, payload = auth_service.verify_jwt(parts[1])
-    if not valid:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    # Get organization user ID from auth user ID
-    supabase = SupabaseTool(config)
-    result = supabase.client.table('organization_users')\
-        .select('id')\
-        .eq('auth_user_id', payload.get('sub'))\
-        .eq('tenant_id', config.client_id)\
-        .single()\
-        .execute()
-
-    if not result.data:
-        raise HTTPException(status_code=401, detail="User not found")
-
-    return result.data['id']
+    Uses the auth middleware's already-verified JWT and user lookup,
+    avoiding duplicate JWT verification and Supabase queries.
+    The middleware also validates tenant match (X-Client-ID vs user's tenant).
+    """
+    return user.user_id
 
 
 # ==================== Endpoints ====================
 
 @notifications_router.get("")
-async def list_notifications(
+def list_notifications(
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id),
     limit: int = Query(default=20, le=100),
@@ -183,7 +141,7 @@ async def list_notifications(
 
 
 @notifications_router.get("/unread-count")
-async def get_unread_count(
+def get_unread_count(
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id)
 ):
@@ -204,12 +162,11 @@ async def get_unread_count(
         }
 
     except Exception as e:
-        logger.error(f"Error getting unread count: {e}")
-        return {'success': True, 'unread_count': 0}
+        log_and_raise(500, "getting unread count", e, logger)
 
 
 @notifications_router.patch("/{notification_id}/read")
-async def mark_notification_read(
+def mark_notification_read(
     notification_id: str,
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id)
@@ -235,7 +192,7 @@ async def mark_notification_read(
 
 
 @notifications_router.post("/mark-all-read")
-async def mark_all_read(
+def mark_all_read(
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id)
 ):
@@ -269,7 +226,7 @@ async def mark_all_read(
 
 
 @notifications_router.get("/preferences")
-async def get_notification_preferences(
+def get_notification_preferences(
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id)
 ):
@@ -281,7 +238,6 @@ async def get_notification_preferences(
             .select('*')\
             .eq('tenant_id', config.client_id)\
             .eq('user_id', user_id)\
-            .single()\
             .execute()
 
         if not result.data:
@@ -305,7 +261,7 @@ async def get_notification_preferences(
 
         return {
             'success': True,
-            'data': result.data
+            'data': result.data[0]
         }
 
     except Exception as e:
@@ -313,7 +269,7 @@ async def get_notification_preferences(
 
 
 @notifications_router.put("/preferences")
-async def update_notification_preferences(
+def update_notification_preferences(
     preferences: NotificationPreferencesUpdate,
     config: ClientConfig = Depends(get_client_config),
     user_id: str = Depends(get_current_user_id)
@@ -389,6 +345,7 @@ class NotificationService:
     # Map notification types to preference field names
     TYPE_TO_PREFERENCE = {
         'quote_request': 'email_quote_request',
+        'quote_sent': 'email_quote_request',  # Reuse quote_request email preference
         'email_received': 'email_email_received',
         'invoice_paid': 'email_invoice_paid',
         'invoice_overdue': 'email_invoice_overdue',
@@ -422,11 +379,10 @@ class NotificationService:
                 .select('*')\
                 .eq('tenant_id', self.config.client_id)\
                 .eq('user_id', user_id)\
-                .single()\
                 .execute()
 
             if result.data:
-                return result.data
+                return result.data[0]
         except Exception as e:
             logger.debug(f"No preferences found for user {user_id}: {e}")
 
@@ -449,11 +405,10 @@ class NotificationService:
             result = self.supabase.client.table('organization_users')\
                 .select('email')\
                 .eq('id', user_id)\
-                .single()\
                 .execute()
 
             if result.data:
-                return result.data.get('email')
+                return result.data[0].get('email')
         except Exception as e:
             logger.debug(f"Could not get email for user {user_id}: {e}")
         return None
@@ -539,6 +494,22 @@ class NotificationService:
         Optionally sends email notification based on user preferences.
         """
         try:
+            # Dedup: skip if same notification exists within 5 minutes
+            if entity_id:
+                from datetime import datetime, timedelta
+                cutoff = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+                existing = self.supabase.client.table('notifications') \
+                    .select("id") \
+                    .eq('tenant_id', self.config.client_id) \
+                    .eq('type', type) \
+                    .eq('entity_id', entity_id) \
+                    .eq('user_id', user_id) \
+                    .gte('created_at', cutoff) \
+                    .limit(1).execute()
+                if existing.data:
+                    logger.info(f"Skipping duplicate notification: type={type}, entity_id={entity_id}")
+                    return existing.data[0]['id']
+
             result = self.supabase.client.table('notifications').insert({
                 'tenant_id': self.config.client_id,
                 'user_id': user_id,
@@ -620,23 +591,24 @@ class NotificationService:
         Notify consultant that quote was sent successfully.
 
         Called when a draft quote is approved and sent to the customer.
-        Uses 'system' type since 'quote_sent' is not in the allowed notification types.
         """
         self.notify_all_users(
-            type='system',
+            type='quote_sent',
             title='Quote sent',
             message=f'Quote for {customer_name} ({destination}) sent to {customer_email}',
             entity_type='quote',
             entity_id=quote_id
         )
 
-    def notify_email_received(self, sender_email: str, subject: str):
+    def notify_email_received(self, sender_email: str, subject: str, ticket_id: str = None):
         """Notify about new email received"""
         self.notify_all_users(
             type='email_received',
-            title='Email received',
-            message=f'New inquiry from {sender_email}',
-            metadata={'subject': subject}
+            title='New enquiry received',
+            message=f'New inquiry from {sender_email}: {subject}',
+            entity_type='ticket' if ticket_id else None,
+            entity_id=ticket_id,
+            metadata={'subject': subject, 'sender': sender_email}
         )
 
     def notify_invoice_paid(self, customer_name: str, invoice_id: str, amount: float, currency: str):

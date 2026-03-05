@@ -6,13 +6,14 @@ Handles tenant-specific settings:
 - Banking details (for invoices)
 """
 
-import os
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 
-from config.loader import ClientConfig, get_config
+from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
+from src.middleware.auth_middleware import get_current_user, UserContext
 from src.tools.supabase_tool import SupabaseTool
 
 logger = logging.getLogger(__name__)
@@ -21,17 +22,6 @@ settings_router = APIRouter(prefix="/api/v1/settings", tags=["Tenant Settings"])
 
 
 # ==================== Dependencies ====================
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    try:
-        return get_config(client_id)
-    except Exception as e:
-        logger.error(f"Failed to load config for {client_id}: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
 
 def get_supabase_tool(config: ClientConfig = Depends(get_client_config)) -> SupabaseTool:
     """Get SupabaseTool instance for the tenant"""
@@ -108,9 +98,10 @@ def merge_settings_with_config(db_settings: dict, config: ClientConfig) -> dict:
 # ==================== Endpoints ====================
 
 @settings_router.get("")
-async def get_tenant_settings(
+def get_tenant_settings(
     config: ClientConfig = Depends(get_client_config),
-    db: SupabaseTool = Depends(get_supabase_tool)
+    db: SupabaseTool = Depends(get_supabase_tool),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Get tenant settings (email and banking)
@@ -127,10 +118,11 @@ async def get_tenant_settings(
 
 
 @settings_router.put("")
-async def update_tenant_settings(
+def update_tenant_settings(
     data: TenantSettingsUpdate,
     config: ClientConfig = Depends(get_client_config),
-    db: SupabaseTool = Depends(get_supabase_tool)
+    db: SupabaseTool = Depends(get_supabase_tool),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update tenant settings
@@ -200,10 +192,11 @@ async def update_tenant_settings(
 
 
 @settings_router.put("/email")
-async def update_email_settings(
+def update_email_settings(
     data: EmailSettings,
     config: ClientConfig = Depends(get_client_config),
-    db: SupabaseTool = Depends(get_supabase_tool)
+    db: SupabaseTool = Depends(get_supabase_tool),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update email settings only
@@ -241,10 +234,11 @@ async def update_email_settings(
 
 
 @settings_router.put("/banking")
-async def update_banking_settings(
+def update_banking_settings(
     data: BankingSettings,
     config: ClientConfig = Depends(get_client_config),
-    db: SupabaseTool = Depends(get_supabase_tool)
+    db: SupabaseTool = Depends(get_supabase_tool),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update banking settings only
@@ -286,10 +280,11 @@ async def update_banking_settings(
 
 
 @settings_router.put("/company")
-async def update_company_settings(
+def update_company_settings(
     data: CompanySettings,
     config: ClientConfig = Depends(get_client_config),
-    db: SupabaseTool = Depends(get_supabase_tool)
+    db: SupabaseTool = Depends(get_supabase_tool),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Update company settings only

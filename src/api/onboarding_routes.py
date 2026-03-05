@@ -31,6 +31,55 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 logger = logging.getLogger(__name__)
 
+# ==================== Email Domain Configuration ====================
+
+# Free email providers that cannot be used as SendGrid sending addresses
+# (DMARC policies cause emails to be rejected/spammed)
+FREE_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com",
+    "yahoo.com", "yahoo.co.uk", "yahoo.co.za", "yahoo.ca", "yahoo.com.au",
+    "outlook.com", "hotmail.com", "hotmail.co.uk", "live.com", "msn.com",
+    "aol.com",
+    "icloud.com", "me.com", "mac.com",
+    "protonmail.com", "proton.me",
+    "zoho.com", "yandex.com", "mail.com",
+}
+
+# Platform sending domain (already authenticated on parent SendGrid account)
+PLATFORM_SENDING_DOMAIN = "holidaytoday.co.za"
+PLATFORM_DOMAIN_ID = 28525899  # SendGrid authenticated domain ID
+
+
+def is_free_email(email: str) -> bool:
+    """Check if an email address belongs to a free email provider."""
+    if not email or "@" not in email:
+        return False
+    domain = email.lower().split("@")[-1]
+    return domain in FREE_EMAIL_DOMAINS
+
+
+def generate_platform_email(company_name: str, tenant_id: str) -> str:
+    """
+    Generate a platform sending email for tenants using free email providers.
+
+    Args:
+        company_name: The tenant's company name
+        tenant_id: Unique tenant identifier (used as fallback for uniqueness)
+
+    Returns:
+        A sending email like 'safarirun@holidaytoday.co.za'
+    """
+    # Sanitize company name: lowercase, keep alphanumeric and spaces, then replace spaces with nothing
+    sanitized = re.sub(r'[^a-z0-9\s]', '', company_name.lower()).strip()
+    sanitized = re.sub(r'\s+', '', sanitized)  # Remove spaces
+
+    if not sanitized:
+        # Fallback to tenant_id prefix if company name yields nothing
+        sanitized = re.sub(r'[^a-z0-9]', '', tenant_id.lower())[:20]
+
+    return f"{sanitized}@{PLATFORM_SENDING_DOMAIN}"
+
+
 # Import SendGrid provisioner for tenant email isolation
 try:
     from src.services.provisioning_service import SendGridProvisioner
@@ -39,25 +88,36 @@ except ImportError:
     SENDGRID_PROVISIONING_AVAILABLE = False
     logger.warning("SendGrid provisioning not available")
 
-# Try Google GenAI - try API key first, then Vertex AI
+# Google GenAI - lazy initialization to avoid blocking server startup
 GENAI_AVAILABLE = False
 genai_client = None
 genai_model = None  # For google-generativeai library
+_genai_initialized = False
 
-# First try google-generativeai with API key (simpler)
-google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-if google_api_key:
-    try:
-        import google.generativeai as genai_sdk
-        genai_sdk.configure(api_key=google_api_key)
-        genai_model = genai_sdk.GenerativeModel('gemini-1.5-flash')
-        GENAI_AVAILABLE = True
-        logger.info("Google GenAI initialized with API key")
-    except Exception as e:
-        logger.warning(f"Failed to initialize with API key: {e}")
 
-# Fallback to Vertex AI (same as inbound/outbound agents)
-if not GENAI_AVAILABLE:
+def _lazy_init_genai():
+    """Lazily initialize Google GenAI client on first use."""
+    global GENAI_AVAILABLE, genai_client, genai_model, _genai_initialized
+
+    if _genai_initialized:
+        return GENAI_AVAILABLE
+
+    _genai_initialized = True
+
+    # First try google-generativeai with API key (simpler)
+    google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if google_api_key:
+        try:
+            import google.generativeai as genai_sdk
+            genai_sdk.configure(api_key=google_api_key)
+            genai_model = genai_sdk.GenerativeModel('gemini-1.5-flash')
+            GENAI_AVAILABLE = True
+            logger.info("Google GenAI initialized with API key")
+            return GENAI_AVAILABLE
+        except Exception as e:
+            logger.warning(f"Failed to initialize with API key: {e}")
+
+    # Fallback to Vertex AI (same as inbound/outbound agents)
     try:
         from google import genai
         gcp_project = os.getenv("GCP_PROJECT_ID", "zorah-475411")
@@ -73,6 +133,8 @@ if not GENAI_AVAILABLE:
         logger.warning("Google GenAI not installed. Run: pip install google-genai")
     except Exception as e:
         logger.error(f"Failed to initialize Google GenAI: {e}")
+
+    return GENAI_AVAILABLE
 
 onboarding_router = APIRouter(prefix="/api/v1/admin/onboarding", tags=["Onboarding"])
 
@@ -343,12 +405,15 @@ Return ONLY the system prompt text, nothing else. No headers, no markdown, just 
 
 
 @onboarding_router.post("/generate-prompt", response_model=GeneratePromptResponse)
-async def generate_agent_prompt(request: GeneratePromptRequest):
+def generate_agent_prompt(request: GeneratePromptRequest):
     """
     Generate an optimized AI system prompt from a plain English description.
     Uses Google Vertex AI (Gemini) to convert the user's description into a professional system prompt.
     """
-    if not GENAI_AVAILABLE or not genai_client:
+    # Lazy init GenAI on first use (avoids blocking server startup)
+    _lazy_init_genai()
+
+    if not GENAI_AVAILABLE:
         raise HTTPException(
             status_code=500,
             detail="Google GenAI not available. Please check GCP configuration."
@@ -413,7 +478,7 @@ async def generate_agent_prompt(request: GeneratePromptRequest):
 # ==================== Brand Themes Endpoint ====================
 
 @onboarding_router.get("/themes")
-async def get_brand_themes():
+def get_brand_themes():
     """Get available brand theme options"""
     return {"themes": BRAND_THEMES}
 
@@ -421,7 +486,7 @@ async def get_brand_themes():
 # ==================== Voice Options ====================
 
 @onboarding_router.get("/voices", response_model=List[VoiceOption])
-async def get_available_voices():
+def get_available_voices():
     """
     Get available VAPI voice options.
 
@@ -434,22 +499,30 @@ async def get_available_voices():
 
 # ==================== SendGrid Subuser Creation ====================
 
-async def provision_sendgrid_subuser(
+def provision_sendgrid_subuser(
     tenant_id: str,
     contact_email: str,
     from_email: str,
     from_name: str,
-    company_name: str
+    company_name: str,
+    use_platform_domain: bool = False
 ) -> Dict[str, Any]:
     """
     Create a SendGrid subuser for tenant email isolation.
 
+    Two paths:
+    - use_platform_domain=True: Assign the authenticated holidaytoday.co.za domain
+      to the subuser (no single sender verification needed).
+    - use_platform_domain=False: Create a Single Sender Verification for the
+      tenant's custom domain email (tenant must click verification link).
+
     Args:
         tenant_id: Unique tenant identifier
         contact_email: Admin contact email
-        from_email: Sender email address
+        from_email: Sender email address (may be platform domain or custom)
         from_name: Sender display name
         company_name: Company name for sender identity
+        use_platform_domain: If True, assign platform domain instead of single sender verification
 
     Returns:
         Dict with success status, api_key, and any errors
@@ -466,6 +539,9 @@ async def provision_sendgrid_subuser(
     try:
         provisioner = SendGridProvisioner(master_key)
 
+        # Compute sanitized username (matches what create_subuser does internally)
+        sanitized_username = re.sub(r'[^a-z0-9]', '', tenant_id.lower())
+
         # Create subuser with sanitized tenant_id
         subuser_result = provisioner.create_subuser(
             username=tenant_id,
@@ -476,15 +552,15 @@ async def provision_sendgrid_subuser(
             error_msg = subuser_result.get("error", "Unknown error")
             # Check if subuser already exists
             if "already exists" in str(error_msg).lower():
-                logger.info(f"SendGrid subuser {tenant_id} already exists")
+                logger.info(f"SendGrid subuser {sanitized_username} already exists")
             else:
                 logger.error(f"SendGrid subuser creation failed: {error_msg}")
                 return {"success": False, "error": error_msg}
 
         # Create API key for the subuser
         api_key_result = provisioner.create_api_key(
-            name=f"{tenant_id}-mail-api-key",
-            subuser=tenant_id
+            name=f"{sanitized_username}-mail-api-key",
+            subuser=sanitized_username
         )
 
         if not api_key_result.get("success"):
@@ -493,39 +569,70 @@ async def provision_sendgrid_subuser(
 
         api_key = api_key_result["data"]["api_key"]
 
-        # Create verified sender identity
-        sender_result = provisioner.add_verified_sender(
-            from_email=from_email,
-            from_name=from_name,
-            reply_to=contact_email,
-            nickname=company_name,
-            address="123 Main St",  # Placeholder - can be updated later
-            city="Cape Town",
-            country="South Africa",
-            subuser=tenant_id
-        )
+        # Email sending authorization: platform domain or single sender verification
+        domain_assigned = False
+        sender_verified = False
 
-        if not sender_result.get("success"):
-            logger.warning(f"Verified sender creation failed: {sender_result.get('error')}")
-            # Don't fail the whole process - sender can be verified later
+        if use_platform_domain:
+            # Assign the authenticated holidaytoday.co.za domain to the subuser
+            # This allows sending from any @holidaytoday.co.za address without verification
+            domain_result = provisioner.assign_domain_to_subuser(
+                domain_id=PLATFORM_DOMAIN_ID,
+                username=sanitized_username
+            )
+            if domain_result.get("success"):
+                domain_assigned = True
+                logger.info(f"Platform domain assigned to subuser {sanitized_username}")
+            else:
+                logger.warning(f"Platform domain assignment failed: {domain_result.get('error')}")
+                # Fall back to single sender verification
+                logger.info("Falling back to single sender verification")
+                sender_result = provisioner.add_verified_sender(
+                    from_email=from_email,
+                    from_name=from_name,
+                    reply_to=contact_email,
+                    nickname=company_name,
+                    address="123 Main St",
+                    city="Cape Town",
+                    country="South Africa",
+                    subuser=sanitized_username
+                )
+                sender_verified = sender_result.get("success", False)
+        else:
+            # Custom domain: create single sender verification
+            sender_result = provisioner.add_verified_sender(
+                from_email=from_email,
+                from_name=from_name,
+                reply_to=contact_email,
+                nickname=company_name,
+                address="123 Main St",
+                city="Cape Town",
+                country="South Africa",
+                subuser=sanitized_username
+            )
+            if not sender_result.get("success"):
+                logger.warning(f"Verified sender creation failed: {sender_result.get('error')}")
+            else:
+                sender_verified = True
 
         # Try to assign an IP (optional - may not be available)
-        ip_result = provisioner.assign_ip_to_subuser(tenant_id)
+        ip_result = provisioner.assign_ip_to_subuser(sanitized_username)
         ip_address = ip_result.get("ip") if ip_result.get("success") else None
 
-        logger.info(f"SendGrid subuser provisioned successfully for {tenant_id}")
+        logger.info(f"SendGrid subuser provisioned successfully for {tenant_id} (username: {sanitized_username})")
 
         return {
             "success": True,
-            "subuser": tenant_id,
+            "subuser": sanitized_username,
             "api_key": api_key,
             "ip_address": ip_address,
-            "sender_verified": sender_result.get("success", False)
+            "domain_assigned": domain_assigned,
+            "sender_verified": sender_verified,
         }
 
     except Exception as e:
-        logger.error(f"SendGrid provisioning error: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"SendGrid provisioning error: {e}", exc_info=True)
+        return {"success": False, "error": "Email service provisioning failed"}
 
 
 # ==================== Complete Onboarding ====================
@@ -548,28 +655,44 @@ async def complete_onboarding(request: OnboardingRequest):
         "sendgrid_api_key_created": False
     }
 
-    # Track if SendGrid API key was provisioned (for config update)
+    # Track provisioned email settings
     provisioned_sendgrid_key = None
 
     try:
-        # Step 1: Provision SendGrid subuser for tenant email isolation
-        # Always create a subuser for tenant isolation
+        # Step 1: Resolve sending email address
+        # Detect free email providers and assign platform domain if needed
         logger.info(f"Provisioning SendGrid subuser for {tenant_id}")
-        from_email = request.email.from_email or request.company.support_email
+        raw_from_email = request.email.from_email or request.company.support_email
         from_name = request.email.from_name or request.company.company_name
 
-        sendgrid_result = await provision_sendgrid_subuser(
+        use_platform_domain = is_free_email(raw_from_email)
+
+        if use_platform_domain:
+            # Free email (Gmail, Yahoo, etc.) → use platform sending domain
+            sending_email = generate_platform_email(request.company.company_name, tenant_id)
+            reply_to_email = raw_from_email  # Replies go to their real email
+            logger.info(f"Free email detected ({raw_from_email}) → platform address: {sending_email}")
+        else:
+            # Custom domain → use their email directly (single sender verification)
+            sending_email = raw_from_email
+            reply_to_email = raw_from_email
+            logger.info(f"Custom domain email: {sending_email}")
+
+        sendgrid_result = provision_sendgrid_subuser(
             tenant_id=tenant_id,
             contact_email=request.company.support_email,
-            from_email=from_email,
+            from_email=sending_email,
             from_name=from_name,
-            company_name=request.company.company_name
+            company_name=request.company.company_name,
+            use_platform_domain=use_platform_domain
         )
 
         if sendgrid_result.get("success"):
             resources["sendgrid_subuser"] = sendgrid_result.get("subuser")
             resources["sendgrid_api_key_created"] = True
             provisioned_sendgrid_key = sendgrid_result.get("api_key")
+            if sendgrid_result.get("domain_assigned"):
+                resources["platform_domain_assigned"] = True
             logger.info(f"SendGrid subuser created: {tenant_id}")
         else:
             # Log warning but don't fail - tenant can use platform default email
@@ -578,10 +701,12 @@ async def complete_onboarding(request: OnboardingRequest):
 
         # Step 2: Create tenant directory and config
         logger.info(f"Creating tenant configuration for {tenant_id}")
-        config_created = await create_tenant_config(
+        config_created = create_tenant_config(
             tenant_id,
             request,
-            sendgrid_api_key=provisioned_sendgrid_key
+            sendgrid_api_key=provisioned_sendgrid_key,
+            sending_email=sending_email,
+            reply_to_email=reply_to_email
         )
         resources["config_created"] = config_created
 
@@ -633,7 +758,8 @@ async def complete_onboarding(request: OnboardingRequest):
                 # Table might not exist yet - not critical, log and continue
                 logger.warning(f"Could not create tenants registry record (table may not exist): {reg_err}")
 
-            # Create tenant_settings record
+            # Create tenant_settings record (includes SendGrid credentials if provisioned)
+            # Use resolved sending_email (platform domain or custom) and reply_to
             settings_result = db.update_tenant_settings(
                 company_name=request.company.company_name,
                 support_email=request.company.support_email,
@@ -642,7 +768,10 @@ async def complete_onboarding(request: OnboardingRequest):
                 currency=request.company.currency,
                 timezone=request.company.timezone,
                 email_from_name=request.email.from_name,
-                email_from_email=request.email.from_email or request.company.support_email,
+                email_from_email=sending_email,
+                email_reply_to=reply_to_email,
+                sendgrid_api_key=provisioned_sendgrid_key,
+                sendgrid_username=sendgrid_result.get("subuser") if sendgrid_result.get("success") else None,
             )
 
             if settings_result:
@@ -779,10 +908,12 @@ async def complete_onboarding(request: OnboardingRequest):
 
 # ==================== Helper Functions ====================
 
-async def create_tenant_config(
+def create_tenant_config(
     tenant_id: str,
     request: OnboardingRequest,
-    sendgrid_api_key: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None,
+    sending_email: Optional[str] = None,
+    reply_to_email: Optional[str] = None
 ) -> bool:
     """Create tenant directory and config.yaml file
 
@@ -790,7 +921,12 @@ async def create_tenant_config(
         tenant_id: Unique tenant identifier
         request: Onboarding request data
         sendgrid_api_key: Provisioned or provided SendGrid API key
+        sending_email: Resolved sending email (platform domain or custom)
+        reply_to_email: Reply-to email (tenant's actual email)
     """
+    # Use resolved emails, falling back to request data
+    resolved_from_email = sending_email or request.email.from_email or request.company.support_email
+    resolved_reply_to = reply_to_email or request.company.support_email
     base_path = Path(__file__).parent.parent.parent / "clients" / tenant_id
     base_path.mkdir(parents=True, exist_ok=True)
 
@@ -848,22 +984,21 @@ async def create_tenant_config(
             }
         },
         "email": {
-            "primary": request.email.from_email or request.company.support_email,
+            "primary": resolved_from_email,
             "smtp": {
                 "host": "smtp.sendgrid.net",
                 "port": 587,
                 "username": "apikey",
-                "password": sendgrid_api_key or "${SENDGRID_API_KEY}"
             },
             "imap": {
                 "host": "imap.gmail.com",
                 "port": 993
             },
             "sendgrid": {
-                "api_key": sendgrid_api_key or "${SENDGRID_API_KEY}",
-                "from_email": request.email.from_email or request.company.support_email,
+                # api_key loaded from tenant_settings DB table
+                "from_email": resolved_from_email,
                 "from_name": request.email.from_name,
-                "reply_to": request.company.support_email
+                "reply_to": resolved_reply_to
             }
         },
         "outbound": {
@@ -992,7 +1127,7 @@ async def create_tenant_config(
 # ==================== Status Endpoint ====================
 
 @onboarding_router.get("/status/{tenant_id}")
-async def get_onboarding_status(tenant_id: str):
+def get_onboarding_status(tenant_id: str):
     """Check onboarding status for a tenant"""
     config_path = Path(__file__).parent.parent.parent / "clients" / tenant_id / "client.yaml"
 

@@ -88,34 +88,28 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, authLoading]);
 
-  const loadClientInfo = async (retries = 3, delay = 1000) => {
+  const loadClientInfo = async () => {
     // Only show loading spinner if we don't have cached data
     const hasCachedData = !!clientInfo;
     if (!hasCachedData) {
       setLoading(true);
     }
 
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        setError(null);
-        const response = await clientApi.getInfo();
-        // Extract actual data from response wrapper { success: true, data: {...} }
-        const actualData = response.data?.data || response.data;
-        setClientInfo(actualData);
-        setCachedClientInfo(actualData); // Cache for next visit
-        setLoading(false);
-        return; // Success, exit
-      } catch (err) {
-        if (attempt === retries) {
-          // Only show error if we don't have cached data
-          if (!hasCachedData) {
-            setError('Failed to connect to server');
-          }
-          setLoading(false);
-        } else {
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
+    try {
+      setError(null);
+      const response = await clientApi.getInfo();
+      // Extract actual data from response wrapper { success: true, data: {...} }
+      const actualData = response.data?.data || response.data;
+      setClientInfo(actualData);
+      setCachedClientInfo(actualData); // Cache for next visit
+    } catch (err) {
+      console.warn('Failed to load client info:', err.message);
+      // Only show error if we don't have cached data to fall back on
+      if (!hasCachedData) {
+        setError('Failed to connect to server');
       }
+    } finally {
+      setLoading(false);
     }
   };
 

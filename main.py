@@ -31,6 +31,7 @@ from typing import Optional
 from datetime import datetime
 
 from config.loader import ClientConfig, get_config
+from src.api.dependencies import get_client_config
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -47,6 +48,24 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     logger.info("Starting Multi-Tenant AI Platform...")
 
+    # Suppress benign Windows asyncio connection errors (WinError 10054, 64)
+    # These occur when clients disconnect but are harmless - they just spam logs
+    if sys.platform == 'win32':
+        import asyncio
+        loop = asyncio.get_event_loop()
+        _original_handler = loop.get_exception_handler()
+
+        def _win_exception_handler(loop, context):
+            exc = context.get('exception')
+            if isinstance(exc, (ConnectionResetError, OSError)):
+                return  # Suppress silently
+            if _original_handler:
+                _original_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        loop.set_exception_handler(_win_exception_handler)
+
     # Initialize OpenTelemetry tracing (opt-in via ENABLE_TRACING=true)
     try:
         from src.utils.tracing import setup_tracing
@@ -54,17 +73,6 @@ async def lifespan(app: FastAPI):
             logger.info("OpenTelemetry tracing enabled")
     except Exception as e:
         logger.warning(f"Tracing setup skipped: {e}")
-
-    # Preload FAISS helpdesk index in background
-    try:
-        from src.services.faiss_helpdesk_service import get_faiss_helpdesk_service
-        service = get_faiss_helpdesk_service()
-        if service.initialize():
-            logger.info("FAISS helpdesk index preloaded successfully")
-        else:
-            logger.warning("FAISS helpdesk index not available (will retry on first query)")
-    except Exception as e:
-        logger.warning(f"FAISS preload skipped: {e}")
 
     yield
     logger.info("Shutting down...")
@@ -74,7 +82,7 @@ async def lifespan(app: FastAPI):
 # Disable API docs endpoints in production to prevent information disclosure
 _is_production = os.getenv("ENVIRONMENT", "development").lower() in ("production", "prod")
 app = FastAPI(
-    title="Multi-Tenant AI Travel Platform Lite",
+    title="HT-ITC-Lite API",
     description="CRM, Quotes, and Invoices for travel agencies - Lite version",
     version="1.0.0-lite",
     lifespan=lifespan,
@@ -94,9 +102,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # NOTE: FastAPI middleware runs in REVERSE order of addition.
 # Last added = first to process requests. Order matters!
 
-# 0a. GZIP compression middleware - compresses responses for bandwidth savings
-from starlette.middleware.gzip import GZipMiddleware
-app.add_middleware(GZipMiddleware, minimum_size=500)
+# 0a. GZIP compression middleware - DISABLED on Windows
+# GZipMiddleware combined with multiple BaseHTTPMiddleware layers causes response
+# streaming deadlocks on Windows (responses over minimum_size never reach client).
+# TODO: Re-enable when middleware is converted to pure ASGI or on Linux deployment.
+# from starlette.middleware.gzip import GZipMiddleware
+# app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # 0b. Request size limit middleware - reject oversized payloads (10 MB general, 50 MB uploads)
 from src.middleware.request_size_middleware import RequestSizeMiddleware
@@ -195,29 +206,13 @@ from src.middleware.request_id_middleware import RequestIdMiddleware
 app.add_middleware(RequestIdMiddleware)
 
 
-# ==================== Dependency ====================
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    client_id = x_client_id or os.getenv("CLIENT_ID", "africastay")
-
-    try:
-        config = get_config(client_id)
-        return config
-    except FileNotFoundError:
-        raise HTTPException(status_code=400, detail=f"Unknown client: {client_id}")
-    except Exception as e:
-        logger.error(f"Error loading config for {client_id}: {e}")
-        raise HTTPException(status_code=500, detail="Configuration error")
-
-
 # ==================== Health & Info Endpoints ====================
 
 @app.get("/")
 async def root():
     """Root endpoint - API info"""
     return {
-        "name": "Multi-Tenant AI Travel Platform",
+        "name": "HT-ITC-Lite",
         "version": "1.0.0",
         "status": "running",
         "timestamp": datetime.utcnow().isoformat()
@@ -364,7 +359,12 @@ include_routers(app)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler"""
+    """Global exception handler — don't swallow HTTPExceptions."""
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "error": exc.detail}
+        )
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,

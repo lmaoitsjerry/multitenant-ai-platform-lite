@@ -157,8 +157,10 @@ class TestGeneratePromptEndpoint:
         )
         assert response.status_code == 422
 
+    @patch("src.api.onboarding_routes._lazy_init_genai", lambda: False)
     @patch("src.api.onboarding_routes.GENAI_AVAILABLE", False)
     @patch("src.api.onboarding_routes.genai_client", None)
+    @patch("src.api.onboarding_routes.genai_model", None)
     def test_generate_prompt_unavailable_without_genai(self, test_client):
         """POST /generate-prompt returns 500 when GenAI unavailable."""
         response = test_client.post(
@@ -602,13 +604,11 @@ class TestGeneratePlatformEmail:
 
 class TestProvisionSendgridSubuser:
     """Test provision_sendgrid_subuser async function."""
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", False)
-    async def test_returns_error_when_not_available(self):
+    def test_returns_error_when_not_available(self):
         """Returns error when SendGrid provisioning not available."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_test123",
             contact_email="admin@test.com",
             from_email="test@company.com",
@@ -617,16 +617,14 @@ class TestProvisionSendgridSubuser:
         )
         assert result["success"] == False
         assert "not available" in result["error"]
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": ""}, clear=False)
-    async def test_returns_error_when_no_master_key(self):
+    def test_returns_error_when_no_master_key(self):
         """Returns error when master API key not configured."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
         # Temporarily clear the env var
         with patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": ""}):
-            result = await provision_sendgrid_subuser(
+            result = provision_sendgrid_subuser(
                 tenant_id="tn_test123",
                 contact_email="admin@test.com",
                 from_email="test@company.com",
@@ -635,12 +633,10 @@ class TestProvisionSendgridSubuser:
             )
         assert result["success"] == False
         assert "not configured" in result["error"]
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch("src.api.onboarding_routes.SendGridProvisioner")
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
-    async def test_creates_subuser_successfully(self, mock_provisioner_class):
+    def test_creates_subuser_successfully(self, mock_provisioner_class):
         """Creates subuser and API key successfully."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
 
@@ -655,7 +651,7 @@ class TestProvisionSendgridSubuser:
         mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
         mock_provisioner_class.return_value = mock_provisioner
 
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_test123_abc",
             contact_email="admin@test.com",
             from_email="test@company.com",
@@ -667,12 +663,10 @@ class TestProvisionSendgridSubuser:
         assert result["success"] == True
         assert result["api_key"] == "SG.new-api-key"
         assert result["sender_verified"] == True
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch("src.api.onboarding_routes.SendGridProvisioner")
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
-    async def test_assigns_platform_domain(self, mock_provisioner_class):
+    def test_assigns_platform_domain(self, mock_provisioner_class):
         """Assigns platform domain when use_platform_domain=True."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
 
@@ -686,7 +680,7 @@ class TestProvisionSendgridSubuser:
         mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
         mock_provisioner_class.return_value = mock_provisioner
 
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_test123_abc",
             contact_email="admin@test.com",
             from_email="test@holidaytoday.co.za",
@@ -698,12 +692,10 @@ class TestProvisionSendgridSubuser:
         assert result["success"] == True
         assert result["domain_assigned"] == True
         mock_provisioner.assign_domain_to_subuser.assert_called_once()
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch("src.api.onboarding_routes.SendGridProvisioner")
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
-    async def test_handles_subuser_already_exists(self, mock_provisioner_class):
+    def test_handles_subuser_already_exists(self, mock_provisioner_class):
         """Handles case when subuser already exists."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
 
@@ -720,7 +712,7 @@ class TestProvisionSendgridSubuser:
         mock_provisioner.assign_ip_to_subuser.return_value = {"success": False}
         mock_provisioner_class.return_value = mock_provisioner
 
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_existing_user",
             contact_email="admin@test.com",
             from_email="test@company.com",
@@ -730,12 +722,10 @@ class TestProvisionSendgridSubuser:
 
         # Should continue and create API key even if subuser exists
         assert result["success"] == True
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch("src.api.onboarding_routes.SendGridProvisioner")
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
-    async def test_handles_api_key_creation_failure(self, mock_provisioner_class):
+    def test_handles_api_key_creation_failure(self, mock_provisioner_class):
         """Handles API key creation failure."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
 
@@ -747,7 +737,7 @@ class TestProvisionSendgridSubuser:
         }
         mock_provisioner_class.return_value = mock_provisioner
 
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_test123_abc",
             contact_email="admin@test.com",
             from_email="test@company.com",
@@ -757,18 +747,16 @@ class TestProvisionSendgridSubuser:
 
         assert result["success"] == False
         assert "API key limit reached" in result["error"]
-
-    @pytest.mark.asyncio
     @patch("src.api.onboarding_routes.SENDGRID_PROVISIONING_AVAILABLE", True)
     @patch("src.api.onboarding_routes.SendGridProvisioner")
     @patch.dict(os.environ, {"SENDGRID_MASTER_API_KEY": "SG.test-master-key"})
-    async def test_handles_exception_gracefully(self, mock_provisioner_class):
+    def test_handles_exception_gracefully(self, mock_provisioner_class):
         """Handles unexpected exceptions."""
         from src.api.onboarding_routes import provision_sendgrid_subuser
 
         mock_provisioner_class.side_effect = Exception("Network error")
 
-        result = await provision_sendgrid_subuser(
+        result = provision_sendgrid_subuser(
             tenant_id="tn_test123_abc",
             contact_email="admin@test.com",
             from_email="test@company.com",
@@ -815,11 +803,9 @@ class TestCreateTenantConfig:
             email=EmailSettings(from_name="Test Travel"),
             knowledge_base=KnowledgeBaseConfig()
         )
-
-    @pytest.mark.asyncio
     @patch("builtins.open", create=True)
     @patch("pathlib.Path.mkdir")
-    async def test_creates_tenant_directory(self, mock_mkdir, mock_open, mock_onboarding_request):
+    def test_creates_tenant_directory(self, mock_mkdir, mock_open, mock_onboarding_request):
         """Creates tenant directory structure."""
         from src.api.onboarding_routes import create_tenant_config
 
@@ -827,7 +813,7 @@ class TestCreateTenantConfig:
         mock_file = MagicMock()
         mock_open.return_value.__enter__.return_value = mock_file
 
-        result = await create_tenant_config(
+        result = create_tenant_config(
             tenant_id="tn_test123_abc",
             request=mock_onboarding_request
         )
@@ -835,11 +821,9 @@ class TestCreateTenantConfig:
         assert result == True
         # Verify mkdir was called
         assert mock_mkdir.call_count >= 2  # base path + prompts
-
-    @pytest.mark.asyncio
     @patch("builtins.open", create=True)
     @patch("pathlib.Path.mkdir")
-    async def test_writes_config_yaml(self, mock_mkdir, mock_open, mock_onboarding_request):
+    def test_writes_config_yaml(self, mock_mkdir, mock_open, mock_onboarding_request):
         """Writes config.yaml file."""
         from src.api.onboarding_routes import create_tenant_config
         import yaml
@@ -853,7 +837,7 @@ class TestCreateTenantConfig:
         mock_file.write = capture_write
         mock_open.return_value.__enter__.return_value = mock_file
 
-        result = await create_tenant_config(
+        result = create_tenant_config(
             tenant_id="tn_test123_abc",
             request=mock_onboarding_request,
             sendgrid_api_key="SG.test-key",
@@ -864,11 +848,9 @@ class TestCreateTenantConfig:
         assert result == True
         # Verify open was called for config file
         assert mock_open.call_count >= 2  # prompt + config
-
-    @pytest.mark.asyncio
     @patch("builtins.open", create=True)
     @patch("pathlib.Path.mkdir")
-    async def test_writes_inbound_prompt(self, mock_mkdir, mock_open, mock_onboarding_request):
+    def test_writes_inbound_prompt(self, mock_mkdir, mock_open, mock_onboarding_request):
         """Writes inbound prompt file."""
         from src.api.onboarding_routes import create_tenant_config
 
@@ -883,17 +865,15 @@ class TestCreateTenantConfig:
 
         mock_open.side_effect = mock_open_side_effect
 
-        result = await create_tenant_config(
+        result = create_tenant_config(
             tenant_id="tn_test123_abc",
             request=mock_onboarding_request
         )
 
         assert result == True
-
-    @pytest.mark.asyncio
     @patch("builtins.open", create=True)
     @patch("pathlib.Path.mkdir")
-    async def test_uses_resolved_emails(self, mock_mkdir, mock_open, mock_onboarding_request):
+    def test_uses_resolved_emails(self, mock_mkdir, mock_open, mock_onboarding_request):
         """Uses resolved sending and reply-to emails."""
         from src.api.onboarding_routes import create_tenant_config
         import yaml
@@ -907,7 +887,7 @@ class TestCreateTenantConfig:
             mock_file = MagicMock()
             mock_open.return_value.__enter__.return_value = mock_file
 
-            result = await create_tenant_config(
+            result = create_tenant_config(
                 tenant_id="tn_test123_abc",
                 request=mock_onboarding_request,
                 sending_email="platform@holidaytoday.co.za",
@@ -920,11 +900,9 @@ class TestCreateTenantConfig:
                 config = captured_yaml[0]
                 assert config["email"]["primary"] == "platform@holidaytoday.co.za"
                 assert config["email"]["sendgrid"]["reply_to"] == "support@test.com"
-
-    @pytest.mark.asyncio
     @patch("builtins.open", create=True)
     @patch("pathlib.Path.mkdir")
-    async def test_generates_short_name(self, mock_mkdir, mock_open, mock_onboarding_request):
+    def test_generates_short_name(self, mock_mkdir, mock_open, mock_onboarding_request):
         """Generates short_name from company name."""
         from src.api.onboarding_routes import create_tenant_config
         import yaml
@@ -938,7 +916,7 @@ class TestCreateTenantConfig:
             mock_file = MagicMock()
             mock_open.return_value.__enter__.return_value = mock_file
 
-            result = await create_tenant_config(
+            result = create_tenant_config(
                 tenant_id="tn_test123_abc",
                 request=mock_onboarding_request
             )

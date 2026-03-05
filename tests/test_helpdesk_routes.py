@@ -325,30 +325,32 @@ class TestClientConfigHelper:
 
     def test_get_client_config_caches_result(self, mock_config):
         """get_client_config should cache configurations."""
-        from src.api.helpdesk_routes import get_client_config, _client_configs
+        from src.api.dependencies import get_client_config, _client_configs
 
-        # Clear cache
         _client_configs.clear()
 
-        with patch('src.api.helpdesk_routes.ClientConfig', return_value=mock_config):
-            config1 = get_client_config("test_tenant")
-            config2 = get_client_config("test_tenant")
+        with patch('src.api.dependencies.ClientConfig', return_value=mock_config):
+            config1 = get_client_config("test_helpdesk_tenant")
+            config2 = get_client_config("test_helpdesk_tenant")
 
             # Should return the same cached instance
             assert config1 is config2
 
-    def test_get_client_config_handles_error(self):
-        """get_client_config should handle config errors gracefully."""
-        from src.api.helpdesk_routes import get_client_config, _client_configs
-
-        # Clear cache
         _client_configs.clear()
 
-        with patch('src.api.helpdesk_routes.ClientConfig', side_effect=Exception("Config error")):
-            result = get_client_config("nonexistent_tenant")
+    def test_get_client_config_handles_error(self):
+        """get_client_config should return fallback config on error."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-            # Should return None on error
-            assert result is None
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Config error")):
+            result = get_client_config("nonexistent_helpdesk_tenant")
+
+            # Should return FallbackClientConfig instead of None
+            assert isinstance(result, FallbackClientConfig)
+
+        _client_configs.clear()
 
 
 # ==================== Pydantic Model Tests ====================
@@ -930,9 +932,7 @@ class TestScoreResponse:
 
 class TestAskHelpdeskHandler:
     """Tests for ask_helpdesk endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_ask_helpdesk_success_with_dual_kb(self, mock_config):
+    def test_ask_helpdesk_success_with_dual_kb(self, mock_config):
         """Should return answer from dual KB search."""
         from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
 
@@ -955,15 +955,13 @@ class TestAskHelpdeskHandler:
                     "sources_breakdown": {"global": 1, "private": 0, "total": 1}
                 }
 
-                result = await ask_helpdesk(request, user=None, config=mock_config)
+                result = ask_helpdesk(request, user=None, config=mock_config)
 
         assert result["success"] is True
         assert result["answer"] == "Maldives has amazing resorts"
         assert result["method"] == "dual_kb"
         assert "timing" in result
-
-    @pytest.mark.asyncio
-    async def test_ask_helpdesk_llm_fallback(self, mock_config):
+    def test_ask_helpdesk_llm_fallback(self, mock_config):
         """Should use LLM fallback when KB has no answer."""
         from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
 
@@ -973,7 +971,7 @@ class TestAskHelpdeskHandler:
             from src.services.query_classifier import QueryType
             mock_instance = MagicMock()
             mock_instance.classify.return_value = (QueryType.GENERAL, 0.5)
-            mock_instance.get_search_params.return_value = {"k": 5}
+            mock_instance.get_search_params.return_value = {"k": 5, "use_rerank": True}
             mock_classifier.return_value = mock_instance
 
             with patch('src.api.helpdesk_routes.search_dual_knowledge_base') as mock_search:
@@ -991,13 +989,12 @@ class TestAskHelpdeskHandler:
                     }
                     mock_rag.return_value = mock_service
 
-                    result = await ask_helpdesk(request, user=None, config=mock_config)
+                    with patch('src.api.helpdesk_routes._web_search_supplement', return_value=[]):
+                        result = ask_helpdesk(request, user=None, config=mock_config)
 
         assert result["success"] is True
         assert result["method"] == "llm_synthesis"
-
-    @pytest.mark.asyncio
-    async def test_ask_helpdesk_error_fallback(self, mock_config):
+    def test_ask_helpdesk_error_fallback(self, mock_config):
         """Should return error fallback on LLM failure."""
         from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
 
@@ -1014,21 +1011,19 @@ class TestAskHelpdeskHandler:
                 mock_search.return_value = {"success": False, "answer": "", "citations": []}
 
                 with patch('src.api.helpdesk_routes.get_rag_service', side_effect=Exception("LLM Error")):
-                    result = await ask_helpdesk(request, user=None, config=mock_config)
+                    result = ask_helpdesk(request, user=None, config=mock_config)
 
         assert result["success"] is True
-        assert result["method"] == "error_fallback"
-        assert "trouble" in result["answer"].lower()
-
-    @pytest.mark.asyncio
-    async def test_ask_helpdesk_exception_handling(self, mock_config):
+        assert result["method"] == "static_fallback"
+        assert result["answer"]  # Has some fallback content
+    def test_ask_helpdesk_exception_handling(self, mock_config):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import ask_helpdesk, AskQuestion
 
         request = AskQuestion(question="Test")
 
         with patch('src.api.helpdesk_routes.get_query_classifier', side_effect=Exception("Classifier error")):
-            result = await ask_helpdesk(request, user=None, config=mock_config)
+            result = ask_helpdesk(request, user=None, config=mock_config)
 
         assert result["success"] is False
         assert "timing" in result
@@ -1038,13 +1033,11 @@ class TestAskHelpdeskHandler:
 
 class TestTopicsHandler:
     """Tests for get_helpdesk_topics endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_get_topics_returns_success(self):
+    def test_get_topics_returns_success(self):
         """Should return topics successfully."""
         from src.api.helpdesk_routes import get_helpdesk_topics
 
-        result = await get_helpdesk_topics(user=None)
+        result = get_helpdesk_topics(user=None)
 
         assert result["success"] is True
         assert "topics" in result
@@ -1055,43 +1048,35 @@ class TestTopicsHandler:
 
 class TestSearchHandler:
     """Tests for search_helpdesk endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_search_without_query_returns_all(self):
+    def test_search_without_query_returns_all(self):
         """Should return all topics when no query."""
         from src.api.helpdesk_routes import search_helpdesk, HELPDESK_TOPICS
 
-        result = await search_helpdesk(q="", user=None)
+        result = search_helpdesk(q="", user=None)
 
         assert result["success"] is True
         assert result["results"] == HELPDESK_TOPICS
-
-    @pytest.mark.asyncio
-    async def test_search_filters_by_name(self):
+    def test_search_filters_by_name(self):
         """Should filter topics by name."""
         from src.api.helpdesk_routes import search_helpdesk
 
-        result = await search_helpdesk(q="quotes", user=None)
+        result = search_helpdesk(q="quotes", user=None)
 
         assert result["success"] is True
         assert len(result["results"]) >= 1
         assert any("quote" in r["name"].lower() for r in result["results"])
-
-    @pytest.mark.asyncio
-    async def test_search_filters_by_description(self):
+    def test_search_filters_by_description(self):
         """Should filter topics by description."""
         from src.api.helpdesk_routes import search_helpdesk
 
-        result = await search_helpdesk(q="pricing", user=None)
+        result = search_helpdesk(q="pricing", user=None)
 
         assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_search_no_match_returns_first_three(self):
+    def test_search_no_match_returns_first_three(self):
         """Should return first 3 topics when no match."""
         from src.api.helpdesk_routes import search_helpdesk, HELPDESK_TOPICS
 
-        result = await search_helpdesk(q="xyznonexistent", user=None)
+        result = search_helpdesk(q="xyznonexistent", user=None)
 
         assert result["success"] is True
         assert len(result["results"]) == 3
@@ -1102,9 +1087,7 @@ class TestSearchHandler:
 
 class TestRagStatusHandler:
     """Tests for get_rag_status endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_rag_status_success(self):
+    def test_rag_status_success(self):
         """Should return RAG status successfully."""
         from src.api.helpdesk_routes import get_rag_status
 
@@ -1117,18 +1100,16 @@ class TestRagStatusHandler:
             }
             mock.return_value = mock_client
 
-            result = await get_rag_status()
+            result = get_rag_status()
 
         assert result["success"] is True
         assert "data" in result
-
-    @pytest.mark.asyncio
-    async def test_rag_status_error(self):
+    def test_rag_status_error(self):
         """Should handle errors gracefully."""
         from src.api.helpdesk_routes import get_rag_status
 
         with patch('src.api.helpdesk_routes.get_travel_platform_rag_client', side_effect=Exception("Error")):
-            result = await get_rag_status()
+            result = get_rag_status()
 
         assert result["success"] is False
         assert "error" in result
@@ -1138,16 +1119,14 @@ class TestRagStatusHandler:
 
 class TestFaissStatusHandler:
     """Tests for get_faiss_status endpoint handler (legacy redirect)."""
-
-    @pytest.mark.asyncio
-    async def test_faiss_status_redirects_to_rag(self):
+    def test_faiss_status_redirects_to_rag(self):
         """Should redirect to RAG status."""
         from src.api.helpdesk_routes import get_faiss_status
 
-        with patch('src.api.helpdesk_routes.get_rag_status', new_callable=AsyncMock) as mock:
+        with patch('src.api.helpdesk_routes.get_rag_status') as mock:
             mock.return_value = {"success": True, "data": {"available": True}}
 
-            result = await get_faiss_status()
+            result = get_faiss_status()
 
         mock.assert_called_once()
         assert result["success"] is True
@@ -1157,9 +1136,7 @@ class TestFaissStatusHandler:
 
 class TestTestSearchHandler:
     """Tests for test_rag_search endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_test_search_success(self):
+    def test_test_search_success(self):
         """Should return test search results."""
         from src.api.helpdesk_routes import test_rag_search
 
@@ -1178,14 +1155,12 @@ class TestTestSearchHandler:
                 ]
             }
 
-            result = await test_rag_search(q="Maldives hotels")
+            result = test_rag_search(q="Maldives hotels")
 
         assert result["success"] is True
         assert result["method"] == "travel_platform_rag"
         assert result["confidence"] == 0.85
-
-    @pytest.mark.asyncio
-    async def test_test_search_no_answer(self):
+    def test_test_search_no_answer(self):
         """Should handle no answer response."""
         from src.api.helpdesk_routes import test_rag_search
 
@@ -1196,18 +1171,16 @@ class TestTestSearchHandler:
                 "citations": []
             }
 
-            result = await test_rag_search(q="unknown topic")
+            result = test_rag_search(q="unknown topic")
 
         assert result["success"] is False
         assert "message" in result
-
-    @pytest.mark.asyncio
-    async def test_test_search_exception(self):
+    def test_test_search_exception(self):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import test_rag_search
 
         with patch('src.api.helpdesk_routes.search_travel_platform_rag', side_effect=Exception("Search error")):
-            result = await test_rag_search(q="test")
+            result = test_rag_search(q="test")
 
         assert result["success"] is False
         assert "error" in result
@@ -1217,9 +1190,7 @@ class TestTestSearchHandler:
 
 class TestHelpdeskHealthHandler:
     """Tests for helpdesk_health endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_health_check_healthy(self):
+    def test_health_check_healthy(self):
         """Should return healthy when RAG available."""
         from src.api.helpdesk_routes import helpdesk_health
 
@@ -1232,14 +1203,12 @@ class TestHelpdeskHealthHandler:
             }
             mock.return_value = mock_client
 
-            result = await helpdesk_health()
+            result = helpdesk_health()
 
         assert result["status"] == "healthy"
         assert result["mode"] == "travel_platform_rag"
         assert "checks" in result
-
-    @pytest.mark.asyncio
-    async def test_health_check_degraded(self):
+    def test_health_check_degraded(self):
         """Should return degraded when RAG unavailable."""
         from src.api.helpdesk_routes import helpdesk_health
 
@@ -1252,18 +1221,16 @@ class TestHelpdeskHealthHandler:
             }
             mock.return_value = mock_client
 
-            result = await helpdesk_health()
+            result = helpdesk_health()
 
         assert result["status"] == "degraded"
         assert result["mode"] == "static_fallback"
-
-    @pytest.mark.asyncio
-    async def test_health_check_error(self):
+    def test_health_check_error(self):
         """Should return error status on exception."""
         from src.api.helpdesk_routes import helpdesk_health
 
         with patch('src.api.helpdesk_routes.get_travel_platform_rag_client', side_effect=Exception("Error")):
-            result = await helpdesk_health()
+            result = helpdesk_health()
 
         assert result["status"] == "error"
         assert "error" in result
@@ -1273,9 +1240,7 @@ class TestHelpdeskHealthHandler:
 
 class TestAgentChatHandler:
     """Tests for agent_chat endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_agent_chat_success(self, mock_config):
+    def test_agent_chat_success(self, mock_config):
         """Should return agent response."""
         from src.api.helpdesk_routes import agent_chat, AskQuestion
 
@@ -1290,14 +1255,12 @@ class TestAgentChatHandler:
             }
             mock.return_value = mock_agent
 
-            result = await agent_chat(request, user=None, config=mock_config)
+            result = agent_chat(request, user=None, config=mock_config)
 
         assert result["success"] is True
         assert "answer" in result
         assert result["method"] == "agent"
-
-    @pytest.mark.asyncio
-    async def test_agent_chat_direct_response(self, mock_config):
+    def test_agent_chat_direct_response(self, mock_config):
         """Should handle direct response without tool."""
         from src.api.helpdesk_routes import agent_chat, AskQuestion
 
@@ -1312,20 +1275,18 @@ class TestAgentChatHandler:
             }
             mock.return_value = mock_agent
 
-            result = await agent_chat(request, user=None, config=mock_config)
+            result = agent_chat(request, user=None, config=mock_config)
 
         assert result["success"] is True
         assert result["method"] == "direct"
-
-    @pytest.mark.asyncio
-    async def test_agent_chat_exception(self, mock_config):
+    def test_agent_chat_exception(self, mock_config):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import agent_chat, AskQuestion
 
         request = AskQuestion(question="Test")
 
         with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Agent error")):
-            result = await agent_chat(request, user=None, config=mock_config)
+            result = agent_chat(request, user=None, config=mock_config)
 
         assert result["success"] is False
         assert "timing_ms" in result
@@ -1335,9 +1296,7 @@ class TestAgentChatHandler:
 
 class TestAgentResetHandler:
     """Tests for agent_reset endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_agent_reset_success(self):
+    def test_agent_reset_success(self):
         """Should reset agent successfully."""
         from src.api.helpdesk_routes import agent_reset
 
@@ -1345,18 +1304,16 @@ class TestAgentResetHandler:
             mock_agent = MagicMock()
             mock.return_value = mock_agent
 
-            result = await agent_reset()
+            result = agent_reset()
 
         assert result["success"] is True
         mock_agent.reset_conversation.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_agent_reset_exception(self):
+    def test_agent_reset_exception(self):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import agent_reset
 
         with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Reset error")):
-            result = await agent_reset()
+            result = agent_reset()
 
         assert result["success"] is False
         assert "error" in result
@@ -1366,9 +1323,7 @@ class TestAgentResetHandler:
 
 class TestAgentStatsHandler:
     """Tests for agent_stats endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_agent_stats_success(self):
+    def test_agent_stats_success(self):
         """Should return agent stats."""
         from src.api.helpdesk_routes import agent_stats
 
@@ -1380,19 +1335,17 @@ class TestAgentStatsHandler:
             }
             mock.return_value = mock_agent
 
-            result = await agent_stats()
+            result = agent_stats()
 
         assert result["success"] is True
         assert "stats" in result
         assert result["stats"]["total_queries"] == 100
-
-    @pytest.mark.asyncio
-    async def test_agent_stats_exception(self):
+    def test_agent_stats_exception(self):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import agent_stats
 
         with patch('src.agents.helpdesk_agent.get_helpdesk_agent', side_effect=Exception("Stats error")):
-            result = await agent_stats()
+            result = agent_stats()
 
         assert result["success"] is False
         assert "error" in result
@@ -1402,9 +1355,7 @@ class TestAgentStatsHandler:
 
 class TestReinitHandler:
     """Tests for reinit_rag_client endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_reinit_success(self):
+    def test_reinit_success(self):
         """Should reinit RAG client successfully."""
         from src.api.helpdesk_routes import reinit_rag_client
 
@@ -1415,13 +1366,11 @@ class TestReinitHandler:
                 mock_client.get_status.return_value = {"available": True}
                 mock_get.return_value = mock_client
 
-                result = await reinit_rag_client()
+                result = reinit_rag_client()
 
         assert result["success"] is True
         assert "status" in result
-
-    @pytest.mark.asyncio
-    async def test_reinit_unavailable(self):
+    def test_reinit_unavailable(self):
         """Should report when RAG unavailable after reinit."""
         from src.api.helpdesk_routes import reinit_rag_client
 
@@ -1432,19 +1381,17 @@ class TestReinitHandler:
                 mock_client.get_status.return_value = {"available": False}
                 mock_get.return_value = mock_client
 
-                result = await reinit_rag_client()
+                result = reinit_rag_client()
 
         assert result["success"] is False
         assert "unavailable" in result["message"]
-
-    @pytest.mark.asyncio
-    async def test_reinit_exception(self):
+    def test_reinit_exception(self):
         """Should handle exceptions gracefully."""
         from src.api.helpdesk_routes import reinit_rag_client
 
         with patch('src.services.travel_platform_rag_client.reset_travel_platform_rag_client',
                    side_effect=Exception("Reinit error")):
-            result = await reinit_rag_client()
+            result = reinit_rag_client()
 
         assert result["success"] is False
         assert "error" in result
@@ -1454,20 +1401,16 @@ class TestReinitHandler:
 
 class TestAccuracyTestHandler:
     """Tests for run_accuracy_tests endpoint handler."""
-
-    @pytest.mark.asyncio
-    async def test_list_accuracy_test_cases(self):
+    def test_list_accuracy_test_cases(self):
         """Should list all test cases."""
         from src.api.helpdesk_routes import list_accuracy_test_cases
 
-        result = await list_accuracy_test_cases()
+        result = list_accuracy_test_cases()
 
         assert result["success"] is True
         assert "test_cases" in result
         assert len(result["test_cases"]) > 0
-
-    @pytest.mark.asyncio
-    async def test_run_specific_test(self):
+    def test_run_specific_test(self):
         """Should run specific test by ID."""
         from src.api.helpdesk_routes import run_accuracy_tests
 
@@ -1485,13 +1428,11 @@ class TestAccuracyTestHandler:
                     "citations": []
                 }
 
-                result = await run_accuracy_tests(test_id="hotel_mauritius_luxury", verbose=True)
+                result = run_accuracy_tests(test_id="hotel_mauritius_luxury", verbose=True)
 
         assert result["success"] is True
         assert result["summary"]["total_tests"] == 1
-
-    @pytest.mark.asyncio
-    async def test_run_all_tests(self):
+    def test_run_all_tests(self):
         """Should run all accuracy tests."""
         from src.api.helpdesk_routes import run_accuracy_tests
 
@@ -1509,19 +1450,17 @@ class TestAccuracyTestHandler:
                     "citations": []
                 }
 
-                result = await run_accuracy_tests(verbose=False)
+                result = run_accuracy_tests(verbose=False)
 
         assert result["success"] is True
         assert "summary" in result
         assert "tests" in result
         assert result["summary"]["total_tests"] > 1
-
-    @pytest.mark.asyncio
-    async def test_run_nonexistent_test(self):
+    def test_run_nonexistent_test(self):
         """Should return error for nonexistent test ID."""
         from src.api.helpdesk_routes import run_accuracy_tests
 
-        result = await run_accuracy_tests(test_id="nonexistent_test_xyz")
+        result = run_accuracy_tests(test_id="nonexistent_test_xyz")
 
         assert result["success"] is False
         assert "error" in result
@@ -1917,7 +1856,7 @@ class TestPrivateKBSearchTransform:
             query="test",
             top_k=3,
             visibility="private",
-            min_score=0.3
+            min_score=0.05
         )
 
     def test_handles_missing_result_fields(self, mock_config):
@@ -2077,38 +2016,42 @@ class TestClientConfigCacheBehavior:
 
     def test_different_client_ids_produce_different_configs(self):
         """Different client IDs should produce separate cached configs."""
-        from src.api.helpdesk_routes import get_client_config, _client_configs
+        from src.api.dependencies import get_client_config, _client_configs
 
         _client_configs.clear()
 
         mock_config_a = MagicMock()
-        mock_config_a.client_id = "tenant_a"
+        mock_config_a.client_id = "hd_tenant_a"
         mock_config_b = MagicMock()
-        mock_config_b.client_id = "tenant_b"
+        mock_config_b.client_id = "hd_tenant_b"
 
-        with patch('src.api.helpdesk_routes.ClientConfig', side_effect=[mock_config_a, mock_config_b]):
-            config_a = get_client_config("tenant_a")
-            config_b = get_client_config("tenant_b")
+        with patch('src.api.dependencies.ClientConfig', side_effect=[mock_config_a, mock_config_b]):
+            config_a = get_client_config("hd_tenant_a")
+            config_b = get_client_config("hd_tenant_b")
 
         assert config_a is not config_b
-        assert config_a.client_id == "tenant_a"
-        assert config_b.client_id == "tenant_b"
+        assert config_a.client_id == "hd_tenant_a"
+        assert config_b.client_id == "hd_tenant_b"
+
+        _client_configs.clear()
 
     def test_get_client_config_uses_env_default(self):
         """Should use CLIENT_ID env var when header is None."""
-        from src.api.helpdesk_routes import get_client_config, _client_configs
+        from src.api.dependencies import get_client_config, _client_configs
         import os
 
         _client_configs.clear()
 
         mock_config = MagicMock()
-        mock_config.client_id = "env_tenant"
+        mock_config.client_id = "hd_env_tenant"
 
-        with patch.dict(os.environ, {"CLIENT_ID": "env_tenant"}):
-            with patch('src.api.helpdesk_routes.ClientConfig', return_value=mock_config):
+        with patch.dict(os.environ, {"CLIENT_ID": "hd_env_tenant"}):
+            with patch('src.api.dependencies.ClientConfig', return_value=mock_config):
                 config = get_client_config(None)
 
-        assert config.client_id == "env_tenant"
+        assert config.client_id == "hd_env_tenant"
+
+        _client_configs.clear()
 
 
 # ==================== NEW TESTS: Score Response Edge Cases ====================

@@ -429,43 +429,53 @@ class TestDependencies:
 
     def test_get_client_config_uses_header(self):
         """get_client_config should use X-Client-ID header."""
-        from src.api.settings_routes import get_client_config
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.settings_routes.get_config') as mock_get_config:
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig') as MockConfig:
             mock_config = MagicMock()
-            mock_get_config.return_value = mock_config
+            MockConfig.return_value = mock_config
 
             result = get_client_config("custom_client")
 
-            mock_get_config.assert_called_once_with("custom_client")
+            MockConfig.assert_called_once_with("custom_client")
             assert result == mock_config
+
+        _client_configs.clear()
 
     def test_get_client_config_uses_default(self):
         """get_client_config should fall back to env var."""
-        from src.api.settings_routes import get_client_config
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.settings_routes.get_config') as mock_get_config:
+        _client_configs.clear()
+
+        with patch('src.api.dependencies.ClientConfig') as MockConfig:
             with patch.dict(os.environ, {"CLIENT_ID": "env_client"}):
                 mock_config = MagicMock()
-                mock_get_config.return_value = mock_config
+                MockConfig.return_value = mock_config
 
                 result = get_client_config(None)
 
-                mock_get_config.assert_called_once_with("env_client")
+                MockConfig.assert_called_once_with("env_client")
+
+        _client_configs.clear()
 
     def test_get_client_config_raises_on_error(self):
-        """get_client_config should raise HTTPException on config error."""
-        from src.api.settings_routes import get_client_config
-        from fastapi import HTTPException
+        """get_client_config should return fallback config on error."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-        with patch('src.api.settings_routes.get_config') as mock_get_config:
-            mock_get_config.side_effect = Exception("Config not found")
+        _client_configs.clear()
 
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config("invalid_client")
+        with patch('src.api.dependencies.ClientConfig') as MockConfig:
+            MockConfig.side_effect = Exception("Config not found")
 
-            assert exc_info.value.status_code == 400
-            assert "Invalid client" in str(exc_info.value.detail)
+            result = get_client_config("invalid_client")
+
+            # Should return FallbackClientConfig instead of raising
+            assert isinstance(result, FallbackClientConfig)
+
+        _client_configs.clear()
 
     def test_get_supabase_tool_creates_instance(self, mock_config):
         """get_supabase_tool should create SupabaseTool with config."""
@@ -486,8 +496,7 @@ class TestDependencies:
 class TestGetSettingsUnit:
     """Unit tests for GET /settings endpoint logic."""
 
-    @pytest.mark.asyncio
-    async def test_get_tenant_settings_merges_db_and_config(self, mock_config):
+    def test_get_tenant_settings_merges_db_and_config(self, mock_config):
         """get_tenant_settings should merge database and config values."""
         from src.api.settings_routes import get_tenant_settings
 
@@ -496,22 +505,21 @@ class TestGetSettingsUnit:
             "company_name": "From Database"
         }
 
-        result = await get_tenant_settings(config=mock_config, db=mock_db)
+        result = get_tenant_settings(config=mock_config, db=mock_db)
 
         assert result["success"] is True
         assert result["data"]["company"]["company_name"] == "From Database"
         # Config fallback for missing fields
         assert result["data"]["banking"]["bank_name"] == mock_config.bank_name
 
-    @pytest.mark.asyncio
-    async def test_get_tenant_settings_handles_no_db_settings(self, mock_config):
+    def test_get_tenant_settings_handles_no_db_settings(self, mock_config):
         """get_tenant_settings should work when database returns None."""
         from src.api.settings_routes import get_tenant_settings
 
         mock_db = MagicMock()
         mock_db.get_tenant_settings.return_value = None
 
-        result = await get_tenant_settings(config=mock_config, db=mock_db)
+        result = get_tenant_settings(config=mock_config, db=mock_db)
 
         assert result["success"] is True
         # All values from config
@@ -523,8 +531,7 @@ class TestGetSettingsUnit:
 class TestUpdateSettingsUnit:
     """Unit tests for PUT /settings endpoint logic."""
 
-    @pytest.mark.asyncio
-    async def test_update_tenant_settings_company(self, mock_config):
+    def test_update_tenant_settings_company(self, mock_config):
         """update_tenant_settings should update company fields."""
         from src.api.settings_routes import update_tenant_settings, TenantSettingsUpdate, CompanySettings
 
@@ -535,15 +542,14 @@ class TestUpdateSettingsUnit:
             company=CompanySettings(company_name="Updated Company")
         )
 
-        result = await update_tenant_settings(data=data, config=mock_config, db=mock_db)
+        result = update_tenant_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         mock_db.update_tenant_settings.assert_called_once()
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["company_name"] == "Updated Company"
 
-    @pytest.mark.asyncio
-    async def test_update_tenant_settings_email(self, mock_config):
+    def test_update_tenant_settings_email(self, mock_config):
         """update_tenant_settings should update email fields."""
         from src.api.settings_routes import update_tenant_settings, TenantSettingsUpdate, EmailSettings
 
@@ -554,14 +560,13 @@ class TestUpdateSettingsUnit:
             email=EmailSettings(from_name="New Name")
         )
 
-        result = await update_tenant_settings(data=data, config=mock_config, db=mock_db)
+        result = update_tenant_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["email_from_name"] == "New Name"
 
-    @pytest.mark.asyncio
-    async def test_update_tenant_settings_banking(self, mock_config):
+    def test_update_tenant_settings_banking(self, mock_config):
         """update_tenant_settings should update banking fields."""
         from src.api.settings_routes import update_tenant_settings, TenantSettingsUpdate, BankingSettings
 
@@ -572,14 +577,13 @@ class TestUpdateSettingsUnit:
             banking=BankingSettings(bank_name="New Bank")
         )
 
-        result = await update_tenant_settings(data=data, config=mock_config, db=mock_db)
+        result = update_tenant_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["bank_name"] == "New Bank"
 
-    @pytest.mark.asyncio
-    async def test_update_tenant_settings_no_data_raises_error(self, mock_config):
+    def test_update_tenant_settings_no_data_raises_error(self, mock_config):
         """update_tenant_settings should raise 400 when no settings provided."""
         from src.api.settings_routes import update_tenant_settings, TenantSettingsUpdate
         from fastapi import HTTPException
@@ -588,13 +592,12 @@ class TestUpdateSettingsUnit:
         data = TenantSettingsUpdate()  # Empty update
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_tenant_settings(data=data, config=mock_config, db=mock_db)
+            update_tenant_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 400
         assert "No settings to update" in str(exc_info.value.detail)
 
-    @pytest.mark.asyncio
-    async def test_update_tenant_settings_db_failure(self, mock_config):
+    def test_update_tenant_settings_db_failure(self, mock_config):
         """update_tenant_settings should raise 500 when database fails."""
         from src.api.settings_routes import update_tenant_settings, TenantSettingsUpdate, CompanySettings
         from fastapi import HTTPException
@@ -607,7 +610,7 @@ class TestUpdateSettingsUnit:
         )
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_tenant_settings(data=data, config=mock_config, db=mock_db)
+            update_tenant_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 500
 
@@ -617,8 +620,7 @@ class TestUpdateSettingsUnit:
 class TestUpdateEmailSettingsUnit:
     """Unit tests for PUT /settings/email endpoint logic."""
 
-    @pytest.mark.asyncio
-    async def test_update_email_settings_success(self, mock_config):
+    def test_update_email_settings_success(self, mock_config):
         """update_email_settings should update email fields."""
         from src.api.settings_routes import update_email_settings, EmailSettings
 
@@ -627,14 +629,13 @@ class TestUpdateEmailSettingsUnit:
 
         data = EmailSettings(from_name="Updated")
 
-        result = await update_email_settings(data=data, config=mock_config, db=mock_db)
+        result = update_email_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         assert "data" in result
         mock_db.update_tenant_settings.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_update_email_settings_all_fields(self, mock_config):
+    def test_update_email_settings_all_fields(self, mock_config):
         """update_email_settings should handle all email fields."""
         from src.api.settings_routes import update_email_settings, EmailSettings
 
@@ -648,7 +649,7 @@ class TestUpdateEmailSettingsUnit:
             quotes_email="quotes@example.com"
         )
 
-        result = await update_email_settings(data=data, config=mock_config, db=mock_db)
+        result = update_email_settings(data=data, config=mock_config, db=mock_db)
 
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["email_from_name"] == "Name"
@@ -656,8 +657,7 @@ class TestUpdateEmailSettingsUnit:
         assert call_kwargs["email_reply_to"] == "reply@example.com"
         assert call_kwargs["quotes_email"] == "quotes@example.com"
 
-    @pytest.mark.asyncio
-    async def test_update_email_settings_empty_raises_400(self, mock_config):
+    def test_update_email_settings_empty_raises_400(self, mock_config):
         """update_email_settings should raise 400 when no fields provided."""
         from src.api.settings_routes import update_email_settings, EmailSettings
         from fastapi import HTTPException
@@ -666,12 +666,11 @@ class TestUpdateEmailSettingsUnit:
         data = EmailSettings()  # Empty
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_email_settings(data=data, config=mock_config, db=mock_db)
+            update_email_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 400
 
-    @pytest.mark.asyncio
-    async def test_update_email_settings_db_failure(self, mock_config):
+    def test_update_email_settings_db_failure(self, mock_config):
         """update_email_settings should raise 500 on database failure."""
         from src.api.settings_routes import update_email_settings, EmailSettings
         from fastapi import HTTPException
@@ -682,7 +681,7 @@ class TestUpdateEmailSettingsUnit:
         data = EmailSettings(from_name="Test")
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_email_settings(data=data, config=mock_config, db=mock_db)
+            update_email_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 500
 
@@ -692,8 +691,7 @@ class TestUpdateEmailSettingsUnit:
 class TestUpdateBankingSettingsUnit:
     """Unit tests for PUT /settings/banking endpoint logic."""
 
-    @pytest.mark.asyncio
-    async def test_update_banking_settings_success(self, mock_config):
+    def test_update_banking_settings_success(self, mock_config):
         """update_banking_settings should update banking fields."""
         from src.api.settings_routes import update_banking_settings, BankingSettings
 
@@ -702,14 +700,13 @@ class TestUpdateBankingSettingsUnit:
 
         data = BankingSettings(bank_name="Updated")
 
-        result = await update_banking_settings(data=data, config=mock_config, db=mock_db)
+        result = update_banking_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         assert "data" in result
         mock_db.update_tenant_settings.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_update_banking_settings_all_fields(self, mock_config):
+    def test_update_banking_settings_all_fields(self, mock_config):
         """update_banking_settings should handle all banking fields."""
         from src.api.settings_routes import update_banking_settings, BankingSettings
 
@@ -725,7 +722,7 @@ class TestUpdateBankingSettingsUnit:
             reference_prefix="REF"
         )
 
-        result = await update_banking_settings(data=data, config=mock_config, db=mock_db)
+        result = update_banking_settings(data=data, config=mock_config, db=mock_db)
 
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["bank_name"] == "Bank"
@@ -735,8 +732,7 @@ class TestUpdateBankingSettingsUnit:
         assert call_kwargs["bank_swift_code"] == "SWIFT"
         assert call_kwargs["payment_reference_prefix"] == "REF"
 
-    @pytest.mark.asyncio
-    async def test_update_banking_settings_empty_raises_400(self, mock_config):
+    def test_update_banking_settings_empty_raises_400(self, mock_config):
         """update_banking_settings should raise 400 when no fields provided."""
         from src.api.settings_routes import update_banking_settings, BankingSettings
         from fastapi import HTTPException
@@ -745,12 +741,11 @@ class TestUpdateBankingSettingsUnit:
         data = BankingSettings()
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_banking_settings(data=data, config=mock_config, db=mock_db)
+            update_banking_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 400
 
-    @pytest.mark.asyncio
-    async def test_update_banking_settings_db_failure(self, mock_config):
+    def test_update_banking_settings_db_failure(self, mock_config):
         """update_banking_settings should raise 500 on database failure."""
         from src.api.settings_routes import update_banking_settings, BankingSettings
         from fastapi import HTTPException
@@ -761,7 +756,7 @@ class TestUpdateBankingSettingsUnit:
         data = BankingSettings(bank_name="Test")
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_banking_settings(data=data, config=mock_config, db=mock_db)
+            update_banking_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 500
 
@@ -771,8 +766,7 @@ class TestUpdateBankingSettingsUnit:
 class TestUpdateCompanySettingsUnit:
     """Unit tests for PUT /settings/company endpoint logic."""
 
-    @pytest.mark.asyncio
-    async def test_update_company_settings_success(self, mock_config):
+    def test_update_company_settings_success(self, mock_config):
         """update_company_settings should update company fields."""
         from src.api.settings_routes import update_company_settings, CompanySettings
 
@@ -781,14 +775,13 @@ class TestUpdateCompanySettingsUnit:
 
         data = CompanySettings(company_name="Updated")
 
-        result = await update_company_settings(data=data, config=mock_config, db=mock_db)
+        result = update_company_settings(data=data, config=mock_config, db=mock_db)
 
         assert result["success"] is True
         assert "data" in result
         mock_db.update_tenant_settings.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_update_company_settings_all_fields(self, mock_config):
+    def test_update_company_settings_all_fields(self, mock_config):
         """update_company_settings should handle all company fields."""
         from src.api.settings_routes import update_company_settings, CompanySettings
 
@@ -804,7 +797,7 @@ class TestUpdateCompanySettingsUnit:
             timezone="Europe/London"
         )
 
-        result = await update_company_settings(data=data, config=mock_config, db=mock_db)
+        result = update_company_settings(data=data, config=mock_config, db=mock_db)
 
         call_kwargs = mock_db.update_tenant_settings.call_args[1]
         assert call_kwargs["company_name"] == "Company"
@@ -814,8 +807,7 @@ class TestUpdateCompanySettingsUnit:
         assert call_kwargs["currency"] == "EUR"
         assert call_kwargs["timezone"] == "Europe/London"
 
-    @pytest.mark.asyncio
-    async def test_update_company_settings_empty_raises_400(self, mock_config):
+    def test_update_company_settings_empty_raises_400(self, mock_config):
         """update_company_settings should raise 400 when no fields provided."""
         from src.api.settings_routes import update_company_settings, CompanySettings
         from fastapi import HTTPException
@@ -824,12 +816,11 @@ class TestUpdateCompanySettingsUnit:
         data = CompanySettings()
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_company_settings(data=data, config=mock_config, db=mock_db)
+            update_company_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 400
 
-    @pytest.mark.asyncio
-    async def test_update_company_settings_db_failure(self, mock_config):
+    def test_update_company_settings_db_failure(self, mock_config):
         """update_company_settings should raise 500 on database failure."""
         from src.api.settings_routes import update_company_settings, CompanySettings
         from fastapi import HTTPException
@@ -840,7 +831,7 @@ class TestUpdateCompanySettingsUnit:
         data = CompanySettings(company_name="Test")
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_company_settings(data=data, config=mock_config, db=mock_db)
+            update_company_settings(data=data, config=mock_config, db=mock_db)
 
         assert exc_info.value.status_code == 500
 

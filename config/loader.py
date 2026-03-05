@@ -1,5 +1,5 @@
 """
-Configuration Loader - Loads and validates client configuration
+Configuration Loader - Loads client configuration from database
 
 Usage:
     from config.loader import ClientConfig
@@ -8,9 +8,9 @@ Usage:
     print(config.gcp_project_id)
     print(config.destinations)
 
-Now supports dual-mode operation via TenantConfigService:
-1. Database-first (for migrated tenants)
-2. YAML fallback (for backward compatibility)
+Configuration is loaded from the Supabase 'tenants' table.
+Database is the single source of truth for tenant configuration.
+Secrets (API keys, passwords) are resolved from environment variables.
 """
 
 import yaml
@@ -50,11 +50,17 @@ def reset_config_service():
 
 
 class ClientConfig:
-    """Load and validate client configuration from YAML or database"""
+    """Load and validate client configuration from database"""
 
     def __init__(self, client_id: str, base_path: Optional[str] = None):
         """
-        Initialize client configuration
+        Initialize client configuration from database.
+
+        Database (Supabase tenants table) is the single source of truth.
+        Configuration includes:
+        - Tenant row data (id, name, timezone, currency)
+        - tenant_config JSONB (branding, destinations, etc.)
+        - Shared infrastructure from environment variables
 
         Args:
             client_id: Unique client identifier (e.g., 'africastay')
@@ -67,31 +73,26 @@ class ClientConfig:
             base_path = Path(__file__).parent.parent
 
         self.base_path = Path(base_path)
-        self.config_path = self.base_path / "clients" / client_id / "client.yaml"
         self.schema_path = self.base_path / "config" / "schema.json"
-        self._config_source = 'yaml'  # Default
+        self._config_source = 'database'
 
-        # Try TenantConfigService first (database + YAML fallback)
+        # Load from database (single source of truth)
         try:
             service = get_config_service()
             config = service.get_config(client_id)
             if config:
                 self.config = config
-                self._config_source = config.get('_meta', {}).get('source', 'service')
-                # Skip validation for database configs (validated on save)
-                if self._config_source != 'database':
-                    self._validate_config()
+                self._config_source = config.get('_meta', {}).get('source', 'database')
+                logger.debug(f"Loaded config for {client_id} from {self._config_source}")
                 return
         except Exception as e:
-            logger.debug(f"TenantConfigService unavailable: {e}")
+            logger.error(f"Failed to load config from database for {client_id}: {e}")
 
-        # Direct YAML fallback (original behavior)
-        if not self.config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
-
-        self.config = self._load_config()
-        self._config_source = 'yaml'
-        self._validate_config()
+        # Tenant not found in database
+        raise FileNotFoundError(
+            f"Tenant '{client_id}' not found in database. "
+            f"Ensure the tenant exists in the 'tenants' table in Supabase."
+        )
 
     @property
     def config_source(self) -> str:
@@ -517,36 +518,19 @@ def get_config(client_id: str) -> ClientConfig:
 
 def list_clients() -> List[str]:
     """
-    List all available client IDs from database and filesystem.
+    List all available client IDs from database.
 
-    Uses TenantConfigService which combines database tenants with
-    YAML-only tenants, and filters out tn_* auto-generated test tenants.
+    Database (Supabase tenants table) is the single source of truth.
 
     Returns:
-        List of client IDs
+        List of active tenant IDs
     """
     try:
         service = get_config_service()
-        return service.list_tenants()
+        return service.list_tenants(active_only=True)
     except Exception as e:
-        logger.warning(f"TenantConfigService unavailable, falling back to filesystem: {e}")
-        # Fallback to filesystem scan
-        clients_dir = Path(__file__).parent.parent / "clients"
-
-        if not clients_dir.exists():
-            return []
-
-        client_ids = []
-        for client_dir in clients_dir.iterdir():
-            if client_dir.is_dir():
-                # Skip tn_* auto-generated test tenants
-                if client_dir.name.startswith('tn_'):
-                    continue
-                config_file = client_dir / "client.yaml"
-                if config_file.exists():
-                    client_ids.append(client_dir.name)
-
-        return sorted(client_ids)
+        logger.error(f"Failed to list tenants from database: {e}")
+        return []
 
 
 def get_client_config(client_id: str) -> Optional[Dict[str, Any]]:

@@ -89,34 +89,44 @@ METHOD_TO_ACTION = {
 }
 
 
-class PIIAuditMiddleware(BaseHTTPMiddleware):
-    """Middleware to automatically log access to PII endpoints"""
+class PIIAuditMiddleware:
+    """Pure ASGI middleware to automatically log access to PII endpoints"""
 
-    def __init__(self, app: ASGIApp, enabled: bool = True):
-        super().__init__(app)
+    def __init__(self, app, enabled: bool = True):
+        self.app = app
         self.enabled = enabled
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if not self.enabled:
-            return await call_next(request)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not self.enabled:
+            await self.app(scope, receive, send)
+            return
 
-        # Check if this endpoint handles PII
-        path = request.url.path
-        method = request.method
+        path = scope.get("path", "")
+        method = scope.get("method", "")
         pii_config = self._get_pii_config(path, method)
 
         if not pii_config:
             # Not a PII endpoint, skip logging
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        # Process the request
-        response = await call_next(request)
+        # Track response status code for PII logging
+        status_code = 0
+
+        async def send_with_tracking(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 0)
+            await send(message)
+
+        await self.app(scope, receive, send_with_tracking)
 
         # Only log successful requests (2xx status codes)
-        if 200 <= response.status_code < 300:
-            await self._log_pii_access(request, response, pii_config)
-
-        return response
+        if 200 <= status_code < 300:
+            try:
+                await self._log_pii_access(scope, pii_config)
+            except Exception as e:
+                logger.warning(f"Failed to log PII access: {e}")
 
     def _get_pii_config(self, path: str, method: str) -> Optional[dict]:
         """Check if path matches any PII endpoint pattern"""
@@ -126,28 +136,49 @@ class PIIAuditMiddleware(BaseHTTPMiddleware):
                     return config
         return None
 
-    async def _log_pii_access(self, request: Request, response: Response, config: dict):
+    async def _log_pii_access(self, scope, config: dict):
         """Log PII access to the audit table"""
         try:
-            # Extract user info from request state (set by auth middleware)
-            user = getattr(request.state, "user", None)
-            tenant_id = getattr(request.state, "tenant_id", None)
+            import asyncio
+
+            # Extract user info from scope state (set by auth middleware)
+            state = scope.get("state", {})
+            user = state.get("user", None)
+
+            # Get tenant_id from user context or headers
+            tenant_id = None
+            if user and hasattr(user, "tenant_id"):
+                tenant_id = user.tenant_id
 
             if not tenant_id:
-                # Try to get from header
-                tenant_id = request.headers.get("X-Client-ID")
+                for key, value in scope.get("headers", []):
+                    if key == b"x-client-id":
+                        tenant_id = value.decode("utf-8", errors="replace")
+                        break
 
             if not tenant_id:
                 return  # Can't log without tenant
 
-            user_id = user.get("id") if user else None
-            user_email = user.get("email") if user else None
+            user_id = user.user_id if user else None
+            user_email = user.email if user else None
 
-            # Extract resource ID from path if present
-            resource_id = self._extract_resource_id(request.url.path)
+            # Extract resource ID from path
+            path = scope.get("path", "")
+            resource_id = self._extract_resource_id(path)
 
             # Get action from method
-            action = METHOD_TO_ACTION.get(request.method, "view")
+            method = scope.get("method", "GET")
+            action = METHOD_TO_ACTION.get(method, "view")
+
+            # Get client IP
+            client_ip = self._get_client_ip(scope)
+
+            # Get user agent
+            user_agent = ""
+            for key, value in scope.get("headers", []):
+                if key == b"user-agent":
+                    user_agent = value.decode("utf-8", errors="replace")[:500]
+                    break
 
             # Build audit entry
             audit_entry = {
@@ -158,46 +189,38 @@ class PIIAuditMiddleware(BaseHTTPMiddleware):
                 "resource_type": config["resource_type"],
                 "resource_id": resource_id,
                 "pii_fields_accessed": config["pii_fields"],
-                "ip_address": self._get_client_ip(request),
-                "user_agent": request.headers.get("user-agent", "")[:500],
-                "request_path": request.url.path,
-                "request_method": request.method
+                "ip_address": client_ip,
+                "user_agent": user_agent,
+                "request_path": path,
+                "request_method": method
             }
 
-            # Log asynchronously (don't block response)
-            await self._insert_audit_log(tenant_id, audit_entry)
+            # Insert audit log in background thread to avoid blocking
+            await asyncio.to_thread(self._insert_audit_log_sync, tenant_id, audit_entry)
 
         except Exception as e:
-            # Never fail the request due to audit logging
             logger.warning(f"Failed to log PII access: {e}")
 
     def _extract_resource_id(self, path: str) -> Optional[str]:
         """Extract resource ID from URL path"""
-        # Match patterns like /api/v1/crm/clients/123 or /api/v1/quotes/abc-123
         match = re.search(r"/([a-f0-9-]{8,}|[0-9]+)(?:/|$)", path)
         return match.group(1) if match else None
 
-    def _get_client_ip(self, request: Request) -> Optional[str]:
+    def _get_client_ip(self, scope) -> Optional[str]:
         """Get real client IP, handling proxies"""
-        # Check X-Forwarded-For first (for proxied requests)
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            # Take the first IP (original client)
-            return forwarded.split(",")[0].strip()
+        for key, value in scope.get("headers", []):
+            if key == b"x-forwarded-for":
+                return value.decode("utf-8", errors="replace").split(",")[0].strip()
+            if key == b"x-real-ip":
+                return value.decode("utf-8", errors="replace")
 
-        # Check X-Real-IP
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
-
-        # Fall back to direct connection
-        if request.client:
-            return request.client.host
-
+        client = scope.get("client")
+        if client:
+            return client[0]
         return None
 
-    async def _insert_audit_log(self, tenant_id: str, audit_entry: dict):
-        """Insert audit log entry into database"""
+    def _insert_audit_log_sync(self, tenant_id: str, audit_entry: dict):
+        """Insert audit log entry into database (sync, for use in thread)"""
         try:
             from config.loader import get_config
             from src.tools.supabase_tool import SupabaseTool

@@ -589,8 +589,11 @@ async def flight_price(
 @travel_router.get("/transfers")
 async def list_transfers(
     destination: Optional[str] = Query(None, description="Filter by destination"),
-    route: Optional[str] = Query(None, description="Transfer route (e.g. 'Zanzibar Airport to Stone Town')"),
+    from_code: Optional[str] = Query(None, description="Origin IATA code"),
+    to_code: Optional[str] = Query(None, description="Destination IATA code"),
     transfer_date: Optional[str] = Query(None, description="Transfer date (YYYY-MM-DD)"),
+    from_type: str = Query("IATA", description="Origin code type"),
+    to_type: str = Query("IATA", description="Destination code type"),
     passengers: int = Query(2, ge=1, le=20, description="Number of passengers"),
     limit: int = Query(50, ge=1, le=200),
     config: ClientConfig = Depends(get_client_config)
@@ -598,32 +601,33 @@ async def list_transfers(
     """
     List transfer prices.
 
-    Primary: HotelBeds live transfers (real-time pricing).
+    Primary: Cloud Run unified transfers endpoint.
     Fallback: BigQuery static transfer pricing from hotel rates.
     """
-    # Try HotelBeds live data first (requires route + date)
-    if destination and route and transfer_date:
+    # Try Cloud Run unified transfers first
+    if from_code and to_code and transfer_date:
         try:
-            from src.services.hotelbeds_client import get_hotelbeds_client
-            from datetime import date as date_type
-            hb_client = get_hotelbeds_client()
-            result = await hb_client.search_transfers(
-                route=route,
-                transfer_date=date_type.fromisoformat(transfer_date),
+            from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+            client = get_travel_platform_rates_client()
+            result = await client.search_transfers(
+                from_code=from_code,
+                to_code=to_code,
+                transfer_date=transfer_date,
                 passengers=passengers,
+                from_type=from_type,
+                to_type=to_type,
             )
             if result.get("success") and result.get("transfers"):
-                transfers = _map_hotelbeds_transfers(result["transfers"])
-                transfers = transfers[:limit]
-                logger.info(f"HotelBeds transfers: {len(transfers)} results for {route}")
+                transfers = result["transfers"][:limit]
+                logger.info(f"Cloud Run transfers: {len(transfers)} results for {from_code}->{to_code}")
                 return TransferSearchResponse(
                     success=True,
-                    destination=destination,
+                    destination=destination or to_code,
                     total_transfers=len(transfers),
                     transfers=transfers,
                 )
         except Exception as e:
-            logger.warning(f"HotelBeds transfers failed, using BigQuery fallback: {e}")
+            logger.warning(f"Cloud Run transfers failed, using BigQuery fallback: {e}")
 
     # Fallback to BigQuery
     from src.tools.bigquery_tool import BigQueryTool
@@ -681,33 +685,38 @@ async def list_transfers(
 
 @travel_router.get("/transfers/search")
 async def search_transfers(
-    destination: str = Query(..., description="Destination name"),
-    hotel_name: Optional[str] = Query(None, description="Filter by hotel name"),
-    route: Optional[str] = Query(None, description="Transfer route (e.g. 'Zanzibar Airport to Stone Town')"),
-    transfer_date: Optional[str] = Query(None, description="Transfer date (YYYY-MM-DD)"),
+    destination: str = Query(..., description="Destination name or IATA code"),
+    from_code: Optional[str] = Query(None, description="Origin IATA code"),
+    to_code: Optional[str] = Query(None, description="Destination IATA code"),
+    transfer_date: Optional[str] = Query(None, alias="date", description="Transfer date (YYYY-MM-DD)"),
+    from_type: str = Query("IATA", description="Origin code type"),
+    to_type: str = Query("IATA", description="Destination code type"),
     passengers: int = Query(2, ge=1, le=20, description="Number of passengers"),
+    hotel_name: Optional[str] = Query(None, description="Filter by hotel name"),
     config: ClientConfig = Depends(get_client_config)
 ) -> TransferSearchResponse:
     """
     Search transfer prices by destination.
 
-    Primary: HotelBeds live transfers (real-time pricing).
+    Primary: Cloud Run unified transfers endpoint.
     Fallback: BigQuery static transfer pricing from hotel rates.
     """
-    # Try HotelBeds live data first
-    if route and transfer_date:
+    # Try Cloud Run unified transfers first
+    if from_code and to_code and transfer_date:
         try:
-            from src.services.hotelbeds_client import get_hotelbeds_client
-            from datetime import date as date_type
-            hb_client = get_hotelbeds_client()
-            result = await hb_client.search_transfers(
-                route=route,
-                transfer_date=date_type.fromisoformat(transfer_date),
+            from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+            client = get_travel_platform_rates_client()
+            result = await client.search_transfers(
+                from_code=from_code,
+                to_code=to_code,
+                transfer_date=transfer_date,
                 passengers=passengers,
+                from_type=from_type,
+                to_type=to_type,
             )
             if result.get("success") and result.get("transfers"):
-                transfers = _map_hotelbeds_transfers(result["transfers"])
-                logger.info(f"HotelBeds transfer search: {len(transfers)} results for {route}")
+                transfers = result["transfers"]
+                logger.info(f"Cloud Run transfer search: {len(transfers)} results for {from_code}->{to_code}")
                 return TransferSearchResponse(
                     success=True,
                     destination=destination,
@@ -715,7 +724,7 @@ async def search_transfers(
                     transfers=transfers,
                 )
         except Exception as e:
-            logger.warning(f"HotelBeds transfer search failed, using BigQuery fallback: {e}")
+            logger.warning(f"Cloud Run transfer search failed, using BigQuery fallback: {e}")
 
     # Fallback to BigQuery
     from src.tools.bigquery_tool import BigQueryTool
@@ -1050,33 +1059,35 @@ async def list_activities(
     destination: Optional[str] = Query(None, description="Filter by destination"),
     category: Optional[str] = Query(None, description="Filter by category"),
     participants: int = Query(2, ge=1, le=50, description="Number of participants"),
+    activity_date: Optional[str] = Query(None, description="Activity date (YYYY-MM-DD)"),
     limit: int = Query(50, ge=1, le=200)
 ) -> ActivitySearchResponse:
     """
     List available activities and excursions.
 
-    Primary: HotelBeds live activities (real pricing and availability).
+    Primary: Cloud Run unified activities endpoint.
     Fallback: Sample data for demonstration.
     """
-    # Try HotelBeds live data first (requires a destination)
+    # Try Cloud Run unified activities first
     if destination:
         try:
-            from src.services.hotelbeds_client import get_hotelbeds_client
-            hb_client = get_hotelbeds_client()
-            result = await hb_client.search_activities(
+            from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+            client = get_travel_platform_rates_client()
+            result = await client.search_activities(
                 destination=destination.lower(),
                 participants=participants,
+                activity_date=activity_date,
             )
             if result.get("success") and result.get("activities"):
-                activities = _map_hotelbeds_activities(result["activities"], destination)
+                activities = result["activities"]
 
                 # Apply category filter (client-side)
                 if category:
-                    activities = [a for a in activities if a.get("category", "").lower() == category.lower()]
+                    activities = [a for a in activities if (a.get("category") or "").lower() == category.lower()]
 
                 activities = activities[:limit]
 
-                logger.info(f"HotelBeds activities: {len(activities)} results for {destination}")
+                logger.info(f"Cloud Run activities: {len(activities)} results for {destination}")
                 return ActivitySearchResponse(
                     success=True,
                     destination=destination,
@@ -1084,7 +1095,7 @@ async def list_activities(
                     activities=activities,
                 )
         except Exception as e:
-            logger.warning(f"HotelBeds activities failed, using sample data: {e}")
+            logger.warning(f"Cloud Run activities failed, using sample data: {e}")
 
     # Fallback to sample data
     try:
@@ -1119,38 +1130,40 @@ async def search_activities(
     category: Optional[str] = Query(None, description="Filter by category"),
     query: Optional[str] = Query(None, description="Search in name/description"),
     participants: int = Query(2, ge=1, le=50, description="Number of participants"),
+    activity_date: Optional[str] = Query(None, description="Activity date (YYYY-MM-DD)"),
 ) -> ActivitySearchResponse:
     """
     Search activities by destination.
 
-    Primary: HotelBeds live activities (real pricing and availability).
+    Primary: Cloud Run unified activities endpoint.
     Fallback: Sample data for demonstration.
     """
-    # Try HotelBeds live data first
+    # Try Cloud Run unified activities first
     try:
-        from src.services.hotelbeds_client import get_hotelbeds_client
-        hb_client = get_hotelbeds_client()
-        result = await hb_client.search_activities(
+        from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+        client = get_travel_platform_rates_client()
+        result = await client.search_activities(
             destination=destination.lower(),
             participants=participants,
+            activity_date=activity_date,
         )
         if result.get("success") and result.get("activities"):
-            activities = _map_hotelbeds_activities(result["activities"], destination)
+            activities = result["activities"]
 
             # Apply category filter
             if category:
-                activities = [a for a in activities if a.get("category", "").lower() == category.lower()]
+                activities = [a for a in activities if (a.get("category") or "").lower() == category.lower()]
 
             # Apply search query
             if query:
                 query_lower = query.lower()
                 activities = [
                     a for a in activities
-                    if query_lower in a.get("name", "").lower()
+                    if query_lower in (a.get("name") or "").lower()
                     or query_lower in (a.get("description") or "").lower()
                 ]
 
-            logger.info(f"HotelBeds activity search: {len(activities)} results for {destination}")
+            logger.info(f"Cloud Run activity search: {len(activities)} results for {destination}")
             return ActivitySearchResponse(
                 success=True,
                 destination=destination,
@@ -1158,7 +1171,7 @@ async def search_activities(
                 activities=activities,
             )
     except Exception as e:
-        logger.warning(f"HotelBeds activity search failed, using sample data: {e}")
+        logger.warning(f"Cloud Run activity search failed, using sample data: {e}")
 
     # Fallback to sample data
     try:
@@ -1203,6 +1216,87 @@ def list_activity_categories() -> Dict[str, Any]:
         "categories": categories,
         "count": len(categories)
     }
+
+
+# ============================================================
+# CAR RENTALS ENDPOINTS
+# ============================================================
+
+@travel_router.get("/car-rentals/search")
+async def search_car_rentals(
+    city: str = Query(..., description="City name"),
+    pickup_date: str = Query(..., description="Pickup date (YYYY-MM-DD)"),
+    dropoff_date: str = Query(..., description="Dropoff date (YYYY-MM-DD)"),
+    pickup_time: str = Query("10:00", description="Pickup time (HH:MM)"),
+    dropoff_time: str = Query("10:00", description="Dropoff time (HH:MM)"),
+) -> Dict[str, Any]:
+    """
+    Search car rentals via RTTC GDS.
+
+    Returns available car rental options for the specified city and dates.
+    """
+    try:
+        from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+        client = get_travel_platform_rates_client()
+        result = await client.search_car_rentals(
+            city=city,
+            pickup_date=pickup_date,
+            dropoff_date=dropoff_date,
+            pickup_time=pickup_time,
+            dropoff_time=dropoff_time,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Car rental search failed: {e}")
+        return {"success": False, "car_rentals": [], "error": str(e)}
+
+
+# ============================================================
+# BUSES ENDPOINTS
+# ============================================================
+
+@travel_router.get("/buses/search")
+async def search_buses(
+    from_city: str = Query(..., description="Departure city"),
+    to_city: str = Query(..., description="Destination city"),
+    travel_date: str = Query(..., description="Travel date (YYYY-MM-DD)"),
+    adults: int = Query(1, ge=1, le=9, description="Number of adults"),
+    children: int = Query(0, ge=0, le=9, description="Number of children"),
+) -> Dict[str, Any]:
+    """
+    Search bus routes via RTTC GDS.
+
+    Returns available bus services between cities.
+    """
+    try:
+        from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+        client = get_travel_platform_rates_client()
+        result = await client.search_buses(
+            from_city=from_city,
+            to_city=to_city,
+            travel_date=travel_date,
+            adults=adults,
+            children=children,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Bus search failed: {e}")
+        return {"success": False, "buses": [], "error": str(e)}
+
+
+@travel_router.get("/buses/departure-points")
+async def bus_departure_points() -> Dict[str, Any]:
+    """
+    Get available bus departure points from RTTC GDS.
+    """
+    try:
+        from src.services.travel_platform_rates_client import get_travel_platform_rates_client
+        client = get_travel_platform_rates_client()
+        result = await client.get_bus_departure_points()
+        return result
+    except Exception as e:
+        logger.error(f"Bus departure points failed: {e}")
+        return {"success": False, "departure_points": [], "error": str(e)}
 
 
 # ============================================================

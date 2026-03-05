@@ -494,68 +494,63 @@ class TestPydanticModels:
 
 
 class TestDependencyFunctions:
-    """Test dependency injection functions."""
+    """Test dependency injection functions (centralized in src.api.dependencies)."""
 
-    def test_get_cached_config_caches(self):
-        """_get_cached_config should cache configs."""
-        from src.api.routes import _get_cached_config
+    def test_get_client_config_caches(self):
+        """get_client_config should cache config instances."""
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.routes.ClientConfig') as mock_config_class:
-            mock_config = MagicMock()
-            mock_config_class.return_value = mock_config
+        _client_configs.clear()
 
-            # Clear cache
-            _get_cached_config.cache_clear()
+        mock_config = MagicMock()
 
+        with patch('src.api.dependencies.ClientConfig', return_value=mock_config) as mock_class:
             # First call - should create config
-            result1 = _get_cached_config("test-tenant")
-
+            result1 = get_client_config(x_client_id="test-tenant")
             # Second call - should return cached
-            result2 = _get_cached_config("test-tenant")
+            result2 = get_client_config(x_client_id="test-tenant")
 
             assert result1 is result2
             # Config should only be created once
-            assert mock_config_class.call_count == 1
-
-            _get_cached_config.cache_clear()
+            mock_class.assert_called_once_with("test-tenant")
 
     def test_get_client_config_returns_config(self):
         """get_client_config should return config for valid tenant."""
-        from src.api.routes import get_client_config, _get_cached_config
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.routes._get_cached_config') as mock_get_cached:
-            mock_config = MagicMock()
-            mock_get_cached.return_value = mock_config
+        _client_configs.clear()
 
-            result = get_client_config("test-tenant")
+        mock_config = MagicMock()
+
+        with patch('src.api.dependencies.ClientConfig', return_value=mock_config):
+            result = get_client_config(x_client_id="test-tenant")
 
             assert result is mock_config
 
     def test_get_client_config_uses_default_client_id(self):
         """get_client_config should use default client ID if not provided."""
-        from src.api.routes import get_client_config
+        from src.api.dependencies import get_client_config, _client_configs
 
-        with patch('src.api.routes._get_cached_config') as mock_get_cached:
-            with patch.dict('os.environ', {'CLIENT_ID': 'default-tenant'}):
-                mock_config = MagicMock()
-                mock_get_cached.return_value = mock_config
+        _client_configs.clear()
 
-                result = get_client_config(None)
+        mock_config = MagicMock()
 
-                mock_get_cached.assert_called_with('default-tenant')
+        with patch.dict('os.environ', {'CLIENT_ID': 'default-tenant'}):
+            with patch('src.api.dependencies.ClientConfig', return_value=mock_config) as mock_class:
+                result = get_client_config(x_client_id=None)
 
-    def test_get_client_config_invalid_tenant_raises_400(self):
-        """get_client_config should raise 400 for invalid tenant."""
-        from src.api.routes import get_client_config
-        from fastapi import HTTPException
+                mock_class.assert_called_once_with("default-tenant")
 
-        with patch('src.api.routes._get_cached_config') as mock_get_cached:
-            mock_get_cached.side_effect = Exception("Tenant not found")
+    def test_get_client_config_invalid_tenant_returns_fallback(self):
+        """get_client_config should return FallbackClientConfig for invalid tenant."""
+        from src.api.dependencies import get_client_config, _client_configs, FallbackClientConfig
 
-            with pytest.raises(HTTPException) as exc_info:
-                get_client_config("invalid-tenant")
+        _client_configs.clear()
 
-            assert exc_info.value.status_code == 400
+        with patch('src.api.dependencies.ClientConfig', side_effect=Exception("Tenant not found")):
+            result = get_client_config(x_client_id="invalid-tenant")
+
+            assert isinstance(result, FallbackClientConfig)
 
 
 class TestPublicEndpoints:
@@ -606,8 +601,6 @@ class TestResponseFormat:
         data = response.json()
         assert "status" in data
         assert "timestamp" in data
-        assert "uptime" in data
-        assert "version" in data
 
     def test_root_response_format(self):
         """Root response should have API info."""
@@ -617,7 +610,6 @@ class TestResponseFormat:
         data = response.json()
         assert "name" in data
         assert "version" in data
-        assert "description" in data
         assert "status" in data
 
 

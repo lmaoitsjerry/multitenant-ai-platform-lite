@@ -280,9 +280,7 @@ class TestDefaultSettings:
 
 class TestGetTemplateSettingsLogic:
     """Test get_template_settings endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_get_template_settings_returns_settings(self, mock_config):
+    def test_get_template_settings_returns_settings(self, mock_config):
         """get_template_settings should return template settings."""
         from src.api.templates_routes import get_template_settings
 
@@ -296,14 +294,12 @@ class TestGetTemplateSettingsLogic:
             mock_supabase.get_template_settings.return_value = mock_settings
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_template_settings(config=mock_config)
+            result = get_template_settings(config=mock_config)
 
             assert result["success"] is True
             assert result["data"]["quote"]["pdf_layout"] == "modern"
             assert result["data"]["invoice"]["due_days"] == 7
-
-    @pytest.mark.asyncio
-    async def test_get_template_settings_returns_defaults_on_none(self, mock_config):
+    def test_get_template_settings_returns_defaults_on_none(self, mock_config):
         """get_template_settings should return defaults when no custom settings."""
         from src.api.templates_routes import get_template_settings, get_default_settings
 
@@ -312,14 +308,12 @@ class TestGetTemplateSettingsLogic:
             mock_supabase.get_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_template_settings(config=mock_config)
+            result = get_template_settings(config=mock_config)
 
             assert result["success"] is True
             defaults = get_default_settings()
             assert result["data"]["quote"]["validity_days"] == defaults["quote"]["validity_days"]
-
-    @pytest.mark.asyncio
-    async def test_get_template_settings_returns_defaults_on_error(self, mock_config):
+    def test_get_template_settings_returns_defaults_on_error(self, mock_config):
         """get_template_settings should return defaults on database error."""
         from src.api.templates_routes import get_template_settings, get_default_settings
 
@@ -328,7 +322,7 @@ class TestGetTemplateSettingsLogic:
             mock_supabase.get_template_settings.side_effect = Exception("DB error")
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_template_settings(config=mock_config)
+            result = get_template_settings(config=mock_config)
 
             # Should still succeed with defaults
             assert result["success"] is True
@@ -340,9 +334,7 @@ class TestGetTemplateSettingsLogic:
 
 class TestUpdateTemplateSettingsLogic:
     """Test update_template_settings endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_update_template_settings_success(self, mock_config):
+    def test_update_template_settings_success(self, mock_config):
         """update_template_settings should update settings."""
         from src.api.templates_routes import update_template_settings, TemplateSettingsUpdate, QuoteTemplateSettings
 
@@ -361,13 +353,11 @@ class TestUpdateTemplateSettingsLogic:
             mock_supabase.update_template_settings.return_value = {"quote": {"validity_days": 30}}
             mock_supabase_class.return_value = mock_supabase
 
-            result = await update_template_settings(data=update_data, config=mock_config)
+            result = update_template_settings(data=update_data, config=mock_config)
 
             assert result["success"] is True
             assert result["message"] == "Template settings updated"
-
-    @pytest.mark.asyncio
-    async def test_update_template_settings_partial_update(self, mock_config):
+    def test_update_template_settings_partial_update(self, mock_config):
         """update_template_settings should only update provided fields."""
         from src.api.templates_routes import update_template_settings, TemplateSettingsUpdate, QuoteTemplateSettings
 
@@ -386,16 +376,14 @@ class TestUpdateTemplateSettingsLogic:
             mock_supabase.update_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            result = await update_template_settings(data=update_data, config=mock_config)
+            result = update_template_settings(data=update_data, config=mock_config)
 
             # Check that update_template_settings was called
             mock_supabase.update_template_settings.assert_called_once()
             call_args = mock_supabase.update_template_settings.call_args[0][0]
             # Original validity_days should be preserved
             assert "quote" in call_args
-
-    @pytest.mark.asyncio
-    async def test_update_template_settings_error(self, mock_config):
+    def test_update_template_settings_error(self, mock_config):
         """update_template_settings should handle errors."""
         from src.api.templates_routes import update_template_settings, TemplateSettingsUpdate, QuoteTemplateSettings
         from fastapi import HTTPException
@@ -410,7 +398,7 @@ class TestUpdateTemplateSettingsLogic:
             mock_supabase_class.return_value = mock_supabase
 
             with pytest.raises(HTTPException) as exc_info:
-                await update_template_settings(data=update_data, config=mock_config)
+                update_template_settings(data=update_data, config=mock_config)
 
             assert exc_info.value.status_code == 500
 
@@ -419,9 +407,7 @@ class TestUpdateTemplateSettingsLogic:
 
 class TestQuoteTemplateLogic:
     """Test get_quote_template endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_get_quote_template_returns_quote_only(self, mock_config):
+    def test_get_quote_template_returns_quote_only(self, mock_config):
         """get_quote_template should return only quote settings."""
         from src.api.templates_routes import get_quote_template
 
@@ -435,16 +421,14 @@ class TestQuoteTemplateLogic:
             mock_supabase.get_template_settings.return_value = mock_settings
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_quote_template(config=mock_config)
+            result = get_quote_template(config=mock_config)
 
             assert result["success"] is True
             assert result["data"]["pdf_layout"] == "modern"
             assert result["data"]["validity_days"] == 21
             # Should not include invoice data
             assert "due_days" not in result["data"]
-
-    @pytest.mark.asyncio
-    async def test_get_quote_template_returns_defaults_on_none(self, mock_config):
+    def test_get_quote_template_returns_defaults_on_none(self, mock_config):
         """get_quote_template should return defaults when no settings."""
         from src.api.templates_routes import get_quote_template, get_default_settings
 
@@ -453,7 +437,7 @@ class TestQuoteTemplateLogic:
             mock_supabase.get_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_quote_template(config=mock_config)
+            result = get_quote_template(config=mock_config)
 
             assert result["success"] is True
             defaults = get_default_settings()
@@ -464,9 +448,7 @@ class TestQuoteTemplateLogic:
 
 class TestInvoiceTemplateLogic:
     """Test get_invoice_template endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_get_invoice_template_returns_invoice_only(self, mock_config):
+    def test_get_invoice_template_returns_invoice_only(self, mock_config):
         """get_invoice_template should return only invoice settings."""
         from src.api.templates_routes import get_invoice_template
 
@@ -480,16 +462,14 @@ class TestInvoiceTemplateLogic:
             mock_supabase.get_template_settings.return_value = mock_settings
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_invoice_template(config=mock_config)
+            result = get_invoice_template(config=mock_config)
 
             assert result["success"] is True
             assert result["data"]["pdf_layout"] == "minimal"
             assert result["data"]["due_days"] == 7
             # Should not include quote data
             assert "validity_days" not in result["data"]
-
-    @pytest.mark.asyncio
-    async def test_get_invoice_template_returns_defaults_on_none(self, mock_config):
+    def test_get_invoice_template_returns_defaults_on_none(self, mock_config):
         """get_invoice_template should return defaults when no settings."""
         from src.api.templates_routes import get_invoice_template, get_default_settings
 
@@ -498,7 +478,7 @@ class TestInvoiceTemplateLogic:
             mock_supabase.get_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            result = await get_invoice_template(config=mock_config)
+            result = get_invoice_template(config=mock_config)
 
             assert result["success"] is True
             defaults = get_default_settings()
@@ -509,9 +489,7 @@ class TestInvoiceTemplateLogic:
 
 class TestResetTemplateSettingsLogic:
     """Test reset_template_settings endpoint logic."""
-
-    @pytest.mark.asyncio
-    async def test_reset_template_settings_returns_defaults(self, mock_config):
+    def test_reset_template_settings_returns_defaults(self, mock_config):
         """reset_template_settings should return default settings."""
         from src.api.templates_routes import reset_template_settings, get_default_settings
 
@@ -520,15 +498,13 @@ class TestResetTemplateSettingsLogic:
             mock_supabase.update_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            result = await reset_template_settings(config=mock_config)
+            result = reset_template_settings(config=mock_config)
 
             assert result["success"] is True
             assert result["message"] == "Template settings reset to defaults"
             defaults = get_default_settings()
             assert result["data"]["quote"]["validity_days"] == defaults["quote"]["validity_days"]
-
-    @pytest.mark.asyncio
-    async def test_reset_template_settings_calls_update(self, mock_config):
+    def test_reset_template_settings_calls_update(self, mock_config):
         """reset_template_settings should call update_template_settings."""
         from src.api.templates_routes import reset_template_settings, get_default_settings
 
@@ -537,7 +513,7 @@ class TestResetTemplateSettingsLogic:
             mock_supabase.update_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            await reset_template_settings(config=mock_config)
+            reset_template_settings(config=mock_config)
 
             mock_supabase.update_template_settings.assert_called_once()
             call_args = mock_supabase.update_template_settings.call_args[0][0]
@@ -549,55 +525,45 @@ class TestResetTemplateSettingsLogic:
 
 class TestLayoutsEndpoint:
     """Test get_available_layouts endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_available_layouts_returns_layouts(self):
+    def test_get_available_layouts_returns_layouts(self):
         """get_available_layouts should return available layout options."""
         from src.api.templates_routes import get_available_layouts
 
-        result = await get_available_layouts()
+        result = get_available_layouts()
 
         assert result["success"] is True
         assert len(result["data"]) == 3  # standard, modern, minimal
-
-    @pytest.mark.asyncio
-    async def test_get_available_layouts_has_required_fields(self):
+    def test_get_available_layouts_has_required_fields(self):
         """Each layout should have id, name, and description."""
         from src.api.templates_routes import get_available_layouts
 
-        result = await get_available_layouts()
+        result = get_available_layouts()
 
         for layout in result["data"]:
             assert "id" in layout
             assert "name" in layout
             assert "description" in layout
-
-    @pytest.mark.asyncio
-    async def test_get_available_layouts_includes_standard(self):
+    def test_get_available_layouts_includes_standard(self):
         """Layouts should include standard layout."""
         from src.api.templates_routes import get_available_layouts
 
-        result = await get_available_layouts()
+        result = get_available_layouts()
 
         layout_ids = [layout["id"] for layout in result["data"]]
         assert "standard" in layout_ids
-
-    @pytest.mark.asyncio
-    async def test_get_available_layouts_includes_modern(self):
+    def test_get_available_layouts_includes_modern(self):
         """Layouts should include modern layout."""
         from src.api.templates_routes import get_available_layouts
 
-        result = await get_available_layouts()
+        result = get_available_layouts()
 
         layout_ids = [layout["id"] for layout in result["data"]]
         assert "modern" in layout_ids
-
-    @pytest.mark.asyncio
-    async def test_get_available_layouts_includes_minimal(self):
+    def test_get_available_layouts_includes_minimal(self):
         """Layouts should include minimal layout."""
         from src.api.templates_routes import get_available_layouts
 
-        result = await get_available_layouts()
+        result = get_available_layouts()
 
         layout_ids = [layout["id"] for layout in result["data"]]
         assert "minimal" in layout_ids
@@ -607,9 +573,7 @@ class TestLayoutsEndpoint:
 
 class TestErrorRecovery:
     """Test error recovery behavior."""
-
-    @pytest.mark.asyncio
-    async def test_get_settings_recovers_from_error(self, mock_config):
+    def test_get_settings_recovers_from_error(self, mock_config):
         """get_template_settings should recover from errors with defaults."""
         from src.api.templates_routes import get_template_settings
 
@@ -619,11 +583,9 @@ class TestErrorRecovery:
             mock_supabase_class.return_value = mock_supabase
 
             # Should not raise, should return defaults
-            result = await get_template_settings(config=mock_config)
+            result = get_template_settings(config=mock_config)
             assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_get_quote_recovers_from_error(self, mock_config):
+    def test_get_quote_recovers_from_error(self, mock_config):
         """get_quote_template should recover from errors with defaults."""
         from src.api.templates_routes import get_quote_template
 
@@ -633,11 +595,9 @@ class TestErrorRecovery:
             mock_supabase_class.return_value = mock_supabase
 
             # Should not raise, should return defaults
-            result = await get_quote_template(config=mock_config)
+            result = get_quote_template(config=mock_config)
             assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_get_invoice_recovers_from_error(self, mock_config):
+    def test_get_invoice_recovers_from_error(self, mock_config):
         """get_invoice_template should recover from errors with defaults."""
         from src.api.templates_routes import get_invoice_template
 
@@ -647,7 +607,7 @@ class TestErrorRecovery:
             mock_supabase_class.return_value = mock_supabase
 
             # Should not raise, should return defaults
-            result = await get_invoice_template(config=mock_config)
+            result = get_invoice_template(config=mock_config)
             assert result["success"] is True
 
 
@@ -655,9 +615,7 @@ class TestErrorRecovery:
 
 class TestTemplateMerge:
     """Test template merging logic."""
-
-    @pytest.mark.asyncio
-    async def test_update_preserves_unmodified_fields(self, mock_config):
+    def test_update_preserves_unmodified_fields(self, mock_config):
         """Partial update should preserve fields not being modified."""
         from src.api.templates_routes import update_template_settings, TemplateSettingsUpdate, QuoteTemplateSettings
 
@@ -680,16 +638,14 @@ class TestTemplateMerge:
             mock_supabase.update_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            await update_template_settings(data=update_data, config=mock_config)
+            update_template_settings(data=update_data, config=mock_config)
 
             call_args = mock_supabase.update_template_settings.call_args[0][0]
             # Check layout was updated
             assert call_args["quote"]["pdf_layout"] == "modern"
             # Check other fields preserved (merged with defaults if needed)
             assert "quote" in call_args
-
-    @pytest.mark.asyncio
-    async def test_update_invoice_only(self, mock_config):
+    def test_update_invoice_only(self, mock_config):
         """Update invoice settings only."""
         from src.api.templates_routes import update_template_settings, TemplateSettingsUpdate, InvoiceTemplateSettings
 
@@ -708,7 +664,7 @@ class TestTemplateMerge:
             mock_supabase.update_template_settings.return_value = None
             mock_supabase_class.return_value = mock_supabase
 
-            await update_template_settings(data=update_data, config=mock_config)
+            update_template_settings(data=update_data, config=mock_config)
 
             call_args = mock_supabase.update_template_settings.call_args[0][0]
             # Invoice should be updated

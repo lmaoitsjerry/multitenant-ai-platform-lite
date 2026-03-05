@@ -1,5 +1,5 @@
 """
-Security Headers Middleware
+Security Headers Middleware (Pure ASGI)
 
 Adds security headers to all API responses to protect against common
 web vulnerabilities like XSS, clickjacking, and MIME sniffing.
@@ -11,52 +11,86 @@ Headers added:
 - Strict-Transport-Security: Enforces HTTPS
 - Content-Security-Policy: Restricts resource loading
 - Referrer-Policy: Controls referrer information
+
+Note: Public PDF endpoints (/api/v1/public/*) allow iframe embedding
+for quote and invoice previews in the dashboard.
 """
 
 import os
 import logging
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import Request, Response
 
 logger = logging.getLogger(__name__)
 
+# Build frame-ancestors from CORS_ORIGINS env var (includes frontend URLs)
+_cors_origins = os.getenv("CORS_ORIGINS", "")
+_extra_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] if _cors_origins else []
+_frame_ancestors = "'self' http://localhost:* https://localhost:*"
+if _extra_origins:
+    _frame_ancestors += " " + " ".join(_extra_origins)
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Middleware that adds security headers to all responses."""
+# Default CSP for API-only responses (restrictive)
+DEFAULT_CSP = "default-src 'none'; frame-ancestors 'none'"
 
-    # Default CSP for API-only responses (restrictive)
-    DEFAULT_CSP = "default-src 'none'; frame-ancestors 'none'"
+# CSP for embeddable content (PDFs that can be shown in iframes)
+EMBEDDABLE_CSP = f"default-src 'none'; frame-ancestors {_frame_ancestors}"
 
-    # Environment variable to customize CSP if needed
-    # e.g., for embedded widgets: "default-src 'self'; frame-ancestors https://trusted.com"
+# Paths that allow iframe embedding (for PDF previews and knowledge base)
+EMBEDDABLE_PATHS = (
+    "/api/v1/public/quotes/",
+    "/api/v1/public/invoices/",
+    "/api/v1/knowledge/global/",
+)
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
 
-        # Get CSP from environment or use default
-        csp = os.getenv("SECURITY_CSP", self.DEFAULT_CSP)
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware that adds security headers to all responses."""
 
-        # Clickjacking protection
-        response.headers["X-Frame-Options"] = "DENY"
+    def __init__(self, app):
+        self.app = app
+        self.is_production = os.getenv("ENVIRONMENT", "development") != "development"
+        self.csp = os.getenv("SECURITY_CSP", DEFAULT_CSP)
 
-        # Prevent MIME sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
+    def _is_embeddable_path(self, path: str) -> bool:
+        """Check if the path should allow iframe embedding."""
+        return any(path.startswith(prefix) for prefix in EMBEDDABLE_PATHS)
 
-        # Legacy XSS protection (modern browsers ignore, but harmless)
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # Force HTTPS (only add in production)
-        # max-age=31536000 = 1 year, includeSubDomains for full domain protection
-        if os.getenv("ENVIRONMENT", "development") != "development":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Get the request path
+        path = scope.get("path", "")
+        is_embeddable = self._is_embeddable_path(path)
 
-        # Content Security Policy - restrictive for API
-        response.headers["Content-Security-Policy"] = csp
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = dict(message.get("headers", []))
 
-        # Referrer policy - don't leak URLs on cross-origin requests
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                # Use appropriate CSP and X-Frame-Options based on path
+                if is_embeddable:
+                    csp_value = EMBEDDABLE_CSP
+                    frame_options = b"SAMEORIGIN"
+                else:
+                    csp_value = self.csp
+                    frame_options = b"DENY"
 
-        # Permissions policy - disable unnecessary browser features
-        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+                extra_headers = [
+                    (b"x-frame-options", frame_options),
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-xss-protection", b"1; mode=block"),
+                    (b"content-security-policy", csp_value.encode()),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (b"permissions-policy", b"geolocation=(), camera=(), microphone=()"),
+                ]
+                if self.is_production:
+                    extra_headers.append(
+                        (b"strict-transport-security", b"max-age=31536000; includeSubDomains")
+                    )
+                message = {
+                    **message,
+                    "headers": list(message.get("headers", [])) + extra_headers,
+                }
+            await send(message)
 
-        return response
+        await self.app(scope, receive, send_with_headers)

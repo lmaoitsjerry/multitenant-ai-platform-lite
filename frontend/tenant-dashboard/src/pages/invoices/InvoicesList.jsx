@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { invoicesApi, quotesApi, pricingApi } from '../../services/api';
+import { publicLink } from '../../config/environment';
+import { serializeQuoteToInvoice, normalizeQuoteDates } from '../../utils/fieldTransformers';
 import { SkeletonTable } from '../../components/ui/Skeleton';
 import {
   DocumentTextIcon,
@@ -29,9 +31,7 @@ function InvoiceSuccessModal({ invoice, isOpen, onClose, onSendEmail, onDownload
 
   const handleCopyLink = async () => {
     // Use public PDF endpoint for direct, shareable PDF link
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const clientId = localStorage.getItem('clientId') || 'africastay';
-    const link = `${apiBase}/api/v1/public/invoices/${invoice.invoice_id}/pdf`;
+    const link = publicLink('invoices', invoice.invoice_id);
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -158,7 +158,7 @@ const statusConfig = {
   sent: { label: 'Sent', color: 'bg-blue-100 text-blue-700', icon: EnvelopeIcon },
   viewed: { label: 'Viewed', color: 'bg-purple-100 text-purple-700', icon: CheckCircleIcon },
   paid: { label: 'Paid', color: 'bg-green-100 text-green-700', icon: CheckCircleIcon },
-  partial: { label: 'Partial', color: 'bg-yellow-100 text-yellow-700', icon: ClockIcon },
+  partially_paid: { label: 'Partial', color: 'bg-yellow-100 text-yellow-700', icon: ClockIcon },
   overdue: { label: 'Overdue', color: 'bg-red-100 text-red-700', icon: ExclamationCircleIcon },
   cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500', icon: ExclamationCircleIcon },
 };
@@ -603,28 +603,29 @@ function CreateInvoiceModal({ isOpen, onClose, onCreated, quotes, preSelectedQuo
           return;
         }
 
-        response = await invoicesApi.create({
-          quote_id: selectedQuote.quote_id,
-          customer_name: selectedQuote.customer_name,
-          customer_email: selectedQuote.customer_email,
-          customer_phone: selectedQuote.customer_phone,
-          destination: selectedQuote.destination,
+        const quoteNorm = normalizeQuoteDates(selectedQuote);
+        response = await invoicesApi.create(serializeQuoteToInvoice({
+          quote_id: quoteNorm.quote_id,
+          customer_name: quoteNorm.customer_name,
+          customer_email: quoteNorm.customer_email,
+          customer_phone: quoteNorm.customer_phone,
+          destination: quoteNorm.destination,
           items: [{
-            description: `${hotel.name || hotel.hotel_name} - ${selectedQuote.nights} nights`,
+            description: `${hotel.name || hotel.hotel_name} - ${quoteNorm.nights} nights`,
             hotel_name: hotel.name || hotel.hotel_name,
             room_type: hotel.room_type,
             meal_plan: hotel.meal_plan,
-            destination: selectedQuote.destination,
-            check_in: selectedQuote.check_in_date,
-            check_out: selectedQuote.check_out_date,
-            nights: selectedQuote.nights,
+            destination: quoteNorm.destination,
+            check_in: quoteNorm.check_in,
+            check_out: quoteNorm.check_out,
+            nights: quoteNorm.nights,
             amount: hotel.total_price,
           }],
           total_amount: hotel.total_price,
           travelers: travelers,
           due_date: dueDate,
           notes: notes,
-        });
+        }));
       } else {
         // Create manual invoice
         if (!manualCustomer.name || !manualCustomer.email) {
@@ -1105,7 +1106,7 @@ export default function InvoicesList() {
       setStats({
         total: invoiceList.reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0),
         paid: invoiceList.filter(i => i.status === 'paid').reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0),
-        pending: invoiceList.filter(i => ['sent', 'viewed', 'partial', 'draft'].includes(i.status)).length,
+        pending: invoiceList.filter(i => ['sent', 'viewed', 'partial', 'partially_paid', 'draft'].includes(i.status)).length,
         overdue: invoiceList.filter(i => i.status === 'overdue').length,
       });
     } catch (error) {

@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 
 from config.loader import ClientConfig
+from src.api.dependencies import get_client_config
 from src.utils.error_handler import log_and_raise
 
 logger = logging.getLogger(__name__)
@@ -27,23 +28,6 @@ logger = logging.getLogger(__name__)
 analytics_router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
 dashboard_router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
-
-# ==================== Dependency ====================
-
-_client_configs = {}
-
-def get_client_config(x_client_id: str = Header(None, alias="X-Client-ID")) -> ClientConfig:
-    """Get client configuration from header"""
-    import os
-    client_id = x_client_id or os.getenv("CLIENT_ID", "example")
-
-    if client_id not in _client_configs:
-        try:
-            _client_configs[client_id] = ClientConfig(client_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid client: {client_id}")
-
-    return _client_configs[client_id]
 
 
 # ==================== Response Models ====================
@@ -90,7 +74,7 @@ def calculate_change(current: float, previous: float) -> Dict[str, Any]:
 # ==================== Dashboard Stats ====================
 
 @dashboard_router.get("/stats")
-async def get_dashboard_stats(
+def get_dashboard_stats(
     period: str = Query(default="30d", regex="^(7d|30d|90d|year|all)$"),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -128,7 +112,7 @@ async def get_dashboard_stats(
         # Quote stats
         try:
             quotes_result = supabase.client.table('quotes')\
-                .select("status, total_price, created_at")\
+                .select("status, total_price, created_at, quote_id")\
                 .eq('tenant_id', config.client_id)\
                 .gte('created_at', start_date.isoformat())\
                 .execute()
@@ -138,10 +122,30 @@ async def get_dashboard_stats(
             stats["quotes"]["accepted"] = len([q for q in quotes if q.get('status') == 'accepted'])
             stats["quotes"]["pending"] = len([q for q in quotes if q.get('status') in ('sent', 'viewed', 'draft')])
 
+            # Also count quotes that have invoices (quote-to-invoice ratio)
+            # This catches conversions even if quote status wasn't updated
+            if quotes:
+                try:
+                    quote_ids = [q['quote_id'] for q in quotes if q.get('quote_id')]
+                    if quote_ids:
+                        invoices_with_quotes = supabase.client.table('invoices')\
+                            .select("quote_id")\
+                            .eq('tenant_id', config.client_id)\
+                            .in_('quote_id', quote_ids)\
+                            .execute()
+                        converted_quote_ids = set(
+                            inv['quote_id'] for inv in (invoices_with_quotes.data or []) if inv.get('quote_id')
+                        )
+                        # Use the higher of status-based or invoice-based count
+                        invoice_based_accepted = len(converted_quote_ids)
+                        stats["quotes"]["accepted"] = max(stats["quotes"]["accepted"], invoice_based_accepted)
+                except Exception as inv_e:
+                    logger.debug(f"Could not check quote-to-invoice ratio: {inv_e}")
+
             if stats["quotes"]["total"] > 0:
-                stats["quotes"]["conversion_rate"] = round(
+                stats["quotes"]["conversion_rate"] = min(100.0, round(
                     (stats["quotes"]["accepted"] / stats["quotes"]["total"]) * 100, 1
-                )
+                ))
 
             stats["revenue"]["total"] = sum(q.get('total_price', 0) or 0 for q in quotes)
         except Exception as e:
@@ -229,7 +233,7 @@ async def get_dashboard_stats(
 
 
 @dashboard_router.get("/activity")
-async def get_recent_activity(
+def get_recent_activity(
     limit: int = Query(default=20, le=50),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -317,7 +321,7 @@ async def get_recent_activity(
 # ==================== Quote Analytics ====================
 
 @analytics_router.get("/quotes")
-async def get_quote_analytics(
+def get_quote_analytics(
     period: str = Query(default="30d", regex="^(7d|30d|90d|year|all)$"),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -461,7 +465,7 @@ async def get_quote_analytics(
 # ==================== Invoice Analytics ====================
 
 @analytics_router.get("/invoices")
-async def get_invoice_analytics(
+def get_invoice_analytics(
     period: str = Query(default="30d", regex="^(7d|30d|90d|year|all)$"),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -614,7 +618,7 @@ async def get_invoice_analytics(
 # ==================== Call Analytics ====================
 
 @analytics_router.get("/calls")
-async def get_call_analytics(
+def get_call_analytics(
     period: str = Query(default="30d", regex="^(7d|30d|90d|year|all)$"),
     config: ClientConfig = Depends(get_client_config)
 ):
@@ -757,7 +761,7 @@ async def get_call_analytics(
 # ==================== Pipeline Analytics ====================
 
 @analytics_router.get("/pipeline")
-async def get_pipeline_analytics(
+def get_pipeline_analytics(
     config: ClientConfig = Depends(get_client_config)
 ):
     """
@@ -985,8 +989,8 @@ async def get_dashboard_all(
         "stats": {
             "total_quotes": 0,
             "active_clients": 0,
-            "total_hotels": 0,
-            "total_destinations": 0,
+            "pending_quotes": 0,
+            "conversion_rate": 0.0,
         },
         "recent_quotes": [],
         "usage": {},
@@ -1038,84 +1042,119 @@ async def get_dashboard_all(
                 logger.warning(f"Failed to fetch client count: {e}")
                 return 0
 
-        async def fetch_pricing_stats():
-            # Check pricing stats cache first (4 hour TTL - pricing data rarely changes)
-            pricing_cache_key = f"pricing_{config.client_id}"
-            if pricing_cache_key in _pricing_stats_cache:
-                cached = _pricing_stats_cache[pricing_cache_key]
-                if (now - cached['timestamp']).total_seconds() < _pricing_stats_ttl:
-                    logger.debug(f"Returning cached pricing stats for {config.client_id}")
-                    return cached['data']
-
+        async def fetch_pending_quotes():
+            """Count quotes in actionable states (draft, generated, quoted, sent, viewed)"""
             try:
-                # Use cached BigQuery client (same pattern as working pricing_routes.py)
-                client = await get_bigquery_client_async(config)
-                if not client:
-                    logger.warning(f"BigQuery client not available for {config.client_id}")
-                    # Return cached value if available, else 0
-                    if pricing_cache_key in _pricing_stats_cache:
-                        return _pricing_stats_cache[pricing_cache_key]['data']
-                    return {"hotels": 0, "destinations": 0}
-
                 def _query():
-                    # Count all hotels and destinations (don't filter by is_active for overview stats)
-                    hotel_query = f"""
-                    SELECT
-                        COUNT(DISTINCT hotel_name) as hotel_count,
-                        COUNT(DISTINCT destination) as dest_count
-                    FROM `{config.gcp_project_id}.{config.shared_pricing_dataset}.hotel_rates`
-                    """
-                    result = client.query(hotel_query).result()
-                    rows = list(result)
-                    return rows[0] if rows else None
-
-                # No timeout needed - client init already handles cold start
-                row = await asyncio.to_thread(_query)
-                if row:
-                    hotel_count = row.hotel_count if row.hotel_count is not None else 0
-                    dest_count = row.dest_count if row.dest_count is not None else 0
-                    stats = {"hotels": int(hotel_count), "destinations": int(dest_count)}
-                    logger.info(f"Fetched pricing stats for {config.client_id}: {stats}")
-                    # Cache the result
-                    _pricing_stats_cache[pricing_cache_key] = {
-                        'data': stats,
-                        'timestamp': now
-                    }
-                    return stats
-                return {"hotels": 0, "destinations": 0}
+                    return supabase.client.table('quotes')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .in_('status', ['draft', 'generated', 'quoted', 'sent', 'viewed'])\
+                        .execute()
+                pending_result = await asyncio.to_thread(_query)
+                return pending_result.count or 0
             except Exception as e:
-                logger.warning(f"Failed to fetch pricing stats for {config.client_id}: {e}")
-                # Return cached value if available
-                if pricing_cache_key in _pricing_stats_cache:
-                    return _pricing_stats_cache[pricing_cache_key]['data']
-                return {"hotels": 0, "destinations": 0}
+                logger.warning(f"Failed to fetch pending quotes: {e}")
+                return 0
+
+        async def fetch_conversion_rate():
+            """Calculate conversion rate: quotes that became invoices or were accepted"""
+            try:
+                # Get total quotes count
+                def _query_total():
+                    return supabase.client.table('quotes')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .execute()
+
+                # Get accepted/converted quotes count
+                def _query_converted():
+                    return supabase.client.table('quotes')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .in_('status', ['accepted', 'converted'])\
+                        .execute()
+
+                # Get quotes that have linked invoices (another conversion signal)
+                def _query_invoiced():
+                    return supabase.client.table('invoices')\
+                        .select("quote_id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .not_.is_('quote_id', 'null')\
+                        .execute()
+
+                total_result, converted_result, invoiced_result = await asyncio.gather(
+                    asyncio.to_thread(_query_total),
+                    asyncio.to_thread(_query_converted),
+                    asyncio.to_thread(_query_invoiced),
+                )
+
+                total = total_result.count or 0
+                converted = converted_result.count or 0
+                invoiced = invoiced_result.count or 0
+                # Use the higher of the two signals
+                converted_count = max(converted, invoiced)
+
+                if total > 0:
+                    return round((converted_count / total) * 100, 1)
+                return 0.0
+            except Exception as e:
+                logger.warning(f"Failed to fetch conversion rate: {e}")
+                return 0.0
 
         async def fetch_usage():
             try:
-                # Simplified usage stats
+                from datetime import timedelta
+
                 today = now.date().isoformat()
-                def _query():
+                week_ago = (now.date() - timedelta(days=7)).isoformat()
+                month_start = now.date().replace(day=1).isoformat()
+
+                # Quotes created today
+                def _query_quotes_today():
                     return supabase.client.table('quotes')\
                         .select("id", count="exact")\
                         .eq('tenant_id', config.client_id)\
                         .gte('created_at', today)\
                         .execute()
-                quotes_today = await asyncio.to_thread(_query)
+
+                # Invoices sent this month
+                def _query_invoices_month():
+                    return supabase.client.table('invoices')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .gte('created_at', month_start)\
+                        .execute()
+
+                # New clients this week
+                def _query_clients_week():
+                    return supabase.client.table('clients')\
+                        .select("id", count="exact")\
+                        .eq('tenant_id', config.client_id)\
+                        .gte('created_at', week_ago)\
+                        .execute()
+
+                # Execute queries
+                quotes_today = await asyncio.to_thread(_query_quotes_today)
+                invoices_month = await asyncio.to_thread(_query_invoices_month)
+                clients_week = await asyncio.to_thread(_query_clients_week)
 
                 return {
-                    "quotes": {"current": quotes_today.count or 0, "limit": 100},
-                    "api_calls": {"current": 0, "limit": 1000}
+                    "quotes_today": {"current": quotes_today.count or 0, "limit": 50},
+                    "invoices_month": {"current": invoices_month.count or 0, "limit": 100},
+                    "new_clients": {"current": clients_week.count or 0, "limit": 25}
                 }
             except Exception as e:
                 logger.warning(f"Failed to fetch usage: {e}")
                 return {}
 
         # Execute all fetches in parallel
-        quotes, quote_count, client_count, pricing_stats, usage = await asyncio.gather(
+        quotes, quote_count, client_count, pending_count, conversion_rate, usage = await asyncio.gather(
             fetch_quotes(),
             fetch_quote_count(),
             fetch_client_count(),
-            fetch_pricing_stats(),
+            fetch_pending_quotes(),
+            fetch_conversion_rate(),
             fetch_usage(),
             return_exceptions=True
         )
@@ -1127,16 +1166,18 @@ async def get_dashboard_all(
             quote_count = 0
         if isinstance(client_count, Exception):
             client_count = 0
-        if isinstance(pricing_stats, Exception):
-            pricing_stats = {"hotels": 0, "destinations": 0}
+        if isinstance(pending_count, Exception):
+            pending_count = 0
+        if isinstance(conversion_rate, Exception):
+            conversion_rate = 0.0
         if isinstance(usage, Exception):
             usage = {}
 
         # Build result
         result["stats"]["total_quotes"] = quote_count
         result["stats"]["active_clients"] = client_count
-        result["stats"]["total_hotels"] = pricing_stats.get("hotels", 0)
-        result["stats"]["total_destinations"] = pricing_stats.get("destinations", 0)
+        result["stats"]["pending_quotes"] = pending_count
+        result["stats"]["conversion_rate"] = conversion_rate
         result["recent_quotes"] = quotes
         result["usage"] = usage
 
@@ -1149,8 +1190,8 @@ async def get_dashboard_all(
         return {"success": True, "data": result, "cached": False}
 
     except Exception as e:
-        logger.error(f"Failed to get aggregated dashboard: {e}")
-        return {"success": True, "data": result, "error": str(e)}
+        logger.error(f"Failed to get aggregated dashboard: {e}", exc_info=True)
+        return {"success": True, "data": result, "error": "Failed to load some dashboard data"}
 
 
 # ==================== Export Function ====================
