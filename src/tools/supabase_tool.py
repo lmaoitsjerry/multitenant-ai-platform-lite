@@ -45,7 +45,7 @@ DEFAULT_QUERY_TIMEOUT = 10
 # Single executor shared across all SupabaseTool instances to prevent thread leaks.
 # Previous design created a new ThreadPoolExecutor(max_workers=4) per instance,
 # which with ~70 instantiation sites could spawn hundreds of orphaned threads.
-_shared_executor = ThreadPoolExecutor(max_workers=8)
+_shared_executor = ThreadPoolExecutor(max_workers=16)
 _cache_lock = threading.Lock()
 
 

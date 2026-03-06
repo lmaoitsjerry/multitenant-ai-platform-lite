@@ -58,6 +58,14 @@ def get_cached(key: str) -> Optional[Any]:
 def set_cached(key: str, data: Any, ttl: int = KNOWLEDGE_CACHE_TTL):
     """Set value in cache with TTL"""
     from datetime import timedelta
+    if len(_knowledge_cache) > 100:
+        now = datetime.now()
+        expired = [k for k, v in _knowledge_cache.items() if now >= v['expires']]
+        for k in expired:
+            del _knowledge_cache[k]
+        if len(_knowledge_cache) > 100:
+            for k in list(_knowledge_cache.keys())[:len(_knowledge_cache) // 2]:
+                del _knowledge_cache[k]
     _knowledge_cache[key] = {
         'data': data,
         'expires': datetime.now() + timedelta(seconds=ttl)

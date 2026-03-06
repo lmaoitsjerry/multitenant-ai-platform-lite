@@ -36,7 +36,7 @@ class CurrencyService:
 
     def __init__(self):
         self._rates: Dict[str, float] = {}
-        self._last_fetch: float = 0
+        self._rate_timestamps: Dict[str, float] = {}
         self._fallback_rate = float(os.getenv("EUR_ZAR_RATE", "20.5"))
 
     async def get_rate(self, from_currency: str, to_currency: str) -> float:
@@ -46,8 +46,9 @@ class CurrencyService:
 
         cache_key = f"{from_currency}_{to_currency}"
 
-        # Return cached rate if still fresh
-        if cache_key in self._rates and (time.time() - self._last_fetch) < self.CACHE_TTL:
+        # Return cached rate if still fresh (per-key timestamp)
+        ts = self._rate_timestamps.get(cache_key, 0)
+        if cache_key in self._rates and (time.time() - ts) < self.CACHE_TTL:
             return self._rates[cache_key]
 
         # Fetch from Frankfurter API
@@ -63,7 +64,7 @@ class CurrencyService:
                 rate = data.get("rates", {}).get(to_currency.upper())
                 if rate:
                     self._rates[cache_key] = float(rate)
-                    self._last_fetch = time.time()
+                    self._rate_timestamps[cache_key] = time.time()
                     logger.info(f"Currency rate fetched: 1 {from_currency} = {rate} {to_currency}")
                     return float(rate)
         except Exception as e:
@@ -110,3 +111,9 @@ class CurrencyService:
             "rate": rate,
             "margin": margin_pct,
         }
+
+    async def ensure_rates_cached(self, from_currencies: set, to_currency: str = "ZAR"):
+        """Pre-fetch rates for all source currencies in one pass."""
+        for from_cur in from_currencies:
+            if from_cur.upper() != to_currency.upper():
+                await self.get_rate(from_cur, to_currency)

@@ -123,6 +123,19 @@ class HotelSearchResponse(BaseModel):
     merge_stats: Optional[Dict[str, Any]] = None
 
 
+def _get_hotel_currency(hotel: dict) -> str:
+    """Extract the base currency from a hotel result."""
+    if hotel.get("best_rate"):
+        cur = hotel["best_rate"].get("currency")
+        if cur:
+            return cur
+    if hotel.get("options"):
+        cur = hotel["options"][0].get("currency")
+        if cur:
+            return cur
+    return hotel.get("currency", "ZAR")
+
+
 async def _apply_currency_conversion(hotels: list, target_currency: str = "ZAR", margin_pct: float = 5.0) -> list:
     """Apply currency conversion to hotels with non-ZAR pricing.
 
@@ -130,6 +143,16 @@ async def _apply_currency_conversion(hotels: list, target_currency: str = "ZAR",
     legacy format (options[]).
     """
     currency_svc = get_currency_service()
+
+    # Pre-collect all unique source currencies and warm the cache
+    source_currencies = set()
+    for hotel in hotels:
+        cur = _get_hotel_currency(hotel)
+        if cur and cur.upper() != target_currency.upper():
+            source_currencies.add(cur.upper())
+    if source_currencies:
+        await currency_svc.ensure_rates_cached(source_currencies, target_currency)
+
     for hotel in hotels:
         # Determine base currency from best_rate, options, or hotel level
         hotel_currency = None

@@ -35,6 +35,17 @@ def _is_tenant_suspended(tenant_id: str) -> bool:
     Returns True if the tenant is confirmed suspended.
     Returns False if active, unknown, or if the check fails (fail-open).
     """
+    # Evict stale entries if cache is too large
+    if len(_tenant_status_cache) > 500:
+        now_evict = time.time()
+        expired = [k for k, (_, ts) in _tenant_status_cache.items()
+                   if now_evict - ts >= _TENANT_STATUS_TTL]
+        for k in expired:
+            del _tenant_status_cache[k]
+        if len(_tenant_status_cache) > 500:
+            for k in list(_tenant_status_cache.keys())[:len(_tenant_status_cache) // 2]:
+                del _tenant_status_cache[k]
+
     now = time.time()
     cached = _tenant_status_cache.get(tenant_id)
     if cached and (now - cached[1]) < _TENANT_STATUS_TTL:

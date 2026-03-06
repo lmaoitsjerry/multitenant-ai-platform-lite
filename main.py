@@ -42,6 +42,21 @@ json_logs = os.getenv("JSON_LOGS", "true").lower() == "true"
 setup_structured_logging(level=log_level, json_output=json_logs)
 logger = get_logger(__name__)
 
+# Initialize Sentry error tracking (opt-in via SENTRY_DSN env var)
+_sentry_dsn = os.getenv("SENTRY_DSN", "")
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            traces_sample_rate=0.1,
+            environment=os.getenv("ENVIRONMENT", "development"),
+            release=os.getenv("APP_VERSION", "1.0.0"),
+        )
+        logger.info("Sentry error tracking enabled")
+    except Exception as e:
+        logger.warning(f"Sentry init failed: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

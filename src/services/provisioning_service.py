@@ -111,9 +111,10 @@ class SendGridProvisioner:
         response = requests.post(
             f"{self.base_url}/subusers",
             headers=self.headers,
-            json=payload
+            json=payload,
+            timeout=15
         )
-        
+
         if response.status_code == 201:
             result = response.json()
             result['password'] = password  # Include for initial setup
@@ -160,9 +161,10 @@ class SendGridProvisioner:
         response = requests.post(
             f"{self.base_url}/api_keys",
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=15
         )
-        
+
         if response.status_code == 201:
             result = response.json()
             logger.info(f"✅ SendGrid API key created: {name}")
@@ -215,9 +217,10 @@ class SendGridProvisioner:
         response = requests.post(
             f"{self.base_url}/verified_senders",
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=15
         )
-        
+
         if response.status_code in [200, 201]:
             result = response.json()
             logger.info(f"✅ Verified sender created: {from_email}")
@@ -243,7 +246,7 @@ class SendGridProvisioner:
         """
         # Get available IPs if not specified
         if not ip_address:
-            resp = requests.get(f"{self.base_url}/ips", headers=self.headers)
+            resp = requests.get(f"{self.base_url}/ips", headers=self.headers, timeout=15)
             if resp.status_code == 200:
                 ips = resp.json()
                 if ips:
@@ -257,9 +260,10 @@ class SendGridProvisioner:
         response = requests.put(
             f"{self.base_url}/subusers/{subuser}/ips",
             headers=self.headers,
-            json=[ip_address]
+            json=[ip_address],
+            timeout=15
         )
-        
+
         if response.status_code == 200:
             logger.info(f"✅ IP {ip_address} assigned to {subuser}")
             return {'success': True, 'ip': ip_address, 'data': response.json()}
@@ -288,7 +292,8 @@ class SendGridProvisioner:
         response = requests.post(
             f"{self.base_url}/whitelabel/domains/{domain_id}/subuser",
             headers=self.headers,
-            json={"username": username}
+            json={"username": username},
+            timeout=15
         )
 
         if response.status_code in [200, 201]:
@@ -332,9 +337,10 @@ class SendGridProvisioner:
         response = requests.post(
             f"{self.base_url}/whitelabel/domains",
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=15
         )
-        
+
         if response.status_code in [200, 201]:
             result = response.json()
             logger.info(f"✅ Domain authentication initiated: {domain}")

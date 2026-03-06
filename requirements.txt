@@ -84,6 +84,9 @@ redis>=5.0.0
 # Monitoring
 prometheus-client>=0.21.0
 
+# Error Tracking (opt-in via SENTRY_DSN env var)
+sentry-sdk[fastapi]>=2.0.0
+
 # Tracing (opt-in via ENABLE_TRACING=true)
 opentelemetry-api>=1.24.0
 opentelemetry-sdk>=1.24.0

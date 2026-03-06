@@ -45,6 +45,14 @@ def get_cached(key: str) -> Optional[Any]:
 
 def set_cached(key: str, data: Any, ttl: int = CACHE_TTL_SECONDS):
     """Set value in cache with TTL"""
+    if len(_cache) > 100:
+        now = datetime.now()
+        expired = [k for k, v in _cache.items() if now >= v['expires']]
+        for k in expired:
+            del _cache[k]
+        if len(_cache) > 100:
+            for k in list(_cache.keys())[:len(_cache) // 2]:
+                del _cache[k]
     _cache[key] = {
         'data': data,
         'expires': datetime.now() + timedelta(seconds=ttl)
@@ -176,21 +184,22 @@ def get_all_invoices_stats() -> Dict[str, Any]:
         now = datetime.now()
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        # Get all invoices - include paid_at for accurate revenue calculations
-        result = client.table("invoices").select(
-            "id, status, total_amount, created_at, paid_at"
-        ).execute()
+        # Query 1: Count total invoices (server-side count, no data transfer)
+        total_result = client.table("invoices").select("id", count="exact").execute()
+        total = total_result.count or 0
 
-        if not result.data:
-            return {
-                "total": 0, "paid": 0, "paid_this_month": 0, "pending": 0,
-                "total_amount": 0, "this_month_amount": 0
-            }
-
-        total = len(result.data)
-        paid_invoices = [i for i in result.data if i.get("status") == "paid"]
+        # Query 2: Paid invoices with amounts (for revenue + this-month calc)
+        paid_result = client.table("invoices").select(
+            "id, total_amount, paid_at, created_at"
+        ).eq("status", "paid").execute()
+        paid_invoices = paid_result.data or []
         paid = len(paid_invoices)
-        pending = len([i for i in result.data if i.get("status") in ["sent", "draft", "partial"]])
+
+        # Query 3: Pending count (server-side count)
+        pending_result = client.table("invoices").select(
+            "id", count="exact"
+        ).in_("status", ["sent", "draft", "partial"]).execute()
+        pending = pending_result.count or 0
 
         # Total revenue = sum of PAID invoices' amounts only
         total_amount = sum(i.get("total_amount", 0) or 0 for i in paid_invoices)

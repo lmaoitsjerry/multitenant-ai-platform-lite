@@ -38,8 +38,24 @@ _flight_locks: Dict[str, asyncio.Lock] = {}
 FLIGHT_CACHE_TTL = 300  # 5 minutes
 
 
+def _evict_flight_cache():
+    """Remove expired entries from flight cache and stale locks."""
+    now = time.time()
+    expired = [k for k, (ts, _) in _flight_cache.items() if now - ts >= FLIGHT_CACHE_TTL]
+    for k in expired:
+        del _flight_cache[k]
+    # Clean up locks not used in 10 minutes
+    stale_locks = [k for k in _flight_locks if k not in _flight_cache]
+    for k in stale_locks:
+        del _flight_locks[k]
+
+
 async def get_flights_cached(cache_key: str, fetcher):
     """Single-flight pattern: only one request per cache key at a time."""
+    # Prune stale entries if cache is large
+    if len(_flight_cache) > 200:
+        _evict_flight_cache()
+
     # Fast path: cache hit
     if cache_key in _flight_cache:
         ts, data = _flight_cache[cache_key]

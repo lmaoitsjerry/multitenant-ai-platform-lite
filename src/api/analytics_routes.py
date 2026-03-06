@@ -833,6 +833,26 @@ _pricing_stats_cache = {}
 _pricing_stats_ttl = 14400  # seconds (4 hours) - pricing data doesn't change often
 
 
+def _evict_dashboard_cache():
+    """Remove stale dashboard cache entries when over max size."""
+    import time as _time
+    now = _time.time()
+    # Remove entries older than stale TTL
+    expired = [k for k, v in _dashboard_cache.items() if now - v.get('timestamp', 0) > _stale_ttl]
+    for k in expired:
+        del _dashboard_cache[k]
+    if len(_dashboard_cache) > 200:
+        for k in list(_dashboard_cache.keys())[:len(_dashboard_cache) // 2]:
+            del _dashboard_cache[k]
+    # Also prune pricing stats cache
+    expired_p = [k for k, v in _pricing_stats_cache.items() if now - v.get('timestamp', 0) > _pricing_stats_ttl]
+    for k in expired_p:
+        del _pricing_stats_cache[k]
+    if len(_pricing_stats_cache) > 200:
+        for k in list(_pricing_stats_cache.keys())[:len(_pricing_stats_cache) // 2]:
+            del _pricing_stats_cache[k]
+
+
 # Import BigQuery client from pricing_routes to share the same client and availability flag
 async def get_bigquery_client_async(config: ClientConfig):
     """Get BigQuery client - uses shared client from pricing_routes.py"""
@@ -937,7 +957,9 @@ async def _refresh_dashboard_cache(config: ClientConfig, cache_key: str):
         result["stats"]["total_hotels"] = pricing_stats.get("hotels", 0)
         result["stats"]["total_destinations"] = pricing_stats.get("destinations", 0)
 
-        # Update cache
+        # Update cache (evict stale entries if needed)
+        if len(_dashboard_cache) > 200:
+            _evict_dashboard_cache()
         _dashboard_cache[cache_key] = {"data": result, "timestamp": now}
         logger.info(f"Background refresh completed for {config.client_id}")
 
@@ -1181,7 +1203,9 @@ async def get_dashboard_all(
         result["recent_quotes"] = quotes
         result["usage"] = usage
 
-        # Cache the result
+        # Cache the result (evict stale entries if needed)
+        if len(_dashboard_cache) > 200:
+            _evict_dashboard_cache()
         _dashboard_cache[cache_key] = {
             "data": result,
             "timestamp": now
