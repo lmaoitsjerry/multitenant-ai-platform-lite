@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { websiteBuilderApi } from '../../services/api';
+import { useTheme } from '../../context/ThemeContext';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import {
   EyeIcon,
   PencilSquareIcon,
@@ -30,12 +32,14 @@ const ERROR_TYPES = {
 };
 
 export default function WebsitePreview() {
+  const { branding } = useTheme();
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [preview, setPreview] = useState(null);
   const [deviceMode, setDeviceMode] = useState('desktop');
   const [errorType, setErrorType] = useState(ERROR_TYPES.NONE);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
 
   useEffect(() => {
     loadPreview();
@@ -87,40 +91,35 @@ export default function WebsitePreview() {
   }
 
   async function handlePublish() {
-    if (!confirm('Publish your website? This will make it live to the public.')) return;
-
-    setPublishing(true);
-    setErrorMessage(null);
-    try {
-      await websiteBuilderApi.publishWebsite();
-      await loadPreview();
-    } catch (err) {
-      console.error('Publish failed:', err);
-      const detail = err.response?.data?.error || err.response?.data?.message || err.message;
-      setErrorMessage(detail ? `Failed to publish: ${detail}` : 'Failed to publish website');
-    } finally {
-      setPublishing(false);
-    }
+    setConfirmAction('publish');
   }
 
   async function handleUnpublish() {
-    if (!confirm('Unpublish your website? It will no longer be accessible to visitors.')) return;
+    setConfirmAction('unpublish');
+  }
 
+  async function confirmPublishAction() {
+    const action = confirmAction;
+    setConfirmAction(null);
     setPublishing(true);
     setErrorMessage(null);
     try {
-      await websiteBuilderApi.unpublishWebsite();
+      if (action === 'publish') {
+        await websiteBuilderApi.publishWebsite();
+      } else {
+        await websiteBuilderApi.unpublishWebsite();
+      }
       await loadPreview();
     } catch (err) {
-      console.error('Unpublish failed:', err);
+      console.error(`${action} failed:`, err);
       const detail = err.response?.data?.error || err.response?.data?.message || err.message;
-      setErrorMessage(detail ? `Failed to unpublish: ${detail}` : 'Failed to unpublish website');
+      setErrorMessage(detail ? `Failed to ${action}: ${detail}` : `Failed to ${action} website`);
     } finally {
       setPublishing(false);
     }
   }
 
-  const editorUrl = websiteBuilderApi.getEditorUrl();
+  const editorUrl = websiteBuilderApi.getEditorUrl('home', { theme: branding?.preset_theme });
   const embedPreviewUrl = websiteBuilderApi.getEmbedPreviewUrl();
   const selectedDevice = DEVICE_MODES.find(d => d.id === deviceMode);
   const isPublished = preview?.status === 'published';
@@ -355,6 +354,19 @@ export default function WebsitePreview() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={confirmAction === 'publish' ? 'Publish Website' : 'Unpublish Website'}
+        message={confirmAction === 'publish'
+          ? 'Publish your website? This will make it live to the public.'
+          : 'Unpublish your website? It will no longer be accessible to visitors.'}
+        confirmLabel={confirmAction === 'publish' ? 'Publish' : 'Unpublish'}
+        confirmVariant={confirmAction === 'publish' ? 'primary' : 'warning'}
+        onConfirm={confirmPublishAction}
+        onCancel={() => setConfirmAction(null)}
+        loading={publishing}
+      />
     </div>
   );
 }

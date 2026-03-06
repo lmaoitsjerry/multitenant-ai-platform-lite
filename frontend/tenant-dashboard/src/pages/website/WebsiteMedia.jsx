@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { websiteBuilderApi } from '../../services/api';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import {
   PhotoIcon,
   TrashIcon,
@@ -30,6 +31,7 @@ export default function WebsiteMedia() {
   const [category, setCategory] = useState('all');
   const [selectedImage, setSelectedImage] = useState(null);
   const [error, setError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   useEffect(() => {
     loadImages();
@@ -70,18 +72,23 @@ export default function WebsiteMedia() {
     }
   }
 
-  async function handleDelete(image) {
-    if (!confirm('Delete this image? This cannot be undone.')) return;
+  function handleDelete(image) {
+    setDeleteTarget(image);
+  }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
     try {
-      await websiteBuilderApi.deleteMedia(image.path);
-      setImages(prev => prev.filter(img => img.path !== image.path));
-      if (selectedImage?.path === image.path) {
+      await websiteBuilderApi.deleteMedia(deleteTarget.path);
+      setImages(prev => prev.filter(img => img.path !== deleteTarget.path));
+      if (selectedImage?.path === deleteTarget.path) {
         setSelectedImage(null);
       }
     } catch (err) {
       console.error('Delete failed:', err);
       setError('Failed to delete image');
+    } finally {
+      setDeleteTarget(null);
     }
   }
 
@@ -243,6 +250,15 @@ export default function WebsiteMedia() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete Image"
+        message="Delete this image? This cannot be undone."
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

@@ -1390,7 +1390,7 @@ export const websiteBuilderApi = {
     websiteBuilderClient.put('/api/admin/domain', { tenantId: getTenantId(), customDomain }),
 
   // ==================== Editor Link ====================
-  getEditorUrl: (page = 'home') => {
+  getEditorUrl: (page = 'home', { theme } = {}) => {
     const tenantId = getTenantId();
     const darkMode = localStorage.getItem('darkMode') === 'true';
     const params = new URLSearchParams({
@@ -1399,6 +1399,9 @@ export const websiteBuilderApi = {
       darkMode: String(darkMode),
       returnUrl: window.location.origin,
     });
+    if (theme) {
+      params.set('theme', theme);
+    }
     return `${WEBSITE_BUILDER_URL}/admin/editor?${params.toString()}`;
   },
 

@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { quotesApi, pricingApi } from '../../services/api';
 import { normalizeQuoteStatus } from '../../utils/fieldTransformers';
 import { SkeletonTable } from '../../components/ui/Skeleton';
 import {
-  PlusIcon,
   MagnifyingGlassIcon,
   ArrowPathIcon,
   DocumentTextIcon,
@@ -124,10 +123,6 @@ export default function QuotesList() {
           <h1 className="text-2xl font-bold text-gray-900">Quotes</h1>
           <p className="text-gray-500 mt-1">Manage and track your travel quotes</p>
         </div>
-        <Link to="/quotes/new" className="btn-primary flex items-center gap-2">
-          <PlusIcon className="w-5 h-5" />
-          Generate Quote
-        </Link>
       </div>
 
       {/* Filters */}
@@ -182,11 +177,7 @@ export default function QuotesList() {
           <div className="text-center py-12">
             <DocumentTextIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900">No quotes found</h3>
-            <p className="text-gray-500 mt-1">Get started by generating a new quote</p>
-            <Link to="/quotes/new" className="btn-primary inline-flex items-center gap-2 mt-4">
-              <PlusIcon className="w-5 h-5" />
-              Generate Quote
-            </Link>
+            <p className="text-gray-500 mt-1">Quotes are created from Enquiry Triage or the Holiday Packages quote builder</p>
           </div>
         ) : (
           <table className="w-full">

@@ -619,6 +619,7 @@ async def list_transfers(
             )
             if result.get("success") and result.get("transfers"):
                 transfers = result["transfers"][:limit]
+                await _apply_transfer_currency_conversion(transfers)
                 logger.info(f"Cloud Run transfers: {len(transfers)} results for {from_code}->{to_code}")
                 return TransferSearchResponse(
                     success=True,
@@ -716,6 +717,7 @@ async def search_transfers(
             )
             if result.get("success") and result.get("transfers"):
                 transfers = result["transfers"]
+                await _apply_transfer_currency_conversion(transfers)
                 logger.info(f"Cloud Run transfer search: {len(transfers)} results for {from_code}->{to_code}")
                 return TransferSearchResponse(
                     success=True,
@@ -843,6 +845,57 @@ def _map_hotelbeds_transfers(raw_transfers: list) -> list:
             "source": "hotelbeds",
         })
     return mapped
+
+
+# ============================================================
+# CURRENCY CONVERSION HELPERS
+# ============================================================
+
+
+async def _apply_activity_currency_conversion(activities: list, target_currency: str = "ZAR", margin_pct: float = 5.0) -> list:
+    """Convert non-ZAR activity prices to ZAR (mirrors _apply_currency_conversion for hotels)."""
+    from src.services.currency_service import get_currency_service
+    currency_svc = get_currency_service()
+    for act in activities:
+        act_currency = (act.get("currency") or "ZAR").upper()
+        if act_currency == target_currency.upper():
+            continue
+        try:
+            last_rate = None
+            for field in ("price_adult", "price_per_person", "price_child"):
+                val = act.get(field)
+                if val and float(val) > 0:
+                    conv = await currency_svc.convert(float(val), act_currency, target_currency, margin_pct)
+                    act[f"{field}_zar"] = conv["amount"]
+                    last_rate = conv.get("rate")
+            act["original_currency"] = act_currency
+            act["exchange_rate"] = last_rate
+        except Exception as exc:
+            logger.warning(f"Activity currency conversion failed for {act.get('name')}: {exc}")
+    return activities
+
+
+async def _apply_transfer_currency_conversion(transfers: list, target_currency: str = "ZAR", margin_pct: float = 5.0) -> list:
+    """Convert non-ZAR transfer prices to ZAR."""
+    from src.services.currency_service import get_currency_service
+    currency_svc = get_currency_service()
+    for t in transfers:
+        t_currency = (t.get("currency") or "ZAR").upper()
+        if t_currency == target_currency.upper():
+            continue
+        try:
+            last_rate = None
+            for field in ("transfers_adult", "transfers_child", "price", "price_per_transfer"):
+                val = t.get(field)
+                if val and float(val) > 0:
+                    conv = await currency_svc.convert(float(val), t_currency, target_currency, margin_pct)
+                    t[f"{field}_zar"] = conv["amount"]
+                    last_rate = conv.get("rate")
+            t["original_currency"] = t_currency
+            t["exchange_rate"] = last_rate
+        except Exception as exc:
+            logger.warning(f"Transfer currency conversion failed: {exc}")
+    return transfers
 
 
 # Static activities data - fallback when HotelBeds is unavailable
@@ -1086,6 +1139,7 @@ async def list_activities(
                     activities = [a for a in activities if (a.get("category") or "").lower() == category.lower()]
 
                 activities = activities[:limit]
+                await _apply_activity_currency_conversion(activities)
 
                 logger.info(f"Cloud Run activities: {len(activities)} results for {destination}")
                 return ActivitySearchResponse(
@@ -1108,6 +1162,7 @@ async def list_activities(
             activities = [a for a in activities if a.get("category", "").lower() == category.lower()]
 
         activities = activities[:limit]
+        await _apply_activity_currency_conversion(activities)
 
         return ActivitySearchResponse(
             success=True,
@@ -1163,6 +1218,7 @@ async def search_activities(
                     or query_lower in (a.get("description") or "").lower()
                 ]
 
+            await _apply_activity_currency_conversion(activities)
             logger.info(f"Cloud Run activity search: {len(activities)} results for {destination}")
             return ActivitySearchResponse(
                 success=True,
@@ -1187,6 +1243,7 @@ async def search_activities(
                 if query_lower in a["name"].lower() or query_lower in (a.get("description") or "").lower()
             ]
 
+        await _apply_activity_currency_conversion(activities)
         return ActivitySearchResponse(
             success=True,
             destination=destination,

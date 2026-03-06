@@ -15,6 +15,7 @@ import {
   SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { onboardingApi, setTenantId } from '../../services/api';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 // Password strength calculator
 const getPasswordStrength = (password) => {
@@ -190,6 +191,7 @@ export default function TenantOnboarding() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [provisioningStatus, setProvisioningStatus] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Load saved progress on mount
   useEffect(() => {
@@ -410,13 +412,16 @@ export default function TenantOnboarding() {
   };
 
   const resetOnboarding = () => {
-    if (window.confirm('Are you sure you want to start over? All progress will be lost.')) {
-      localStorage.removeItem(STORAGE_KEY);
-      setFormData(getDefaultData());
-      setCurrentStep(1);
-      setErrors({});
-      setProvisioningStatus(null);
-    }
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setFormData(getDefaultData());
+    setCurrentStep(1);
+    setErrors({});
+    setProvisioningStatus(null);
+    setShowResetConfirm(false);
   };
 
   return (
@@ -542,6 +547,16 @@ export default function TenantOnboarding() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        title="Start Over"
+        message="Are you sure you want to start over? All progress will be lost."
+        confirmLabel="Reset"
+        confirmVariant="danger"
+        onConfirm={confirmReset}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </div>
   );
 }

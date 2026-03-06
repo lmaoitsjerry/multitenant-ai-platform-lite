@@ -57,7 +57,7 @@ export default function FloatingQuoteCart() {
   const navigate = useNavigate();
   const location = useLocation();
   const [showQuoteModal, setShowQuoteModal] = useState(false);
-  const [includeFlights, setIncludeFlights] = useState(false);
+
   const {
     items,
     itemCount,
@@ -222,21 +222,6 @@ export default function FloatingQuoteCart() {
                 ))}
               </div>
 
-              {/* Include Flights Option */}
-              <div className="flex items-center gap-2 mb-3">
-                <input
-                  type="checkbox"
-                  id="cart_include_flights"
-                  checked={includeFlights}
-                  onChange={(e) => setIncludeFlights(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                />
-                <label htmlFor="cart_include_flights" className="text-sm text-gray-600 flex items-center gap-1.5">
-                  <PaperAirplaneIcon className="h-3.5 w-3.5 text-purple-500" />
-                  Include flights
-                </label>
-              </div>
-
               {/* Create Quote Button */}
               <button
                 onClick={handleCreateQuote}
@@ -271,7 +256,6 @@ export default function FloatingQuoteCart() {
         onRemoveItem={removeItem}
         onClearCart={clearCart}
         onAddMore={handleAddMore}
-        initialIncludeFlights={includeFlights}
       />
     </>
   );

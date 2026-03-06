@@ -518,17 +518,6 @@ async def receive_inbound_email(
                 "detail": str(e)
             }
 
-        # Trigger notification for new email
-        try:
-            from src.api.notifications_routes import NotificationService
-            notification_service = NotificationService(config)
-            notification_service.notify_email_received(
-                sender_email=from_email,
-                subject=subject
-            )
-        except Exception as e:
-            logger.warning(f"[{diagnostic_id}] Failed to send email notification: {e}")
-
         # Parse attachments
         attachments = []
         num_attachments = int(form.get('attachments', 0))

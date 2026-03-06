@@ -259,6 +259,9 @@ def search_dual_knowledge_base(
     global_citations = []
     global_answer = ""
 
+    # Content that shouldn't appear in helpdesk answers (managed externally)
+    _IRRELEVANT_CONTENT = ["cancellation policy", "cancellation fee", "booking cancellation"]
+
     if global_result.get("success"):
         global_answer = global_result.get("answer", "")
         global_citations = [
@@ -270,6 +273,7 @@ def search_dual_knowledge_base(
                 "visibility": "public"
             }
             for c in global_result.get("citations", [])
+            if not any(phrase in (c.get("content", "") or "").lower() for phrase in _IRRELEVANT_CONTENT)
         ]
 
     # 2. Search Private KB
@@ -565,6 +569,20 @@ _WEB_SEARCH_KEYWORDS = {
     "tipping", "customs", "dress code", "what to pack", "cost of living",
 }
 
+_LOW_QUALITY_PHRASES = [
+    "couldn't find", "could not find", "don't have",
+    "no specific information", "not available in my knowledge",
+    "i don't have information", "no information available",
+]
+
+
+def _is_low_quality_answer(answer: str, confidence: float) -> bool:
+    """Detect fallback/low-quality RAG answers that should yield to private KB."""
+    if confidence < 0.5:
+        return True
+    lower = answer.lower()
+    return any(phrase in lower for phrase in _LOW_QUALITY_PHRASES)
+
 
 # ============================================================
 # ENDPOINTS
@@ -624,52 +642,59 @@ def ask_helpdesk(
         needs_web_search = any(kw in q_lower for kw in _WEB_SEARCH_KEYWORDS)
 
         if dual_result.get("success") and global_answer and not needs_web_search:
-            # Got a synthesized answer from global KB (Travel Platform RAG)
-            # AND the question is about something the KB can actually answer (hotels, destinations)
-            total_time = time.time() - start_time
-            logger.info(
-                f"Helpdesk dual-KB: search={search_time:.2f}s, total={total_time:.2f}s, "
-                f"global={sources_breakdown.get('global', 0)}, private={sources_breakdown.get('private', 0)}"
+            # Check if private KB has better results before returning global answer
+            has_private_kb = any(
+                c.get("source_type") == "private_kb" and c.get("score", 0) >= 0.2
+                for c in citations
             )
+            if has_private_kb and _is_low_quality_answer(global_answer, dual_result.get("confidence", 0)):
+                logger.info("Global answer low-quality, private KB has results — using LLM synthesis")
+            else:
+                # Got a synthesized answer from global KB (Travel Platform RAG)
+                total_time = time.time() - start_time
+                logger.info(
+                    f"Helpdesk dual-KB: search={search_time:.2f}s, total={total_time:.2f}s, "
+                    f"global={sources_breakdown.get('global', 0)}, private={sources_breakdown.get('private', 0)}"
+                )
 
-            if total_time > 3.0:
-                logger.warning(f"Helpdesk response exceeded 3s target: {total_time:.2f}s")
+                if total_time > 3.0:
+                    logger.warning(f"Helpdesk response exceeded 3s target: {total_time:.2f}s")
 
-            # Format citations as sources, marking their origin
-            sources = []
-            for cite in citations[:5]:
-                source_type = cite.get("source_type", "global_kb")
-                sources.append({
-                    "filename": cite.get("source", "Knowledge Base"),
-                    "score": cite.get("score", 0),
-                    "type": source_type,
-                    "is_private": source_type == "private_kb"
-                })
+                # Format citations as sources, marking their origin
+                sources = []
+                for cite in citations[:5]:
+                    source_type = cite.get("source_type", "global_kb")
+                    sources.append({
+                        "filename": cite.get("source", "Knowledge Base"),
+                        "score": cite.get("score", 0),
+                        "type": source_type,
+                        "is_private": source_type == "private_kb"
+                    })
 
-            return {
-                "success": True,
-                "answer": global_answer,
-                "sources": sources,
-                "method": "dual_kb",
-                "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
-                "confidence": dual_result.get("confidence", 0),
-                "sources_breakdown": sources_breakdown,
-                "timing": {
-                    "search_ms": int(search_time * 1000),
-                    "synthesis_ms": 0,  # Synthesis done by Travel Platform
-                    "total_ms": int(total_time * 1000),
-                    "rag_latency_ms": dual_result.get("latency_ms", 0)
+                return {
+                    "success": True,
+                    "answer": global_answer,
+                    "sources": sources,
+                    "method": "dual_kb",
+                    "query_type": query_type.value if hasattr(query_type, 'value') else str(query_type),
+                    "confidence": dual_result.get("confidence", 0),
+                    "sources_breakdown": sources_breakdown,
+                    "timing": {
+                        "search_ms": int(search_time * 1000),
+                        "synthesis_ms": 0,  # Synthesis done by Travel Platform
+                        "total_ms": int(total_time * 1000),
+                        "rag_latency_ms": dual_result.get("latency_ms", 0)
+                    }
                 }
-            }
 
         if needs_web_search:
             logger.info(f"Question matches web search keywords, will supplement KB with web search")
 
         # Step 3: Check if we have private KB results that need LLM synthesis
-        # Filter out low-relevance results (score < 0.4) to avoid citing irrelevant documents
+        # Filter out low-relevance results (score < 0.2) to avoid citing irrelevant documents
         private_results = [
             c for c in citations
-            if c.get("source_type") == "private_kb" and c.get("score", 0) >= 0.4
+            if c.get("source_type") == "private_kb" and c.get("score", 0) >= 0.2
         ]
 
         if private_results:

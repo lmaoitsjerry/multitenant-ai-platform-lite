@@ -37,7 +37,7 @@ export default function HolidayPackages() {
   const [selectedDestination, setSelectedDestination] = useState('');
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
-  const [directFlightsOnly, setDirectFlightsOnly] = useState(false);
+
 
   // Room/Pax state
   const [rooms, setRooms] = useState([{ adults: 2, children: 0 }]);
@@ -230,10 +230,7 @@ export default function HolidayPackages() {
       if (flightResponse.data?.success && rawFlights.length > 0) {
         let flightResults = rawFlights;
 
-        // Apply direct flights filter (client-side) if enabled
-        if (directFlightsOnly) {
-          flightResults = flightResults.filter(f => !f.stops || f.stops === 0);
-        }
+
 
         setFlights(flightResults);
         setFlightsAvailable(true);
@@ -658,20 +655,9 @@ export default function HolidayPackages() {
             </div>
           </div>
 
-          {/* Direct Flights Checkbox & Search Button */}
+          {/* Search Button */}
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={directFlightsOnly}
-                  onChange={(e) => setDirectFlightsOnly(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-theme-primary focus:ring-theme-primary"
-                />
-                <span className="text-sm font-medium text-gray-700 uppercase tracking-wide">
-                  Only direct flights
-                </span>
-              </label>
               {checkIn && checkOut && (
                 <span className="text-sm text-gray-500">
                   {calculateNights()} nights
@@ -706,22 +692,6 @@ export default function HolidayPackages() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           {error}
-        </div>
-      )}
-
-      {/* Direct Flights Notice */}
-      {hasSearched && directFlightsOnly && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <InformationCircleIcon className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-medium text-blue-800">Direct flights filter</h4>
-              <p className="text-sm text-blue-700 mt-1">
-                The "direct flights only" filter will be applied to search results when flight data becomes available.
-                Currently showing all hotel options.
-              </p>
-            </div>
-          </div>
         </div>
       )}
 
@@ -959,8 +929,8 @@ export default function HolidayPackages() {
                               id: hotel.hotel_id,
                               type: 'hotel',
                               name: hotel.hotel_name,
-                              price: getHotelPrice(hotel),
-                              currency: hotel.best_rate?.currency || hotel.options?.[0]?.currency || 'ZAR',
+                              price: (hotel.display_price_zar || getHotelPrice(hotel)) * (calculateNights() || 1),
+                              currency: hotel.display_price_zar ? 'ZAR' : (hotel.best_rate?.currency || hotel.options?.[0]?.currency || 'ZAR'),
                               details: {
                                 stars: hotel.star_rating || hotel.stars,
                                 zone: hotel.zone,
@@ -970,6 +940,7 @@ export default function HolidayPackages() {
                                 check_out: checkOut,
                                 nights: calculateNights(),
                                 destination: selectedDestination,
+                                price_per_night: hotel.display_price_zar || getHotelPrice(hotel),
                                 sources: hotel.sources,
                                 rooms: rooms,
                                 adults: rooms.reduce((sum, r) => sum + r.adults, 0),
@@ -1064,8 +1035,8 @@ export default function HolidayPackages() {
                                 id: `${hotel.hotel_id}-${idx}`,
                                 type: 'hotel',
                                 name: hotel.hotel_name,
-                                price: option.rate_per_night || option.price_total || option.price_per_night || 0,
-                                currency: option.currency || 'ZAR',
+                                price: (option.rate_per_night_zar || option.price_total_zar || option.rate_per_night || option.price_total || option.price_per_night || 0) * (calculateNights() || 1),
+                                currency: (option.rate_per_night_zar || option.price_total_zar) ? 'ZAR' : (option.currency || 'ZAR'),
                                 details: {
                                   stars: hotel.star_rating || hotel.stars,
                                   zone: hotel.zone,
@@ -1075,7 +1046,7 @@ export default function HolidayPackages() {
                                   check_out: checkOut,
                                   nights: calculateNights(),
                                   destination: selectedDestination,
-                                  price_per_night: option.rate_per_night || option.price_per_night,
+                                  price_per_night: option.rate_per_night_zar || option.price_per_night_zar || option.rate_per_night || option.price_per_night,
                                   provider: option.source || option.provider || hotel.source || hotel.provider,
                                   rooms: rooms,
                                   adults: rooms.reduce((sum, r) => sum + r.adults, 0),
@@ -1196,7 +1167,7 @@ export default function HolidayPackages() {
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           <div className="font-bold text-blue-600">
-                            {price > 0 ? formatCurrency(price, flight.currency) : 'Price on request'}
+                            {price > 0 ? formatCurrency(price, flight.currency || 'ZAR') : 'Price on request'}
                           </div>
                           {price > 0 && <div className="text-xs text-gray-500">per adult</div>}
                         </div>
@@ -1282,9 +1253,9 @@ export default function HolidayPackages() {
                               <span className="font-medium">Location:</span> {activity.destination}
                             </div>
                           )}
-                          {activity.price_child > 0 && (
+                          {(activity.price_child_zar || activity.price_child) > 0 && (
                             <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <span className="font-medium">Child price:</span> {formatCurrency(activity.price_child, activity.currency)}
+                              <span className="font-medium">Child price:</span> {formatCurrency(activity.price_child_zar || activity.price_child, activity.price_child_zar ? 'ZAR' : (activity.currency || 'ZAR'))}
                             </div>
                           )}
                         </div>
@@ -1292,11 +1263,11 @@ export default function HolidayPackages() {
 
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                         <span className="font-semibold text-theme-primary">
-                          {(activity.price_per_person || activity.price_adult) > 0 ? formatCurrency(activity.price_per_person || activity.price_adult, activity.currency) : 'Price on request'}
+                          {(activity.price_per_person_zar || activity.price_adult_zar || activity.price_per_person || activity.price_adult) > 0 ? formatCurrency(activity.price_per_person_zar || activity.price_adult_zar || activity.price_per_person || activity.price_adult, (activity.price_per_person_zar || activity.price_adult_zar) ? 'ZAR' : (activity.currency || 'ZAR')) : 'Price on request'}
                         </span>
                         {(activity.price_per_person || activity.price_adult) > 0 && (
                           <span onClick={(e) => e.stopPropagation()}>
-                            <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: normalizeActivityPrice(activity).pricePerPerson * rooms.reduce((sum, r) => sum + r.adults, 0), currency: activity.currency || 'EUR', details: { category: activity.category, destination: selectedDestination, participants: rooms.reduce((sum, r) => sum + r.adults, 0), price_per_person: normalizeActivityPrice(activity).pricePerPerson } }} size="sm" />
+                            <AddToQuoteButton item={{ id: activity.activity_id, type: 'activity', name: activity.name, price: (activity.price_per_person_zar || activity.price_adult_zar || normalizeActivityPrice(activity).pricePerPerson) * rooms.reduce((sum, r) => sum + r.adults, 0), currency: (activity.price_per_person_zar || activity.price_adult_zar) ? 'ZAR' : (activity.currency || 'ZAR'), details: { category: activity.category, destination: selectedDestination, participants: rooms.reduce((sum, r) => sum + r.adults, 0), price_per_person: activity.price_per_person_zar || activity.price_adult_zar || normalizeActivityPrice(activity).pricePerPerson } }} size="sm" />
                           </span>
                         )}
                       </div>
@@ -1328,10 +1299,10 @@ export default function HolidayPackages() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-semibold text-theme-primary">
-                      {transfer.price > 0 ? formatCurrency(transfer.price, transfer.currency) : 'Price on request'}
+                      {(transfer.price_zar || transfer.price) > 0 ? formatCurrency(transfer.price_zar || transfer.price, transfer.price_zar ? 'ZAR' : (transfer.currency || 'ZAR')) : 'Price on request'}
                     </span>
-                    {transfer.price > 0 && (
-                      <AddToQuoteButton item={(() => { const norm = normalizeTransferPrice(transfer); const pax = rooms.reduce((sum, r) => sum + r.adults + r.children, 0); const totalPrice = norm.pricingModel === 'per_person' ? norm.price * pax : norm.price; return { id: `transfer-${idx}`, type: 'transfer', name: transfer.name || 'Airport Transfer', price: totalPrice, currency: transfer.currency || 'ZAR', details: { type: transfer.type, destination: selectedDestination, passengers: pax, pricing_model: norm.pricingModel, unit_price: norm.price } }; })()} size="sm" />
+                    {(transfer.price_zar || transfer.price) > 0 && (
+                      <AddToQuoteButton item={(() => { const norm = normalizeTransferPrice(transfer); const pax = rooms.reduce((sum, r) => sum + r.adults + r.children, 0); const zarPrice = transfer.price_zar || (norm.pricingModel === 'per_person' ? (transfer.transfers_adult_zar || norm.price) : (transfer.price_zar || norm.price)); const totalPrice = norm.pricingModel === 'per_person' ? zarPrice * pax : zarPrice; return { id: `transfer-${idx}`, type: 'transfer', name: transfer.name || 'Airport Transfer', price: totalPrice, currency: (transfer.price_zar || transfer.transfers_adult_zar) ? 'ZAR' : (transfer.currency || 'ZAR'), details: { type: transfer.type, destination: selectedDestination, passengers: pax, pricing_model: norm.pricingModel, unit_price: zarPrice } }; })()} size="sm" />
                     )}
                   </div>
                 </div>

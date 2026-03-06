@@ -109,7 +109,7 @@ export default function EnquiryTriage() {
   const [error, setError] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [stats, setStats] = useState({ total: 0, open: 0, processed: 0 });
-  const [seeding, setSeeding] = useState(false);
+
   const [warning, setWarning] = useState(null);
   const [notification, setNotification] = useState(null);
   const [editableDetails, setEditableDetails] = useState({
@@ -171,12 +171,24 @@ export default function EnquiryTriage() {
         ? metaRooms
         : [{ adults: metadataDetails.adults ?? 2, children: metadataDetails.children ?? 0 }];
 
+      // Compute children_ages: use metadata if available, otherwise default age 8 per child
+      const totalChildrenFromRooms = rooms.reduce((s, r) => s + (r.children || 0), 0);
+      const metaAges = Array.isArray(metadataDetails.children_ages) ? metadataDetails.children_ages : [];
+      let childrenAges;
+      if (metaAges.length >= totalChildrenFromRooms) {
+        // Metadata has enough ages — use them (trim to match count)
+        childrenAges = metaAges.slice(0, totalChildrenFromRooms);
+      } else {
+        // Metadata has fewer ages than children — pad with default age 8
+        childrenAges = [...metaAges, ...Array(totalChildrenFromRooms - metaAges.length).fill(8)];
+      }
+
       setEditableDetails({
         destination: metadataDetails.destination || parsedDetails.destination || '',
         check_in: metadataDetails.check_in || '',
         check_out: metadataDetails.check_out || '',
         rooms,
-        children_ages: Array.isArray(metadataDetails.children_ages) ? metadataDetails.children_ages : [],
+        children_ages: childrenAges,
         budget: metadataDetails.budget ?? '',
         requested_hotel: metadataDetails.requested_hotel || '',
       });
@@ -254,15 +266,15 @@ export default function EnquiryTriage() {
             budget: budgetNum,
             message: `From enquiry: ${currentTicket.subject}\n\n${currentTicket.message}`,
           },
-          send_email: false,
-          save_as_draft: true,
+          send_email: true,
+          save_as_draft: false,
           ticket_id: currentTicket.ticket_id,
           selected_hotels: editableDetails.requested_hotel ? [editableDetails.requested_hotel] : undefined,
         };
         const response = await quotesApi.generate(payload);
         const data = response.data || {};
         if (data.success && data.quote_id) {
-          showNotification('success', 'Draft quote created — review and send when ready');
+          showNotification('success', 'Quote created and sent to client');
           navigate(`/quotes/${data.quote_id}`);
           return;
         }
@@ -371,20 +383,6 @@ export default function EnquiryTriage() {
     </div>
   );
 
-  // Seed handler
-  const handleSeedData = async () => {
-    setSeeding(true);
-    try {
-      const response = await inboundApi.seedSampleTickets();
-      if (response.data?.success) await loadTickets();
-    } catch (err) {
-      console.error('Failed to seed tickets:', err);
-      setError('Failed to create sample data. The database table may need to be created first.');
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   // Loading state
   if (loading) {
     return (
@@ -428,15 +426,9 @@ export default function EnquiryTriage() {
           <p className="mt-2 text-gray-500 text-sm">
             {warning
               ? 'The enquiries table needs to be set up. Run migration 016_inbound_tickets.sql then seed sample data.'
-              : 'No pending enquiries to triage. Seed sample data for testing or wait for new ones.'}
+              : 'No pending enquiries to triage. New enquiries will appear here automatically.'}
           </p>
-          <div className="mt-4 flex flex-col sm:flex-row justify-center gap-2">
-            <button onClick={handleSeedData} disabled={seeding} className="btn-primary inline-flex items-center justify-center text-sm">
-              {seeding
-                ? <><ArrowPathIcon className="h-4 w-4 mr-1.5 animate-spin" /> Creating...</>
-                : <><SparklesIcon className="h-4 w-4 mr-1.5" /> Seed Sample Enquiries</>
-              }
-            </button>
+          <div className="mt-4 flex justify-center">
             <button onClick={loadTickets} className="btn-secondary inline-flex items-center justify-center text-sm">
               <ArrowPathIcon className="h-4 w-4 mr-1.5" /> Refresh
             </button>

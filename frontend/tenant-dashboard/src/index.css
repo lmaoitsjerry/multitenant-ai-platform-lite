@@ -288,6 +288,7 @@ select.input option {
 .bg-theme-background { background-color: var(--color-background); }
 .bg-theme-border { background-color: var(--color-border); }
 .bg-theme-border-light { background-color: var(--color-border-light); }
+.bg-theme-muted { background-color: var(--color-text-muted); }
 
 /* Text utilities - auto dark mode via CSS variables */
 .text-theme { color: var(--color-text-primary); }

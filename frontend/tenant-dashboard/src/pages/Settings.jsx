@@ -8,6 +8,7 @@ import TemplateBuilder from './settings/TemplateBuilder';
 import PrivacySettings from './settings/PrivacySettings';
 import LogoCropModal from '../components/ui/LogoCropModal';
 import Toggle from '../components/ui/Toggle';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import {
   UserIcon,
   BuildingOfficeIcon,
@@ -559,6 +560,8 @@ export default function Settings() {
   const [pendingFonts, setPendingFonts] = useState({});
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  const [pendingTab, setPendingTab] = useState(null);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
   // Track dirty state for unified save button
   const [dirtyFields, setDirtyFields] = useState({
@@ -962,12 +965,18 @@ export default function Settings() {
   // Warn before switching tabs with unsaved changes
   const handleTabSwitch = (tabId) => {
     if (hasUnsavedChanges && tabId !== activeTab) {
-      if (!window.confirm('You have unsaved changes. Discard and switch tabs?')) {
-        return;
-      }
-      setDirtyFields({ company: false, email: false, banking: false });
+      setPendingTab(tabId);
+      setShowDiscardConfirm(true);
+      return;
     }
     setActiveTab(tabId);
+  };
+
+  const confirmDiscard = () => {
+    setDirtyFields({ company: false, email: false, banking: false });
+    setActiveTab(pendingTab);
+    setPendingTab(null);
+    setShowDiscardConfirm(false);
   };
 
   // Branding handlers
@@ -2080,6 +2089,16 @@ export default function Settings() {
         message={confirmModal.message}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+      />
+
+      <ConfirmDialog
+        open={showDiscardConfirm}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Discard and switch tabs?"
+        confirmLabel="Discard"
+        confirmVariant="warning"
+        onConfirm={confirmDiscard}
+        onCancel={() => { setPendingTab(null); setShowDiscardConfirm(false); }}
       />
 
       {/* Toast */}

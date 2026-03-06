@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { websiteBuilderApi } from '../../services/api';
+import { useTheme } from '../../context/ThemeContext';
 import {
   ChartBarIcon,
   EyeIcon,
@@ -50,6 +51,7 @@ function formatDuration(seconds) {
 }
 
 export default function WebsiteOverview() {
+  const { branding } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -125,7 +127,7 @@ export default function WebsiteOverview() {
           <p className="text-gray-500">Manage your travel website and track performance</p>
         </div>
         <a
-          href={websiteBuilderApi.getEditorUrl()}
+          href={websiteBuilderApi.getEditorUrl('home', { theme: branding?.preset_theme })}
           target="_blank"
           rel="noopener noreferrer"
           className="btn-primary flex items-center gap-2"

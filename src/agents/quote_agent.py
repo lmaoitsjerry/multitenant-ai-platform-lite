@@ -239,7 +239,7 @@ class QuoteAgent:
                 'children': normalized.get('children', 0),
                 'children_ages': normalized.get('children_ages') or [],
                 'hotels': final_hotels,
-                'total_price': final_hotels[0]['total_price'] if final_hotels else 0,
+                'total_price': sum(h.get('total_price', 0) for h in final_hotels) if final_hotels else 0,
                 'consultant': consultant,
                 'status': normalize_quote_status(initial_status),
                 'created_at': datetime.utcnow().isoformat()
@@ -270,6 +270,7 @@ class QuoteAgent:
                             'adults': normalized.get('adults', 0),
                             'children': normalized.get('children', 0),
                             'nights': normalized.get('nights', 0),
+                            'room_count': len(normalized.get('rooms', [{}])),
                         },
                     )
                     if email_sent:

@@ -75,10 +75,12 @@ async def proxy_to_website_builder(path: str, request: Request):
             content=body if body else None,
         )
 
-        # Build response headers (strip hop-by-hop)
+        # Build response headers (strip hop-by-hop and upstream CORS headers
+        # to avoid duplicates — CORSMiddleware handles CORS for all responses)
         response_headers = {
             k: v for k, v in resp.headers.items()
             if k.lower() not in _STRIP_RESPONSE_HEADERS
+            and not k.lower().startswith("access-control-")
         }
 
         return Response(

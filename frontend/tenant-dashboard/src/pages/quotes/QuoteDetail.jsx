@@ -39,41 +39,68 @@ const statusConfig = {
   converted: { label: 'Converted', color: 'bg-green-100 text-green-700', icon: CheckCircleIcon },
 };
 
+// Service type config for invoice modal
+const serviceTypeConfig = {
+  hotel: { title: 'Hotel Options', icon: BuildingOfficeIcon },
+  activity: { title: 'Activities', icon: TicketIcon },
+  transfer: { title: 'Transfers', icon: TruckIcon },
+  flight: { title: 'Flights', icon: PaperAirplaneIcon },
+};
+
 // Convert to Invoice Modal
 function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
-  const [selectedHotels, setSelectedHotels] = useState([]);
+  const [selectedItems, setSelectedItems] = useState(new Set());
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const hotels = quote?.hotels || [];
+  const allItems = quote?.hotels || [];
+
+  // Group items by type, matching the detail view pattern
+  const serviceGroups = [
+    { type: 'hotel', ...serviceTypeConfig.hotel, items: allItems.filter(h => !h.type || h.type === 'hotel') },
+    { type: 'activity', ...serviceTypeConfig.activity, items: allItems.filter(h => h.type === 'activity') },
+    { type: 'transfer', ...serviceTypeConfig.transfer, items: allItems.filter(h => h.type === 'transfer') },
+    { type: 'flight', ...serviceTypeConfig.flight, items: allItems.filter(h => h.type === 'flight') },
+  ].filter(g => g.items.length > 0);
 
   useEffect(() => {
-    if (hotels.length > 0 && selectedHotels.length === 0) {
-      setSelectedHotels([0]);
+    if (allItems.length > 0 && selectedItems.size === 0) {
+      setSelectedItems(new Set([0]));
     }
-    // Set default due date to 14 days from now
     const due = new Date();
     due.setDate(due.getDate() + 14);
     setDueDate(due.toISOString().split('T')[0]);
-  }, [hotels]);
+  }, [allItems.length]);
+
+  const toggleItem = (globalIdx) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(globalIdx)) next.delete(globalIdx);
+      else next.add(globalIdx);
+      return next;
+    });
+  };
 
   const handleConvert = async () => {
-    if (selectedHotels.length === 0) return;
+    if (selectedItems.size === 0) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const items = selectedHotels.map(idx => {
-        const hotel = hotels[idx];
+      const items = [...selectedItems].map(idx => {
+        const item = allItems[idx];
+        const type = item.type || 'hotel';
+        const typeLabel = serviceTypeConfig[type]?.title?.replace(/s$/, '') || 'Service';
+        const name = item.name || item.hotel_name;
         return {
-          description: `${hotel.name || hotel.hotel_name} - ${quote.nights} nights (${quote.destination})`,
-          hotel_name: hotel.name || hotel.hotel_name,
-          room_type: hotel.room_type,
-          meal_plan: hotel.meal_plan,
-          amount: hotel.total_price,
+          description: `[${typeLabel}] ${name}${quote.nights ? ` - ${quote.nights} nights` : ''} (${quote.destination})`,
+          hotel_name: name,
+          room_type: item.room_type,
+          meal_plan: item.meal_plan,
+          amount: item.total_price,
         };
       });
 
@@ -122,35 +149,51 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
             <label className="block text-sm font-medium text-theme-secondary mb-2">
               Select Services <span className="text-red-500">*</span>
             </label>
-            <div className="space-y-2">
-              {hotels.map((hotel, idx) => (
-                <label
-                  key={idx}
-                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
-                    selectedHotels.includes(idx)
-                      ? 'border-theme-primary bg-theme-primary/10 ring-1 ring-theme-primary'
-                      : 'border-theme hover:border-theme-primary/50 bg-theme-surface'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedHotels.includes(idx)}
-                      onChange={() => setSelectedHotels(prev =>
-                        prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
-                      )}
-                      className="w-4 h-4 accent-[var(--color-primary)]"
-                    />
-                    <div>
-                      <p className="font-medium text-theme">{hotel.name || hotel.hotel_name}</p>
-                      <p className="text-sm text-theme-muted">{hotel.room_type} • {hotel.meal_plan}</p>
+            <div className="space-y-3">
+              {serviceGroups.map(group => {
+                const GroupIcon = group.icon;
+                return (
+                  <div key={group.type}>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <GroupIcon className="w-4 h-4 text-theme-primary" />
+                      <span className="text-xs font-semibold text-theme-secondary uppercase tracking-wide">{group.title}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {group.items.map(item => {
+                        const globalIdx = allItems.indexOf(item);
+                        return (
+                          <label
+                            key={globalIdx}
+                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
+                              selectedItems.has(globalIdx)
+                                ? 'border-theme-primary bg-theme-primary/10 ring-1 ring-theme-primary'
+                                : 'border-theme hover:border-theme-primary/50 bg-theme-surface'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedItems.has(globalIdx)}
+                                onChange={() => toggleItem(globalIdx)}
+                                className="w-4 h-4 accent-[var(--color-primary)]"
+                              />
+                              <div>
+                                <p className="font-medium text-theme">{item.name || item.hotel_name}</p>
+                                <p className="text-sm text-theme-muted">
+                                  {[item.room_type, item.meal_plan].filter(Boolean).join(' • ') || group.type}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="font-semibold text-theme-primary">
+                              R {(item.total_price || 0).toLocaleString()}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
-                  <span className="font-semibold text-theme-primary">
-                    R {(hotel.total_price || 0).toLocaleString()}
-                  </span>
-                </label>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -186,7 +229,7 @@ function ConvertToInvoiceModal({ isOpen, onClose, quote, onSuccess }) {
           </button>
           <button
             onClick={handleConvert}
-            disabled={selectedHotels.length === 0 || loading}
+            disabled={selectedItems.size === 0 || loading}
             className="btn-primary flex items-center gap-2"
           >
             {loading ? (

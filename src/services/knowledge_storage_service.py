@@ -348,7 +348,23 @@ class SupabaseKnowledgeManager:
 
             # Score and rank results using text matching
             query_lower = query.lower()
-            query_words = set(query_lower.split())
+            all_query_words = set(query_lower.split())
+            # Filter stopwords so they don't inflate the denominator
+            _stopwords = {
+                "a", "an", "the", "is", "are", "was", "were", "be", "been",
+                "being", "have", "has", "had", "do", "does", "did", "will",
+                "would", "could", "should", "may", "might", "shall", "can",
+                "in", "on", "at", "to", "for", "of", "with", "by", "from",
+                "about", "into", "through", "during", "before", "after",
+                "and", "but", "or", "nor", "not", "so", "yet", "both",
+                "what", "which", "who", "whom", "this", "that", "these",
+                "those", "how", "when", "where", "why",
+                "i", "me", "my", "we", "our", "you", "your", "he", "she",
+                "it", "its", "they", "them", "their",
+            }
+            query_words = all_query_words - _stopwords
+            if not query_words:
+                query_words = all_query_words  # fallback if query is all stopwords
 
             results = []
             for doc in result.data:
@@ -364,7 +380,7 @@ class SupabaseKnowledgeManager:
                 if not intersection:
                     continue
 
-                # Keyword overlap score
+                # Keyword overlap score (stopwords excluded from denominator)
                 keyword_score = len(intersection) / len(query_words)
 
                 # Exact phrase bonus

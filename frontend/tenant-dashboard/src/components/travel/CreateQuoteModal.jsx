@@ -56,7 +56,6 @@ export default function CreateQuoteModal({
   onRemoveItem,
   onClearCart,
   onAddMore,
-  initialIncludeFlights = false,
 }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -68,7 +67,6 @@ export default function CreateQuoteModal({
     email: '',
     phone: '',
     send_email: true,
-    include_flights: false,
   });
 
   // Reset form state when modal opens
@@ -77,10 +75,8 @@ export default function CreateQuoteModal({
       setError(null);
       setSuccess(null);
       setLoading(false);
-      // Sync include_flights from cart checkbox
-      setFormData(prev => ({ ...prev, include_flights: initialIncludeFlights }));
     }
-  }, [isOpen, initialIncludeFlights]);
+  }, [isOpen]);
 
   // Extract dates, destination, and occupancy from cart items
   const extractedDetails = (() => {
@@ -180,7 +176,6 @@ export default function CreateQuoteModal({
           message: `Quote built from shopping cart with ${items.length} items`,
         },
         send_email: !asDraft && formData.send_email,
-        include_flights: formData.include_flights,
         assign_consultant: true,
         line_items: lineItems,
         save_as_draft: asDraft,
@@ -457,23 +452,6 @@ export default function CreateQuoteModal({
 
                 {/* Options */}
                 <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="include_flights"
-                      name="include_flights"
-                      checked={formData.include_flights}
-                      onChange={handleChange}
-                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <label htmlFor="include_flights" className="text-sm text-gray-600">
-                      <span className="flex items-center gap-1.5">
-                        <PaperAirplaneIcon className="h-4 w-4 text-purple-500" />
-                        Include flights in quote
-                      </span>
-                      <span className="text-xs text-gray-400 block ml-5.5">Best available flights will be sourced for this route</span>
-                    </label>
-                  </div>
                   <div className="flex items-center gap-3">
                     <input
                       type="checkbox"

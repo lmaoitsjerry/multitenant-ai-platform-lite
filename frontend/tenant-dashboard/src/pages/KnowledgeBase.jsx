@@ -19,6 +19,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { knowledgeApi, globalKnowledgeApi } from '../services/api';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 // Tab configuration
 const TABS = [
@@ -47,15 +48,19 @@ function StatusBadge({ status }) {
 // Document row component
 function DocumentRow({ doc, onDelete, onDownload, onView, canDelete = true, canView = false }) {
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete "${doc.filename}"? This cannot be undone.`)) return;
+  const handleDelete = () => {
+    setShowDeleteConfirm(true);
+  };
 
+  const confirmDelete = async () => {
     setDeleting(true);
     try {
       await onDelete(doc.document_id);
     } finally {
       setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -133,6 +138,17 @@ function DocumentRow({ doc, onDelete, onDownload, onView, canDelete = true, canV
           </button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Document"
+        message={`Delete "${doc.filename}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+        loading={deleting}
+      />
     </div>
   );
 }
@@ -305,7 +321,7 @@ function DocumentPreviewModal({ doc, onClose }) {
                   The document preview is not available. You can download it instead.
                 </p>
                 <button
-                  onClick={() => globalKnowledgeApi.downloadDocument(doc.document_id, doc.filename, true)}
+                  onClick={() => globalKnowledgeApi.downloadDocument(doc.document_id, doc.filename, true).catch(() => alert('Download failed. Please try again.'))}
                   className="flex items-center gap-2 px-4 py-2 bg-theme-primary text-white rounded-lg hover:bg-theme-primary-hover transition-colors"
                 >
                   <ArrowDownTrayIcon className="w-5 h-5" />
@@ -355,7 +371,7 @@ function DocumentPreviewModal({ doc, onClose }) {
               Close
             </button>
             <button
-              onClick={() => globalKnowledgeApi.downloadDocument(doc.document_id, doc.original_filename || doc.filename, doc.has_original_file)}
+              onClick={() => globalKnowledgeApi.downloadDocument(doc.document_id, doc.original_filename || doc.filename, doc.has_original_file).catch(() => alert('Download failed. Please try again.'))}
               className="px-4 py-2 text-sm bg-theme-primary text-white rounded-lg hover:bg-theme-primary-dark flex items-center gap-1"
             >
               <ArrowDownTrayIcon className="w-4 h-4" />
@@ -485,14 +501,19 @@ export default function KnowledgeBase() {
   };
 
   // Handle download
-  const handleDownload = (doc) => {
+  const handleDownload = async (doc) => {
     if (activeTab === 'global') {
       // Use proxy URLs to avoid CORS - pass has_original_file flag
-      globalKnowledgeApi.downloadDocument(
-        doc.document_id,
-        doc.original_filename || doc.filename,
-        doc.has_original_file
-      );
+      try {
+        await globalKnowledgeApi.downloadDocument(
+          doc.document_id,
+          doc.original_filename || doc.filename,
+          doc.has_original_file
+        );
+      } catch (err) {
+        console.error('Download failed:', err);
+        showToast('Download failed. Please try again.');
+      }
       return;
     }
 
