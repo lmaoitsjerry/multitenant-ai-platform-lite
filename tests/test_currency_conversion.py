@@ -104,7 +104,7 @@ async def test_cache_expires(svc, mock_frankfurter_eur_zar):
     with patch("src.services.currency_service.httpx.AsyncClient", return_value=mock_client):
         await svc.get_rate("EUR", "ZAR")
         # Simulate cache expiry
-        svc._last_fetch = time.time() - (svc.CACHE_TTL + 1)
+        svc._rate_timestamps["EUR_ZAR"] = time.time() - (svc.CACHE_TTL + 1)
         await svc.get_rate("EUR", "ZAR")
 
     assert mock_client.get.call_count == 2
