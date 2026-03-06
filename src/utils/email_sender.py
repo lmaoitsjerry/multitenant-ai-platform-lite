@@ -280,6 +280,56 @@ class EmailSender:
             logger.error(f"❌ SMTP send failed to {to}: {e}")
             return False
 
+    def _build_hotel_cards_html(self, hotels: list, primary_color: str) -> str:
+        """Build HTML cards for hotel options in quote email"""
+        if not hotels:
+            return ""
+
+        cards = []
+        for hotel in hotels[:4]:  # Max 4 hotel cards
+            name = hotel.get('name') or hotel.get('hotel_name', 'Hotel')
+            image_url = hotel.get('image_url') or (hotel.get('images', [None]) or [None])[0]
+            star_rating = hotel.get('star_rating') or hotel.get('stars')
+            room_type = hotel.get('room_type', '')
+            meal_plan = hotel.get('meal_plan', '')
+            total_price = hotel.get('total_price', 0)
+            description = hotel.get('description', '')
+
+            stars_html = f"<span style='color: #f59e0b;'>{'★' * int(star_rating)}</span>" if star_rating else ""
+
+            image_html = ""
+            if image_url:
+                image_html = f'<img src="{image_url}" alt="{name}" style="width:100%;height:160px;object-fit:cover;border-radius:8px 8px 0 0;" />'
+
+            details_parts = [p for p in [room_type, meal_plan] if p]
+            details_line = " &bull; ".join(details_parts)
+
+            desc_html = ""
+            if description:
+                desc_html = f'<p style="margin:4px 0 0;color:#888;font-size:12px;">{description[:150]}</p>'
+
+            card = f"""
+            <div style="border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px;overflow:hidden;">
+                {image_html}
+                <div style="padding:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <div>
+                            <p style="margin:0;font-weight:600;font-size:15px;">{name} {stars_html}</p>
+                            <p style="margin:2px 0 0;color:#666;font-size:13px;">{details_line}</p>
+                            {desc_html}
+                        </div>
+                        <p style="margin:0;font-weight:700;font-size:17px;color:{primary_color};white-space:nowrap;margin-left:12px;">R {total_price:,.0f}</p>
+                    </div>
+                </div>
+            </div>"""
+            cards.append(card)
+
+        return f"""
+        <div style="margin:20px 0;">
+            <p style="font-weight:600;color:{primary_color};margin-bottom:10px;">Your Accommodation Options</p>
+            {''.join(cards)}
+        </div>"""
+
     def send_quote_email(
         self,
         customer_email: str,
@@ -288,7 +338,8 @@ class EmailSender:
         destination: str,
         quote_id: str = "",
         consultant_email: Optional[str] = None,
-        quote_details: Optional[dict] = None
+        quote_details: Optional[dict] = None,
+        hotels: Optional[list] = None
     ) -> bool:
         """
         Send quote email with PDF attachment
@@ -352,8 +403,9 @@ class EmailSender:
 
                 {trip_summary_html}
 
-                <p>Please find attached your personalized travel quote. We've carefully selected the best
-                accommodation options based on your requirements.</p>
+                {self._build_hotel_cards_html(hotels or [], primary_color)}
+
+                <p>Please find attached your personalized travel quote with full pricing details.</p>
 
                 <div style="margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid {primary_color};">
                     <p style="margin: 0;"><strong>Ready to book?</strong></p>

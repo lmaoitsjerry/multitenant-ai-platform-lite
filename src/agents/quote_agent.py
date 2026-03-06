@@ -272,6 +272,7 @@ class QuoteAgent:
                             'nights': normalized.get('nights', 0),
                             'room_count': len(normalized.get('rooms', [{}])),
                         },
+                        hotels=final_hotels,
                     )
                     if email_sent:
                         quote['sent_at'] = datetime.utcnow().isoformat()
@@ -575,6 +576,8 @@ class QuoteAgent:
                 stars = hotel.get('stars') or 4
                 rating = f"{stars}*"
                 image_url = hotel.get('image_url')
+                description = hotel.get('description')
+                images = hotel.get('images', [])
 
                 # Process each room option
                 options = hotel.get('options', [])
@@ -623,6 +626,7 @@ class QuoteAgent:
                         'name': hotel_name,
                         'hotel_name': hotel_name,
                         'rating': rating,
+                        'star_rating': stars,
                         'room_type': room_type,
                         'meal_plan': meal_plan,
                         'price_per_person': round(price_per_person, 2),
@@ -633,6 +637,8 @@ class QuoteAgent:
                         'rate_id': hotel.get('hotel_id'),
                         'currency': currency,
                         'image_url': image_url,
+                        'description': description,
+                        'images': images[:3] if images else [],
                         'pricing_breakdown': pricing_breakdown,
                         'source': 'live_rates'  # Mark as live rates for tracking
                     }
@@ -796,6 +802,8 @@ class QuoteAgent:
     def list_quotes(
         self,
         status: Optional[str] = None,
+        customer_email: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
@@ -815,6 +823,12 @@ class QuoteAgent:
 
             if status:
                 query = query.eq('status', status)
+
+            if customer_email:
+                query = query.eq('customer_email', customer_email)
+
+            if search:
+                query = query.or_(f"customer_name.ilike.%{search}%,destination.ilike.%{search}%,quote_id.ilike.%{search}%")
 
             result = query.execute()
             quotes = result.data or []

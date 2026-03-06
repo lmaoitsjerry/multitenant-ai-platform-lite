@@ -680,6 +680,7 @@ class SupabaseTool:
     def list_invoices(
         self,
         status: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
@@ -696,6 +697,9 @@ class SupabaseTool:
 
             if status:
                 query = query.eq('status', status)
+
+            if search:
+                query = query.or_(f"customer_name.ilike.%{search}%,invoice_id.ilike.%{search}%")
 
             result = query\
                 .order('created_at', desc=True)\

@@ -207,9 +207,10 @@ class PDFGenerator:
                 total_price = hotel.get('total_price', 0)
                 currency = hotel.get('currency', self.currency)
 
-                # Hotel box
+                # Hotel box — taller if description present
                 pdf.set_fill_color(248, 249, 250)
-                box_height = 35
+                description = hotel.get('description', '')
+                box_height = 45 if description else 35
                 pdf.rect(10, y_position - 3, 190, box_height, 'F')
 
                 # Item title with type-appropriate label
@@ -274,6 +275,15 @@ class PDFGenerator:
                 pdf.set_text_color(*primary_rgb)
                 pdf.cell(90, 6, f"Total: {currency} {total_price:,.0f}")
                 pdf.set_text_color(0, 0, 0)
+
+                # Description (if available)
+                if description:
+                    pdf.set_font('Helvetica', 'I', 8)
+                    pdf.set_text_color(128, 128, 128)
+                    pdf.set_xy(15, y_position + 32)
+                    truncated = description[:120] + ('...' if len(description) > 120 else '')
+                    pdf.cell(180, 5, truncated)
+                    pdf.set_text_color(0, 0, 0)
 
                 y_position += box_height + 8
             

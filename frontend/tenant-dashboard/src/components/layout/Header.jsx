@@ -23,7 +23,7 @@ function useClickOutside(isOpen, onClose) {
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { notificationsApi, quotesApi, crmApi, inboundApi } from '../../services/api';
+import { notificationsApi, quotesApi, crmApi, invoicesApi, inboundApi } from '../../services/api';
 import {
   MagnifyingGlassIcon,
   BellIcon,
@@ -300,6 +300,7 @@ function SearchDropdown({ isOpen, onClose, searchQuery, results, loading }) {
     const routes = {
       quote: `/quotes/${id}`,
       client: `/crm/clients/${id}`,
+      invoice: `/invoices/${id}`,
     };
     navigate(routes[type] || '/');
     onClose();
@@ -325,6 +326,7 @@ function SearchDropdown({ isOpen, onClose, searchQuery, results, loading }) {
           {[
             { type: 'client', label: 'Clients', icon: UserIcon, iconClass: 'bg-[var(--color-primary)]/10', textClass: 'text-theme-primary' },
             { type: 'quote', label: 'Quotes', icon: DocumentTextIcon, iconClass: 'bg-[var(--color-secondary)]/10', textClass: 'text-[var(--color-secondary)]' },
+            { type: 'invoice', label: 'Invoices', icon: CurrencyDollarIcon, iconClass: 'bg-green-500/10', textClass: 'text-green-600' },
           ].map(({ type, label, icon: Icon, iconClass, textClass }) => {
             const items = results.filter(r => r.type === type);
             if (items.length === 0) return null;
@@ -345,9 +347,9 @@ function SearchDropdown({ isOpen, onClose, searchQuery, results, loading }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-theme truncate">{result.name}</p>
                       <p className="text-xs text-theme-muted truncate">
-                        {type === 'client' ? result.email : (
-                          result.destination && <span className="inline-flex items-center gap-1"><MapPinIcon className="w-3 h-3" />{result.destination}</span>
-                        )}
+                        {type === 'client' ? result.email :
+                         type === 'invoice' ? (result.total ? `R ${Number(result.total).toLocaleString()}` : '') :
+                         (result.destination && <span className="inline-flex items-center gap-1"><MapPinIcon className="w-3 h-3" />{result.destination}</span>)}
                       </p>
                     </div>
                   </div>
@@ -394,35 +396,25 @@ export default function Header() {
     setShowSearchResults(true);
 
     try {
-      const [clientsRes, quotesRes] = await Promise.all([
-        crmApi.listClients({ limit: 10 }).catch(() => ({ data: { data: [] } })),
-        quotesApi.list({ limit: 10 }).catch(() => ({ data: { data: [] } })),
+      const [clientsRes, quotesRes, invoicesRes] = await Promise.all([
+        crmApi.listClients({ limit: 5, query }).catch(() => ({ data: { data: [] } })),
+        quotesApi.list({ limit: 5, search: query }).catch(() => ({ data: { data: [] } })),
+        invoicesApi.list({ limit: 5, search: query }).catch(() => ({ data: { data: [] } })),
       ]);
 
-      const clients = clientsRes.data?.data || [];
-      const quotes = quotesRes.data?.data || [];
-      const queryLower = query.toLowerCase();
-
-      // Filter clients by name or email
-      const matchedClients = clients
-        .filter(c =>
-          c.name?.toLowerCase().includes(queryLower) ||
-          c.email?.toLowerCase().includes(queryLower)
-        )
+      const clients = (clientsRes.data?.data || [])
         .slice(0, 5)
         .map(c => ({ type: 'client', id: c.client_id || c.id, name: c.name, email: c.email }));
 
-      // Filter quotes by customer name or destination
-      const matchedQuotes = quotes
-        .filter(q =>
-          q.customer_name?.toLowerCase().includes(queryLower) ||
-          q.destination?.toLowerCase().includes(queryLower) ||
-          q.quote_id?.toLowerCase().includes(queryLower)
-        )
+      const quotes = (quotesRes.data?.data || [])
         .slice(0, 5)
         .map(q => ({ type: 'quote', id: q.quote_id, name: q.customer_name, destination: q.destination }));
 
-      setSearchResults([...matchedClients, ...matchedQuotes]);
+      const invoices = (invoicesRes.data?.data || [])
+        .slice(0, 5)
+        .map(inv => ({ type: 'invoice', id: inv.invoice_id, name: inv.customer_name, total: inv.total_amount }));
+
+      setSearchResults([...clients, ...quotes, ...invoices]);
     } catch (error) {
       console.error('Search error:', error);
       setSearchResults([]);

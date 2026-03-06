@@ -547,6 +547,8 @@ def create_quote_with_items(
 @quotes_router.get("")
 def list_quotes(
     status: Optional[str] = None,
+    customer_email: Optional[str] = Query(None, description="Filter by customer email"),
+    search: Optional[str] = Query(None, description="Search by customer name, destination, or quote ID"),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     config: ClientConfig = Depends(get_client_config),
@@ -560,7 +562,7 @@ def list_quotes(
 
     try:
         agent = get_quote_agent(config)
-        quotes = agent.list_quotes(status=status, limit=limit, offset=offset)
+        quotes = agent.list_quotes(status=status, customer_email=customer_email, search=search, limit=limit, offset=offset)
 
         logger.info(f"[LIST_QUOTES] Returning {len(quotes)} quotes for tenant {config.client_id}")
 
@@ -1285,6 +1287,7 @@ def create_manual_invoice(
 @invoices_router.get("")
 def list_invoices(
     status: Optional[str] = None,
+    search: Optional[str] = Query(None, description="Search by customer name or invoice ID"),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     config: ClientConfig = Depends(get_client_config),
@@ -1296,7 +1299,7 @@ def list_invoices(
     try:
         logger.info(f"[LIST_INVOICES] tenant_id={config.client_id}, status={status}, limit={limit}")
         supabase = SupabaseTool(config)
-        invoices = supabase.list_invoices(status=status, limit=limit, offset=offset)
+        invoices = supabase.list_invoices(status=status, search=search, limit=limit, offset=offset)
         logger.info(f"[LIST_INVOICES] Found {len(invoices)} invoices for tenant {config.client_id}")
 
         return {

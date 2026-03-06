@@ -579,22 +579,36 @@ export default function QuoteDetail() {
                   {group.items.map((hotel, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors"
+                      className="border border-gray-200 rounded-lg hover:border-purple-300 transition-colors overflow-hidden"
                     >
-                      <div>
-                        <p className="font-semibold text-gray-900">{hotel.name || hotel.hotel_name}</p>
-                        <p className="text-sm text-gray-500">
-                          {hotel.room_type}{hotel.meal_plan ? ` • ${hotel.meal_plan}` : ''}
-                        </p>
-                        {hotel.nights && (
-                          <p className="text-sm text-gray-400">{hotel.nights} nights</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-purple-600">
-                          R {(hotel.total_price || 0).toLocaleString()}
-                        </p>
-                        <p className="text-sm text-gray-500">Total</p>
+                      {(hotel.image_url || (hotel.images && hotel.images[0])) && (
+                        <img
+                          src={hotel.image_url || hotel.images[0]}
+                          alt={hotel.name || hotel.hotel_name}
+                          className="w-full h-40 object-cover"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      )}
+                      <div className="flex items-center justify-between p-4">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-gray-900">{hotel.name || hotel.hotel_name}</p>
+                          <p className="text-sm text-gray-500">
+                            {hotel.room_type}{hotel.meal_plan ? ` • ${hotel.meal_plan}` : ''}
+                            {hotel.star_rating ? ` • ${'★'.repeat(Number(String(hotel.star_rating).replace('*', '')) || 0)}` : ''}
+                          </p>
+                          {hotel.description && (
+                            <p className="text-xs text-gray-400 mt-1 line-clamp-2">{hotel.description}</p>
+                          )}
+                          {hotel.nights && (
+                            <p className="text-sm text-gray-400">{hotel.nights} nights</p>
+                          )}
+                        </div>
+                        <div className="text-right ml-4 flex-shrink-0">
+                          <p className="text-xl font-bold text-purple-600">
+                            R {(hotel.total_price || 0).toLocaleString()}
+                          </p>
+                          <p className="text-sm text-gray-500">Total</p>
+                        </div>
                       </div>
                     </div>
                   ))}
